@@ -13,6 +13,6 @@ dependencies = [
     "numpy",
     "scipy",
     "matplotlib",
-    "pandas"
+    "pandas",
     "obspy"
 ]
