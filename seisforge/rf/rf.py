@@ -5,6 +5,28 @@ import matplotlib.pyplot as plt
 plt.rcParams['font.family'] = 'Arial'
 plt.rcParams['font.size'] = 12
 
+class RFtrace():
+    def __init__(self, trace: Trace=None, file=None, slowness=None, baz=None, slowness_key='user0', baz_key='user1'):
+        if trace is not None:
+            self.trace = trace
+            self.file = file
+        elif file is not None:
+            self.trace = read(file)[0]
+            self.file = file
+        else:
+            raise ValueError("Must provide either `trace` or `file` to initialize RFtrace.")
+
+        self.slowness = slowness if slowness is not None else self._get_header(slowness_key)
+        self.baz = baz if baz is not None else self._get_header(baz_key)
+
+
+    def _get_header(self, key):
+        try:
+            return getattr(self.trace.stats.sac, key)
+        except:
+            return None
+    def __repr__(self):
+        return f"RFtrace(file={self.file}, \nslowness={self.slowness}, \nbaz={self.baz})"
 
 class RFstream():
     """

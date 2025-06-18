@@ -1,0 +1,5 @@
+*.egg-info/
+*/**/*.ipynb
+tests/**/*.png
+tests/**/*.nc
+*/**/__pycache__/

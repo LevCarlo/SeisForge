@@ -16,3 +16,6 @@ dependencies = [
     "pandas",
     "obspy"
 ]
+
+[project.scripts]
+hkseq = "seisforge.rf.hkSeq:main"
