@@ -9,6 +9,8 @@ import yaml
 from functools import partial
 from joblib import Parallel, delayed
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+import logging
 
 
 radius=6371.0 # Earth radius in km
@@ -348,6 +350,89 @@ class HkStack:
         ax[1, 1].set_xlabel('H (km)', fontdict=fontdict_label)
         cbar = fig.colorbar(img, ax=ax.ravel().tolist(), shrink=0.55)
 
+class HkQController:
+    def __init__(self, hk_results: list[xr.Dataset], QC_params: dict):
+        """
+        Class to handle H-k stacking results and apply quality control (QC).
+
+        Parameters:
+        - hk_results: xarray Dataset containing H-k stacking results.
+        - QC_params: QC parameters as a dict
+        """
+        self.hk_results = hk_results
+        self.QC_params = QC_params
+
+    def hk_energy_select(self, return_mask_only=True):
+        hk_energys = np.array([res.attrs['amp_max'] for res in self.hk_results])
+        maximum_energy = np.max(hk_energys)
+        
+        energy_threshold = self.QC_params['energy_threshold']
+        mask = hk_energys >= energy_threshold * maximum_energy
+        if return_mask_only:
+            QC_results = None
+        else:
+            QC_results = [res for res, m in zip(self.hk_results, mask) if m]
+        return mask, QC_results
+    
+    def elliptical_mad_select(self, return_mask_only=True):
+
+        H_estimates = np.array([res.attrs['H_best'] for res in self.hk_results])
+        k_estimates = np.array([res.attrs['k_best'] for res in self.hk_results])
+        sigma = self.QC_params['ell_mad_sigma']
+        
+        mask = elliptical_mad_filter(H_estimates, k_estimates, sigma=sigma)
+        if return_mask_only:
+            QC_results = None
+        else:
+            QC_results = [res for res, m in zip(self.hk_results, mask) if m]
+        return mask, QC_results
+
+    def mahalanobis_dist_select(self, return_mask_only=True):
+        H_estimates = np.array([res.attrs['H_best'] for res in self.hk_results])
+        k_estimates = np.array([res.attrs['k_best'] for res in self.hk_results])
+        Hk_energy = np.array([res.attrs['amp_max'] for res in self.hk_results])
+
+        mahalanobis_dist_threshold = self.QC_params['mahalanobis_dist_threshold']
+
+        X = np.column_stack((H_estimates, k_estimates))
+        E = Hk_energy.reshape(-1, 1)
+        E_sum = np.sum(E)
+
+        # weighted mean
+        mu = np.sum(X * E, axis=0) / E_sum
+
+        # weighted covariance
+        X_centered = X - mu
+        cov = (E * X_centered).T @ X_centered / E_sum
+        cov_inv = np.linalg.inv(cov)
+
+        # Mahalanobis distance
+        m_dist = np.sqrt(np.sum((X_centered @ cov_inv) * X_centered, axis=1))
+        mask = m_dist < mahalanobis_dist_threshold
+        if return_mask_only:
+            QC_results = None
+        else:
+            QC_results = [res for res, m in zip(self.hk_results, mask) if m]
+        return mask, QC_results
+
+def elliptical_mad_filter(x0, x1, sigma=2.0):
+    """
+    2D elliptical outlier filtering using the median and MAD (Median Absolute Deviation)
+    """
+    x0_median = np.median(x0)
+    x1_median = np.median(x1)
+    x0_mad = np.median(np.abs(x0 - x0_median))
+    x1_mad = np.median(np.abs(x1 - x1_median))
+
+    x0_mad = x0_mad if x0_mad > 1e-6 else 1e-6
+    x1_mad = x1_mad if x1_mad > 1e-6 else 1e-6
+
+    x0_norm = (x0 - x0_median) / x0_mad
+    x1_norm = (x1 - x1_median) / x1_mad
+    ell_dist = x0_norm**2 + x1_norm**2
+    mask = ell_dist < sigma**2
+    return mask
+
 def Hk_analysis(rf, H, k, Vp, Vs, weight, mode, h0=None, vp0=None, vs0=None, k0=None):
     """
     Perform H-k analysis on a single RF trace.
@@ -384,31 +469,141 @@ def Hk_analysis(rf, H, k, Vp, Vs, weight, mode, h0=None, vp0=None, vs0=None, k0=
     hk_ds = hk_stack.stack()
     return hk_ds
 
-def elliptical_mad_filter(x0, x1, sigma=2.0):
-    """
-    2D elliptical outlier filtering using the median and MAD (Median Absolute Deviation)
-    """
-    x0_median = np.median(x0)
-    x1_median = np.median(x1)
-    x0_mad = np.median(np.abs(x0 - x0_median))
-    x1_mad = np.median(np.abs(x1 - x1_median))
+def init_RFtraces(RFs_datadir, suffix=".sac"):
+    RFtrace_list = []
+    RF_files = [f for f in os.listdir(RFs_datadir) if f.endswith(suffix)]
+    for rf_file in RF_files:
+        rf = RFtrace(file=os.path.join(RFs_datadir, rf_file))
+        RFtrace_list.append(rf)
+    return RFtrace_list
 
-    x0_mad = x0_mad if x0_mad > 1e-6 else 1e-6
-    x1_mad = x1_mad if x1_mad > 1e-6 else 1e-6
+def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
+    all_masks = np.ones(len(Hk_results), dtype=bool)
+    QC_masks = [all_masks] + QC_masks
+    QC_key = ["Raw"] + QC_key
 
-    x0_norm = (x0 - x0_median) / x0_mad
-    x1_norm = (x1 - x1_median) / x1_mad
-    ell_dist = x0_norm**2 + x1_norm**2
-    mask = ell_dist < sigma**2
-    return mask
+    fig = plt.figure(figsize=(13.5, 7.5))
+    gs = fig.add_gridspec(16, 3)
+    
+    ax_all = fig.add_subplot(gs[3:10, 0])
+    ax_qc = [
+    fig.add_subplot(gs[0:7, 1], sharex=ax_all, sharey=ax_all),
+    fig.add_subplot(gs[0:7, 2], sharex=ax_all, sharey=ax_all),
+    fig.add_subplot(gs[-7::, 1], sharex=ax_all, sharey=ax_all),
+    fig.add_subplot(gs[-7::, 2], sharex=ax_all, sharey=ax_all)
+    ]
+    cb1_ax = fig.add_subplot(gs[-4, 0])
+    cb2_ax = fig.add_subplot(gs[-1, 0])
+
+    ax = [ax_all] + ax_qc
+
+    Hvals = Hk_results[0].coords['H'].values
+    kvals = Hk_results[0].coords['k'].values
+    kk, HH = np.meshgrid(kvals, Hvals, indexing='xy')
+    Hk_energy_all = np.array([res.attrs['amp_max'] for res in Hk_results])
+    vmin = np.min(Hk_energy_all)
+    vmax = np.max(Hk_energy_all)
+    for i, mask in enumerate(QC_masks):
+        QC_results = [res for res, m in zip(Hk_results, mask) if m]
+        H_estimates = np.array([res.attrs['H_best'] for res in QC_results])
+        k_estimates = np.array([res.attrs['k_best'] for res in QC_results])
+        Hk_energy = np.array([res.attrs['amp_max'] for res in QC_results])
+
+        H_best = np.median(H_estimates)
+        H_mad = np.median(np.abs(H_estimates - H_best))
+        k_best = np.median(k_estimates)
+        k_mad = np.median(np.abs(k_estimates - k_best))
+
+        if len(QC_results) == 0:
+            amp_stack_mean = np.zeros((len(kvals), len(Hvals)))
+        else:
+            amp_stack = np.stack([res.amp_stack.values for res in QC_results])
+            amp_stack_max = np.max(amp_stack, axis=(1, 2), keepdims=True)
+            amp_stack_norm = amp_stack / amp_stack_max
+            amp_stack_mean = np.mean(amp_stack_norm, axis=0)
+
+        ax[i].pcolormesh(
+            HH, kk, amp_stack_mean.T / np.max(np.abs(amp_stack_mean.T)),
+            cmap='binary', shading='auto', vmin=0, vmax=1
+        )
+        ax[i].scatter(
+            H_estimates, k_estimates, c=Hk_energy, cmap='viridis', s=60, edgecolor='black',
+            vmin=vmin, vmax=vmax
+        )
+        ax[i].scatter(
+            H_best,
+            k_best,
+            marker="*",
+            facecolor='tab:red',
+            edgecolor='black',
+            s=200
+        )
+
+        if i==len(QC_masks) - 1 or i==len(QC_masks) - 2:
+            ax[i].text(
+                0.01, 0.95,
+                f"{H_best:.2f} ± {H_mad:.2f} km \n{k_best:.2f} ± {k_mad:.2f}",
+                transform=ax[i].transAxes, fontsize=14, fontweight='bold',
+                fontfamily='Times New Roman', va='top', ha='left',
+                color='tab:red'
+            )
+
+        if i == 0:
+            ax[i].set_title(title + "\n" + f"{QC_key[i]}({len(QC_results)})", fontweight='bold', fontfamily='Times New Roman')
+        else:
+            ax[i].set_title(f"{QC_key[i]}({len(QC_results)})", fontweight='bold', fontfamily='Times New Roman')
+            
+    fig.colorbar(
+        ax[0].collections[0], cax=cb1_ax, label='Hk Energy (stack)', orientation='horizontal'
+    )
+    fig.colorbar(
+        ax[0].collections[1], cax=cb2_ax, label='Hk Energy (individual)', orientation='horizontal'
+    )
+
+    ax_all.set_xlabel('H (km)', fontweight='bold', fontfamily='Times New Roman')
+    ax_all.set_ylabel('Vp/Vs', fontweight='bold', fontfamily='Times New Roman')
+    # ax[1].set_ylabel('Vp/Vs', fontweight='bold', fontfamily='Times New Roman')
+    # ax[3].set_ylabel('Vp/Vs', fontweight='bold', fontfamily='Times New Roman')
+    ax[3].set_xlabel('H (km)', fontweight='bold', fontfamily='Times New Roman') 
+    ax[4].set_xlabel('H (km)', fontweight='bold', fontfamily='Times New Roman')
+
+    pannel_idx = ["(a)", "(b)", "(c)", "(d)", "(e)"]
+    for i, ax_i in enumerate(ax):
+        ax_i.text(
+            0.01, 0.01, pannel_idx[i],
+            transform=ax_i.transAxes, fontsize=16, fontweight='bold',
+            fontfamily='Times New Roman', va='bottom', ha='left'
+        )
+
+    return fig
 
 
-def hkSeq(Params):
+def hkSeq(Params, plot=False):
     IO_params = Params['IO']
     rootdir = IO_params['ROOT']
     HighFreq_RF_dir = os.path.join(rootdir, IO_params['HighFreq_RF'])
     LowFreq_RF_dir = os.path.join(rootdir, IO_params['LowFreq_RF'])
+    savedir = os.path.join(rootdir, IO_params['SAVE'])
+    figdir = os.path.join(rootdir, IO_params['FIGURE'])
+    logdir = os.path.join(rootdir, IO_params['LOG'])
+    os.makedirs(savedir, exist_ok=True)
+    os.makedirs(figdir, exist_ok=True)
+    os.makedirs(logdir, exist_ok=True)
 
+    logging.basicConfig(
+        filename=os.path.join(logdir, 'HkSeq.log'),
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        filemode='w'
+    )
+
+    meta_params = Params['Meta']
+    sta = meta_params['station']
+    net = meta_params['network']
+    logging.info(f"Starting H-k analysis for {net}.{sta}")
+
+    # High Frequency RF analysis
     sediment_params = Params['Model']['Sediment']
     Hparam_sediment = HkParam(
         name="H",
@@ -425,14 +620,8 @@ def hkSeq(Params):
     vp_sediment = sediment_params['Vp']
     vs_sediment = sediment_params['Vs']
     weight_sediment = sediment_params['weight']
-    # print(f"Sediment H: {Hparam_sediment}, k: {kparam_sediment}")
 
-    HighFreq_RF_filelst = os.listdir(HighFreq_RF_dir)
-    HighFreq_RF_list = []
-    for file in HighFreq_RF_filelst:
-        rf = RFtrace(file=os.path.join(HighFreq_RF_dir, file))
-        HighFreq_RF_list.append(rf)
-    
+    HighFreq_RF_list = init_RFtraces(HighFreq_RF_dir)
     hk_func = partial(
         Hk_analysis,
         H=Hparam_sediment,
@@ -442,76 +631,56 @@ def hkSeq(Params):
         weight=weight_sediment,
         mode=1
     )
-    results = Parallel(n_jobs=-1)(
+    
+
+    HFreq_results = Parallel(n_jobs=-1)(
         delayed(hk_func)(rf) for rf in tqdm(HighFreq_RF_list)
     )
-    Hvals = results[0].coords['H'].values
-    kvals = results[0].coords['k'].values
-    amp_stack = np.stack([res.amp_stack.values for res in results])
-    amp_stack_max = np.max(amp_stack, axis=(1, 2), keepdims=True)
-    amp_stack_norm = amp_stack / amp_stack_max
-    amp_stack_mean = np.mean(amp_stack_norm, axis=0)
+    HFreq_QC_params = Params['QC']['HighFreq']
+    HFreq_QC = HkQController(HFreq_results, HFreq_QC_params)
 
+    mask0, _ = HFreq_QC.hk_energy_select(return_mask_only=True) # Energy select
+    mask1, _ = HFreq_QC.elliptical_mad_select(return_mask_only=True) # Elliptical MAD select
+    mask2    = mask0 & mask1 # Combined mask
+    mask3, _ = HFreq_QC.mahalanobis_dist_select(return_mask_only=True) # Mahalanobis distance select
 
-    QC_params = Params['QC']
-    HighFreq_QC = QC_params['HighFreq']
-    LowFreq_QC = QC_params['LowFreq']
+    logging.info(f"High Frequency RFs: {len(HFreq_results)} total")
+    logging.info(f"High Frequency RFs after energy select: {np.sum(mask0)}")
+    logging.info(f"High Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
+    logging.info(f"High Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
+    logging.info(f"High Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
 
-    # QC-0: 
-    hk_energy = np.array([res.attrs['amp_max'] for res in results])
-    maximum_energy = np.max(hk_energy)
-    mask0 = hk_energy >= HighFreq_QC['energy_threshold'] * maximum_energy
+    H_estimates = np.array([res.attrs['H_best'] for res in HFreq_results])
+    k_estimates = np.array([res.attrs['k_best'] for res in HFreq_results])
+    logging.info(f"Mahalanobis distance-based QC is taken")
+    H0_best = np.median(H_estimates[mask3])
+    k0_best = np.median(k_estimates[mask3])
+    H0_mad = np.median(np.abs(H_estimates[mask3] - H0_best))
+    k0_mad = np.median(np.abs(k_estimates[mask3] - k0_best))
+    logging.info(f"High Frequency RFs: H = {H0_best:.2f} ± {H0_mad:.2f} km")
+    logging.info(f"High Frequency RFs: k = {k0_best:.2f} ± {k0_mad:.2f} Vp/Vs")
+    # Save results
+    Hk_results_all = xr.concat(HFreq_results, dim='rf')
+    Hk_results_all.attrs['station'] = sta
+    Hk_results_all.attrs['network'] = net
+    Hk_results_all.to_netcdf(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_results.nc"), mode='w')
+    with open(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_QC.dat"), 'w') as f:
+        f.write("# filename H_best k_best Hk_energy\n")
+        QC_results = [res for res, m in zip(HFreq_results, mask3) if m]
+        for res in QC_results:
+            f.write(
+                f"{os.path.basename(res.attrs['rf_file'])} "
+                f"{res.attrs['H_best']:.4f} {res.attrs['k_best']:.4f} {res.attrs['amp_max']:.4f}\n"
+            )
+                    
+    if plot:
+        QC_key = ["Energy Select", "Elliptical MAD Select", "Energy & Elliptical Combined", "Mahalanobis Select"]
+        fig_title = f"{sta}.{net} (High Frequency RFs)"
+        
+        fig = plot_hk_QC(HFreq_results, QC_masks=[mask0, mask1, mask2, mask3], QC_key=QC_key, title=fig_title)
+        fig.savefig(os.path.join(figdir, f"{sta}.{net}_HFreq_QC.png"), dpi=300, bbox_inches='tight')
 
-    amp_stack_QC0 = amp_stack[mask0, :, :]
-    amp_stack_QC0_max = np.max(amp_stack_QC0, axis=(1, 2), keepdims=True)
-    amp_stack_QC0_norm = amp_stack_QC0 / amp_stack_QC0_max
-    amp_stack_QC0_mean = np.mean(amp_stack_QC0_norm, axis=0)
-
-    # QC-1:
-    H_estimates = np.array([res.attrs['H_best'] for res in results])
-    k_estimates = np.array([res.attrs['k_best'] for res in results])
-    mask1 = elliptical_mad_filter(H_estimates, k_estimates, sigma=HighFreq_QC['sigma'])
-
-    amp_stack_QC1 = amp_stack[mask1, :, :]
-    amp_stack_QC1_max = np.max(amp_stack_QC1, axis=(1, 2), keepdims=True)
-    amp_stack_QC1_norm = amp_stack_QC1 / amp_stack_QC1_max
-    amp_stack_QC1_mean = np.mean(amp_stack_QC1_norm, axis=0)
-
-    mask = mask0 & mask1
-    amp_stack_QC = amp_stack[mask, :, :]
-    amp_stack_QC_max = np.max(amp_stack_QC, axis=(1, 2), keepdims=True)
-    amp_stack_QC_norm = amp_stack_QC / amp_stack_QC_max
-    amp_stack_QC_mean = np.mean(amp_stack_QC_norm, axis=0)
-
-    H0_best = np.median(H_estimates[mask])
-    H0_mad = np.median(np.abs(H_estimates[mask] - H0_best))
-    k0_best = np.median(k_estimates[mask])
-    k0_mad = np.median(np.abs(k_estimates[mask] - k0_best))
-    print(f"Best H0: {H0_best:.2f} km, MAD: {H0_mad:.2f} km")
-    print(f"Best k0: {k0_best:.2f} Vp/Vs, MAD: {k0_mad:.2f} Vp/Vs")
-
-    fig, ax = plt.subplots(2, 2, figsize=(8, 8), sharex=True, sharey=True)
-    kk, HH = np.meshgrid(kvals, Hvals, indexing='xy')
-    cmap = "viridis"
-    ax[0, 0].pcolormesh(HH, kk, amp_stack_mean.T / np.max(np.abs(amp_stack_mean)), cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax[0, 0].scatter(H_estimates, k_estimates, marker="o", facecolor="none", edgecolor='black')
-    ax[0, 1].pcolormesh(HH, kk, amp_stack_QC0_mean.T / np.max(np.abs(amp_stack_QC0_mean)), cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax[0, 1].scatter(H_estimates[mask0], k_estimates[mask0], marker="o", facecolor="none", edgecolor='black')
-    ax[1, 0].pcolormesh(HH, kk, amp_stack_QC1_mean.T / np.max(np.abs(amp_stack_QC1_mean)), cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax[1, 0].scatter(H_estimates[mask1], k_estimates[mask1], marker="o", facecolor="none", edgecolor='black')
-    img = ax[1, 1].pcolormesh(HH, kk, amp_stack_QC_mean.T / np.max(np.abs(amp_stack_QC_mean)), cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax[1, 1].scatter(H_estimates[mask], k_estimates[mask], marker="o", facecolor="none", edgecolor='black')
-    ax[1, 1].scatter(H0_best, k0_best, marker="*", facecolor='tab:red', edgecolor='black', s=80)
-    ax[0, 0].set_title(f"All ({amp_stack.shape[0]})", fontsize=12)
-    ax[0, 1].set_title(f"QC-0 ({amp_stack_QC0.shape[0]})", fontsize=12)
-    ax[1, 0].set_title(f"QC-1 ({amp_stack_QC1.shape[0]})", fontsize=12)
-    ax[1, 1].set_title(f"QC-0 & QC-1 ({amp_stack_QC.shape[0]})", fontsize=12)
-    ax[1, 1].set_xlabel('H (km)', fontdict={'weight': 'bold', 'family': 'Times New Roman'})
-    ax[0, 0].set_ylabel('Vp/Vs', fontdict={'weight': 'bold', 'family': 'Times New Roman'})
-    ax[1, 0].set_ylabel('Vp/Vs', fontdict={'weight': 'bold', 'family': 'Times New Roman'})
-    fig.savefig("./HighFreq_Hk_QC.png")
-
-    # Low Frequency RF
+    # Low Frequency RF analysis
     crust_params = Params['Model']['Crust']
     Hparam_crust = HkParam(
         name="H",
@@ -529,12 +698,21 @@ def hkSeq(Params):
     vs_crust = crust_params['Vs']
     weight_crust = crust_params['weight']
 
-    LowFreq_RF_filelst = os.listdir(LowFreq_RF_dir)
-    LowFreq_RF_list = []
-    for file in LowFreq_RF_filelst:
-        rf = RFtrace(file=os.path.join(LowFreq_RF_dir, file))
-        LowFreq_RF_list.append(rf)
-    hk_func = partial(
+    if np.isnan(H0_best) or np.isnan(k0_best) or H0_best <= 0.25:
+        logging.warning("No valid H and k estimates from sediment layer")
+        logging.info("Only use one-layer Hk analysis for crust")
+        hk_func = partial(
+            Hk_analysis,
+            H=Hparam_crust,
+            k=kparam_crust,
+            Vp=vp_crust,
+            Vs=vs_crust,
+            weight=weight_crust,
+            mode=1
+        )
+    else:
+        logging.info(f"Use two-layer Hk analysis for crust")
+        hk_func = partial(
         Hk_analysis,
         H=Hparam_crust,
         k=kparam_crust,
@@ -544,93 +722,71 @@ def hkSeq(Params):
         mode=2,
         h0=H0_best,
         vp0=sediment_params['Vp'],
-        vs0=sediment_params['Vs'],
+        vs0= sediment_params['Vs'],
         k0=k0_best
     )
-
-    results = Parallel(n_jobs=-1)(
+        
+    LowFreq_RF_list = init_RFtraces(LowFreq_RF_dir)
+    LFreq_results = Parallel(n_jobs=-1)(
         delayed(hk_func)(rf) for rf in tqdm(LowFreq_RF_list)
     )
-    Hvals = results[0].coords['H'].values
-    kvals = results[0].coords['k'].values
-    amp_stack = np.stack([res.amp_stack.values for res in results])
-    amp_stack_max = np.max(amp_stack, axis=(1, 2), keepdims=True)
-    amp_stack_norm = amp_stack / amp_stack_max
-    amp_stack_mean = np.mean(amp_stack_norm, axis=0)
+    LFreq_QC_params = Params['QC']['LowFreq']
+    LFreq_QC = HkQController(LFreq_results, LFreq_QC_params)
+    mask0, _ = LFreq_QC.hk_energy_select(return_mask_only=True)
+    mask1, _ = LFreq_QC.elliptical_mad_select(return_mask_only=True)
+    mask2    = mask0 & mask1
+    mask3, _ = LFreq_QC.mahalanobis_dist_select(return_mask_only=True)
+    logging.info(f"Low Frequency RFs: {len(LFreq_results)} total")
+    logging.info(f"Low Frequency RFs after energy select: {np.sum(mask0)}")
+    logging.info(f"Low Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
+    logging.info(f"Low Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
+    logging.info(f"Low Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
 
-    hk_energy = np.array([res.attrs['amp_max'] for res in results])
-    maximum_energy = np.max(hk_energy)
-    mask0 = hk_energy >= LowFreq_QC['energy_threshold'] * maximum_energy
-
-    amp_stack_QC0 = amp_stack[mask0, :, :]
-    amp_stack_QC0_max = np.max(amp_stack_QC0, axis=(1, 2), keepdims=True)
-    amp_stack_QC0_norm = amp_stack_QC0 / amp_stack_QC0_max
-    amp_stack_QC0_mean = np.mean(amp_stack_QC0_norm, axis=0)
-
-    H_estimates = np.array([res.attrs['H_best'] for res in results])
-    k_estimates = np.array([res.attrs['k_best'] for res in results])
-    mask1 = elliptical_mad_filter(H_estimates, k_estimates, sigma=LowFreq_QC['sigma'])  
-
-    amp_stack_QC1 = amp_stack[mask1, :, :]
-    amp_stack_QC1_max = np.max(amp_stack_QC1, axis=(1, 2), keepdims=True)
-    amp_stack_QC1_norm = amp_stack_QC1 / amp_stack_QC1_max
-    amp_stack_QC1_mean = np.mean(amp_stack_QC1_norm, axis=0)
-
-    mask = mask0 & mask1
-    amp_stack_QC = amp_stack[mask, :, :]
-    amp_stack_QC_max = np.max(amp_stack_QC, axis=(1, 2), keepdims=True)
-    amp_stack_QC_norm = amp_stack_QC / amp_stack_QC_max
-    amp_stack_QC_mean = np.mean(amp_stack_QC_norm, axis=0)
-
-    H0_best = np.median(H_estimates[mask])
-    H0_mad = np.median(np.abs(H_estimates[mask] - H0_best))
-    k0_best = np.median(k_estimates[mask])
-    k0_mad = np.median(np.abs(k_estimates[mask] - k0_best))
-    print(f"Best H0: {H0_best:.2f} km, MAD: {H0_mad:.2f} km")
-    print(f"Best k0: {k0_best:.2f} Vp/Vs, MAD: {k0_mad:.2f} Vp/Vs")
-
-    fig, ax = plt.subplots(2, 2, figsize=(8, 8), sharex=True, sharey=True)
-    kk, HH = np.meshgrid(kvals, Hvals, indexing='xy')
-    cmap = "viridis"
-    ax[0, 0].pcolormesh(HH, kk, amp_stack_mean.T / np.max(np.abs(amp_stack_mean)), cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax[0, 0].scatter(H_estimates, k_estimates, marker="o", facecolor="none", edgecolor='black')
-    ax[0, 1].pcolormesh(HH, kk, amp_stack_QC0_mean.T / np.max(np.abs(amp_stack_QC0_mean)), cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax[0, 1].scatter(H_estimates[mask0], k_estimates[mask0], marker="o", facecolor="none", edgecolor='black')
-    ax[1, 0].pcolormesh(HH, kk, amp_stack_QC1_mean.T / np.max(np.abs(amp_stack_QC1_mean)), cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax[1, 0].scatter(H_estimates[mask1], k_estimates[mask1], marker="o", facecolor="none", edgecolor='black')
-    img = ax[1, 1].pcolormesh(HH, kk, amp_stack_QC_mean.T / np.max(np.abs(amp_stack_QC_mean)), cmap=cmap, shading='auto', vmin=0, vmax=1)
-    ax[1, 1].scatter(H_estimates[mask], k_estimates[mask], marker="o", facecolor="none", edgecolor='black')         
-    ax[1, 1].scatter(H0_best, k0_best, marker="*", facecolor='tab:red', edgecolor='black', s=80)
-    ax[0, 0].set_title(f'All ({amp_stack.shape[0]})', fontsize=12)
-    ax[0, 1].set_title(f'QC-0 ({amp_stack_QC0.shape[0]})', fontsize=12)
-    ax[1, 0].set_title(f'QC-1 ({amp_stack_QC1.shape[0]})', fontsize=12)
-    ax[1, 1].set_title(f'QC-0 & QC-1 ({amp_stack_QC.shape[0]})', fontsize=12)
-    ax[1, 1].set_xlabel('H (km)', fontdict={'weight': 'bold', 'family': 'Times New Roman'})
-    ax[0, 0].set_ylabel('Vp/Vs', fontdict={'weight': 'bold', 'family': 'Times New Roman'})
-    ax[1, 0].set_ylabel('Vp/Vs', fontdict={'weight': 'bold', 'family': 'Times New Roman'})
-    fig.savefig("./LowFreq_Hk_QC.png")
+    H_estimates = np.array([res.attrs['H_best'] for res in LFreq_results])
+    k_estimates = np.array([res.attrs['k_best'] for res in LFreq_results])
+    logging.info(f"Mahalanobis distance-based QC is taken")
+    H1_best = np.median(H_estimates[mask3])
+    k1_best = np.median(k_estimates[mask3])
+    H1_mad = np.median(np.abs(H_estimates[mask3] - H1_best))
+    k1_mad = np.median(np.abs(k_estimates[mask3] - k1_best))
+    logging.info(f"Low Frequency RFs: H = {H1_best:.2f} ± {H1_mad:.2f} km")
+    logging.info(f"Low Frequency RFs: k = {k1_best:.2f} ± {k1_mad:.2f} Vp/Vs")
+    # Save results
+    Hk_results_all = xr.concat(LFreq_results, dim='rf')
+    Hk_results_all.attrs['station'] = sta
+    Hk_results_all.attrs['network'] = net   
+    Hk_results_all.to_netcdf(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_results.nc"), mode='w')
+    with open(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_QC.dat"), 'w') as f:
+        f.write("# filename H_best k_best Hk_energy\n")
+        QC_results = [res for res, m in zip(LFreq_results, mask3) if m]
+        for res in QC_results:
+            f.write(
+                f"{os.path.basename(res.attrs['rf_file'])} "
+                f"{res.attrs['H_best']:.4f} {res.attrs['k_best']:.4f} {res.attrs['amp_max']:.4f}\n"
+            )
 
 
-    
-
-    
-   
-
-    
-    
+    if plot:
+        QC_key = ["Energy Select", "Elliptical MAD Select", "Energy & Elliptical Combined", "Mahalanobis Select"]
+        fig_title = f"{sta}.{net} (Low Frequency RFs)"
+        fig = plot_hk_QC(LFreq_results, QC_masks=[mask0, mask1, mask2, mask3], QC_key=QC_key, title=fig_title)
+        fig.savefig(os.path.join(figdir, f"{sta}.{net}_LFreq_QC.png"), dpi=300, bbox_inches='tight')
+    logging.info(f"Completed H-k analysis for {net}.{sta}")
 
     
     
 
 def load_parse_args():
     parser = argparse.ArgumentParser(description="Sequential Hk Analysis")
-    parser.add_argument("-p", "--param_file", type=str, required=True, help="hkSeq parameter file")
+    parser.add_argument("-c", "--config_file", type=str, required=True, help="Hk analysis configuration file in YAML format")
+    parser.add_argument("-p", "--plot", action="store_true", help="Plot the results if set")
     return parser.parse_args()
 
 def main():
-    
     args = load_parse_args()
-    with open(args.param_file, 'r') as f:
+    with open(args.config_file, 'r') as f:
         params = yaml.safe_load(f)
     
-    hkSeq(params)
+    plot_flag = args.plot
+
+    hkSeq(params, plot=plot_flag)
