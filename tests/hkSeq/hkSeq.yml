@@ -1,9 +1,16 @@
 IO:
   # ROOT: /home/mengjie/data/CREST.Data/RFs/RFs_SEISPY/TA.U23A
   ROOT: /home/mengjie/data/CREST.Data/RFs/RFs_SEISPY/XP.S26
+  # ROOT: /home/mengjie/data/CREST.Data/RFs/RFs_SEISPY/XP.S02
   HighFreq_RF: Gauss_5.0_CLEAN
   LowFreq_RF: Gauss_2.5_CLEAN
   SAVE: hkSeq
+  FIGURE: ./
+  LOG: ./
+
+Meta:
+  station: S26
+  network: XP
 
 Model:
   Sediment:
@@ -34,7 +41,9 @@ Model:
 QC:
   HighFreq:
     energy_threshold: 0.6
-    sigma: 2.5
+    ell_mad_sigma: 2.0
+    mahalanobis_dist_threshold: 1.0
   LowFreq:
     energy_threshold: 0.6
-    sigma: 2.0
+    ell_mad_sigma: 2.0
+    mahalanobis_dist_threshold: 1.0
