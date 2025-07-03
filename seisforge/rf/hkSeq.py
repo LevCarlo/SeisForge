@@ -493,7 +493,13 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
     fig.add_subplot(gs[-7::, 2], sharex=ax_all, sharey=ax_all)
     ]
     cb1_ax = fig.add_subplot(gs[-4, 0])
-    cb2_ax = fig.add_subplot(gs[-1, 0])
+    cb2_ax = fig.add_subplot(gs[-2, 0])
+    pos1 = cb1_ax.get_position()
+    cb1_ax.set_position([pos1.x0, pos1.y0 + 0.25 * pos1.height, pos1.width, 0.5 * pos1.height])
+
+    
+    pos2 = cb2_ax.get_position()
+    cb2_ax.set_position([pos2.x0, pos2.y0 + 0.25 * pos2.height, pos2.width, 0.5 * pos2.height])
 
     ax = [ax_all] + ax_qc
 
@@ -508,11 +514,16 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
         H_estimates = np.array([res.attrs['H_best'] for res in QC_results])
         k_estimates = np.array([res.attrs['k_best'] for res in QC_results])
         Hk_energy = np.array([res.attrs['amp_max'] for res in QC_results])
-
-        H_best = np.median(H_estimates)
-        H_mad = np.median(np.abs(H_estimates - H_best))
-        k_best = np.median(k_estimates)
-        k_mad = np.median(np.abs(k_estimates - k_best))
+        if len(H_estimates) < 15:
+            H_best = np.mean(H_estimates)
+            k_best = np.mean(k_estimates)
+            H_uncert = np.std(H_estimates)
+            k_uncert = np.std(k_estimates)
+        else: 
+            H_best = np.median(H_estimates)
+            H_uncert = np.median(np.abs(H_estimates - H_best))
+            k_best = np.median(k_estimates)
+            k_uncert = np.median(np.abs(k_estimates - k_best))
 
         if len(QC_results) == 0:
             amp_stack_mean = np.zeros((len(kvals), len(Hvals)))
@@ -542,7 +553,7 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
         if i==len(QC_masks) - 1 or i==len(QC_masks) - 2:
             ax[i].text(
                 0.01, 0.95,
-                f"{H_best:.2f} ± {H_mad:.2f} km \n{k_best:.2f} ± {k_mad:.2f}",
+                f"{H_best:.2f} ± {H_uncert:.2f} km \n{k_best:.2f} ± {k_uncert:.2f}",
                 transform=ax[i].transAxes, fontsize=14, fontweight='bold',
                 fontfamily='Times New Roman', va='top', ha='left',
                 color='tab:red'
@@ -578,7 +589,7 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
     return fig
 
 
-def hkSeq(Params, plot=False):
+def hkSeq(Params, mode="both", plot=False):
     IO_params = Params['IO']
     rootdir = IO_params['ROOT']
     HighFreq_RF_dir = os.path.join(rootdir, IO_params['HighFreq_RF'])
@@ -603,174 +614,227 @@ def hkSeq(Params, plot=False):
     net = meta_params['network']
     logging.info(f"Starting H-k analysis for {net}.{sta}")
 
-    # High Frequency RF analysis
-    sediment_params = Params['Model']['Sediment']
-    Hparam_sediment = HkParam(
-        name="H",
-        vmin=sediment_params['H']['min'],
-        vmax=sediment_params['H']['max'],
-        dv=sediment_params['H']['delta']
-    )
-    kparam_sediment = HkParam(
-        name="k",
-        vmin=sediment_params['k']['min'],
-        vmax=sediment_params['k']['max'],
-        dv=sediment_params['k']['delta']
-    )
-    vp_sediment = sediment_params['Vp']
-    vs_sediment = sediment_params['Vs']
-    weight_sediment = sediment_params['weight']
+    if mode not in ["both", "low", "high"]:
+        raise ValueError("Invalid mode. Supported modes are 'both', 'low', and 'high'.")
+    if mode in ["both", "high"]:
+        # High Frequency RF analysis
 
-    HighFreq_RF_list = init_RFtraces(HighFreq_RF_dir)
-    hk_func = partial(
-        Hk_analysis,
-        H=Hparam_sediment,
-        k=kparam_sediment,
-        Vp=vp_sediment,
-        Vs=vs_sediment,
-        weight=weight_sediment,
-        mode=1
-    )
+        sediment_params = Params['Model']['Sediment']
+        Hparam_sediment = HkParam(
+            name="H",
+            vmin=sediment_params['H']['min'],
+            vmax=sediment_params['H']['max'],
+            dv=sediment_params['H']['delta']
+        )
+        kparam_sediment = HkParam(
+            name="k",
+            vmin=sediment_params['k']['min'],
+            vmax=sediment_params['k']['max'],
+            dv=sediment_params['k']['delta']
+        )
+        vp_sediment = sediment_params['Vp']
+        vs_sediment = sediment_params['Vs']
+        weight_sediment = sediment_params['weight']
+
+        HighFreq_RF_list = init_RFtraces(HighFreq_RF_dir)
+        hk_func = partial(
+            Hk_analysis,
+            H=Hparam_sediment,
+            k=kparam_sediment,
+            Vp=vp_sediment,
+            Vs=vs_sediment,
+            weight=weight_sediment,
+            mode=1
+        )
     
 
-    HFreq_results = Parallel(n_jobs=-1)(
-        delayed(hk_func)(rf) for rf in tqdm(HighFreq_RF_list)
-    )
-    HFreq_QC_params = Params['QC']['HighFreq']
-    HFreq_QC = HkQController(HFreq_results, HFreq_QC_params)
+        HFreq_results = Parallel(n_jobs=-1)(
+            delayed(hk_func)(rf) for rf in tqdm(HighFreq_RF_list)
+        )
+        HFreq_QC_params = Params['QC']['HighFreq']
+        HFreq_QC = HkQController(HFreq_results, HFreq_QC_params)
 
-    mask0, _ = HFreq_QC.hk_energy_select(return_mask_only=True) # Energy select
-    mask1, _ = HFreq_QC.elliptical_mad_select(return_mask_only=True) # Elliptical MAD select
-    mask2    = mask0 & mask1 # Combined mask
-    mask3, _ = HFreq_QC.mahalanobis_dist_select(return_mask_only=True) # Mahalanobis distance select
+        mask0, _ = HFreq_QC.hk_energy_select(return_mask_only=True) # Energy select
+        mask1, _ = HFreq_QC.elliptical_mad_select(return_mask_only=True) # Elliptical MAD select
+        mask2    = mask0 & mask1 # Combined mask
+        mask3, _ = HFreq_QC.mahalanobis_dist_select(return_mask_only=True) # Mahalanobis distance select
 
-    logging.info(f"High Frequency RFs: {len(HFreq_results)} total")
-    logging.info(f"High Frequency RFs after energy select: {np.sum(mask0)}")
-    logging.info(f"High Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
-    logging.info(f"High Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
-    logging.info(f"High Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
+        logging.info(f"High Frequency RFs: {len(HFreq_results)} total")
+        logging.info(f"High Frequency RFs after energy select: {np.sum(mask0)}")
+        logging.info(f"High Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
+        logging.info(f"High Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
+        logging.info(f"High Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
 
-    H_estimates = np.array([res.attrs['H_best'] for res in HFreq_results])
-    k_estimates = np.array([res.attrs['k_best'] for res in HFreq_results])
-    logging.info(f"Mahalanobis distance-based QC is taken")
-    H0_best = np.median(H_estimates[mask3])
-    k0_best = np.median(k_estimates[mask3])
-    H0_mad = np.median(np.abs(H_estimates[mask3] - H0_best))
-    k0_mad = np.median(np.abs(k_estimates[mask3] - k0_best))
-    logging.info(f"High Frequency RFs: H = {H0_best:.2f} ± {H0_mad:.2f} km")
-    logging.info(f"High Frequency RFs: k = {k0_best:.2f} ± {k0_mad:.2f} Vp/Vs")
-    # Save results
-    Hk_results_all = xr.concat(HFreq_results, dim='rf')
-    Hk_results_all.attrs['station'] = sta
-    Hk_results_all.attrs['network'] = net
-    Hk_results_all.to_netcdf(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_results.nc"), mode='w')
-    with open(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_QC.dat"), 'w') as f:
-        f.write("# filename H_best k_best Hk_energy\n")
-        QC_results = [res for res, m in zip(HFreq_results, mask3) if m]
-        for res in QC_results:
-            f.write(
-                f"{os.path.basename(res.attrs['rf_file'])} "
-                f"{res.attrs['H_best']:.4f} {res.attrs['k_best']:.4f} {res.attrs['amp_max']:.4f}\n"
-            )
-                    
-    if plot:
-        QC_key = ["Energy Select", "Elliptical MAD Select", "Energy & Elliptical Combined", "Mahalanobis Select"]
-        fig_title = f"{sta}.{net} (High Frequency RFs)"
+        H_estimates = np.array([res.attrs['H_best'] for res in HFreq_results])
+        k_estimates = np.array([res.attrs['k_best'] for res in HFreq_results])
+        logging.info(f"Mahalanobis distance-based QC is taken")
+        if np.sum(mask3) < 15:
+            H0_best = np.mean(H_estimates[mask3])
+            k0_best = np.mean(k_estimates[mask3])
+            H0_ucert = np.std(H_estimates[mask3])
+            k0_ucert = np.std(k_estimates[mask3])
+        else:
+            H0_best = np.median(H_estimates[mask3])
+            k0_best = np.median(k_estimates[mask3])
+            H0_uncert = np.median(np.abs(H_estimates[mask3] - H0_best))
+            k0_uncert = np.median(np.abs(k_estimates[mask3] - k0_best))
+        logging.info(f"High Frequency RFs: H = {H0_best:.2f} ± {H0_uncert:.2f} km")
+        logging.info(f"High Frequency RFs: k = {k0_best:.2f} ± {k0_uncert:.2f} Vp/Vs")
+        # Save results
+        Hk_results_all = xr.concat(HFreq_results, dim='rf')
+        Hk_results_all.attrs['station'] = sta
+        Hk_results_all.attrs['network'] = net
+        Hk_results_all.to_netcdf(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_results.nc"), mode='w')
+
+        # Save QC results
+        Hk_results_QC = xr.concat(
+            [res for res, m in zip(HFreq_results, mask3) if m],
+            dim='rf'
+        )
+        Hk_results_QC.attrs['station'] = sta
+        Hk_results_QC.attrs['network'] = net
+        Hk_results_QC.attrs['H_best'] = H0_best
+        Hk_results_QC.attrs['k_best'] = k0_best
+        Hk_results_QC.attrs['H_uncert'] = H0_uncert
+        Hk_results_QC.attrs['k_uncert'] = k0_uncert
+        Hk_results_QC.to_netcdf(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_results_QC.nc"), mode='w')
+        with open(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_QC.dat"), 'w') as f:
+            f.write("# filename H_best k_best Hk_energy\n")
+            QC_results = [res for res, m in zip(HFreq_results, mask3) if m]
+            for res in QC_results:
+                f.write(
+                    f"{os.path.basename(res.attrs['rf_file'])} "
+                    f"{res.attrs['H_best']:.4f} {res.attrs['k_best']:.4f} {res.attrs['amp_max']:.4f}\n"
+                )
+        logging.info(f"Hk analysis for High Frequency RFs completed and saved.")     
+        if plot:
+            QC_key = ["Energy Select", "Elliptical MAD Select", "Energy & Elliptical Combined", "Mahalanobis Select"]
+            fig_title = f"{net}.{sta} (High Frequency RFs)"
         
-        fig = plot_hk_QC(HFreq_results, QC_masks=[mask0, mask1, mask2, mask3], QC_key=QC_key, title=fig_title)
-        fig.savefig(os.path.join(figdir, f"{sta}.{net}_HFreq_QC.png"), dpi=300, bbox_inches='tight')
+            fig = plot_hk_QC(HFreq_results, QC_masks=[mask0, mask1, mask2, mask3], QC_key=QC_key, title=fig_title)
+            fig.savefig(os.path.join(figdir, f"{net}.{sta}_HFreq_QC.png"), dpi=300, bbox_inches='tight')
 
-    # Low Frequency RF analysis
-    crust_params = Params['Model']['Crust']
-    Hparam_crust = HkParam(
-        name="H",
-        vmin=crust_params['H']['min'],
-        vmax=crust_params['H']['max'],
-        dv=crust_params['H']['delta']
-    )
-    kparam_crust = HkParam(
-        name="k",
-        vmin=crust_params['k']['min'],
-        vmax=crust_params['k']['max'],
-        dv=crust_params['k']['delta']
-    )
-    vp_crust = crust_params['Vp']
-    vs_crust = crust_params['Vs']
-    weight_crust = crust_params['weight']
+    if mode in ["both", "low"]:
+        # Low Frequency RF analysis
+        crust_params = Params['Model']['Crust']
+        Hparam_crust = HkParam(
+            name="H",
+            vmin=crust_params['H']['min'],
+            vmax=crust_params['H']['max'],
+            dv=crust_params['H']['delta']
+        )
+        kparam_crust = HkParam(
+            name="k",
+            vmin=crust_params['k']['min'],
+            vmax=crust_params['k']['max'],
+            dv=crust_params['k']['delta']
+        )
+        vp_crust = crust_params['Vp']
+        vs_crust = crust_params['Vs']
+        weight_crust = crust_params['weight']
 
-    if np.isnan(H0_best) or np.isnan(k0_best) or H0_best <= 0.25:
-        logging.warning("No valid H and k estimates from sediment layer")
-        logging.info("Only use one-layer Hk analysis for crust")
-        hk_func = partial(
+        if mode == "low":
+            H0_best = np.nan
+            k0_best = np.nan
+
+        if np.isnan(H0_best) or np.isnan(k0_best) or H0_best <= 0.4:
+            logging.warning("No valid H and k estimates from sediment layer or Only consider crust layer")
+            logging.info("Only use one-layer Hk analysis for crust")
+            hk_func = partial(
+                Hk_analysis,
+                H=Hparam_crust,
+                k=kparam_crust,
+                Vp=vp_crust,
+                Vs=vs_crust,
+                weight=weight_crust,
+                mode=1
+            )
+        else:
+            logging.info(f"Use two-layer Hk analysis for crust")
+            hk_func = partial(
             Hk_analysis,
             H=Hparam_crust,
             k=kparam_crust,
             Vp=vp_crust,
             Vs=vs_crust,
             weight=weight_crust,
-            mode=1
-        )
-    else:
-        logging.info(f"Use two-layer Hk analysis for crust")
-        hk_func = partial(
-        Hk_analysis,
-        H=Hparam_crust,
-        k=kparam_crust,
-        Vp=vp_crust,
-        Vs=vs_crust,
-        weight=weight_crust,
-        mode=2,
-        h0=H0_best,
-        vp0=sediment_params['Vp'],
-        vs0= sediment_params['Vs'],
-        k0=k0_best
-    )
-        
-    LowFreq_RF_list = init_RFtraces(LowFreq_RF_dir)
-    LFreq_results = Parallel(n_jobs=-1)(
-        delayed(hk_func)(rf) for rf in tqdm(LowFreq_RF_list)
-    )
-    LFreq_QC_params = Params['QC']['LowFreq']
-    LFreq_QC = HkQController(LFreq_results, LFreq_QC_params)
-    mask0, _ = LFreq_QC.hk_energy_select(return_mask_only=True)
-    mask1, _ = LFreq_QC.elliptical_mad_select(return_mask_only=True)
-    mask2    = mask0 & mask1
-    mask3, _ = LFreq_QC.mahalanobis_dist_select(return_mask_only=True)
-    logging.info(f"Low Frequency RFs: {len(LFreq_results)} total")
-    logging.info(f"Low Frequency RFs after energy select: {np.sum(mask0)}")
-    logging.info(f"Low Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
-    logging.info(f"Low Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
-    logging.info(f"Low Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
-
-    H_estimates = np.array([res.attrs['H_best'] for res in LFreq_results])
-    k_estimates = np.array([res.attrs['k_best'] for res in LFreq_results])
-    logging.info(f"Mahalanobis distance-based QC is taken")
-    H1_best = np.median(H_estimates[mask3])
-    k1_best = np.median(k_estimates[mask3])
-    H1_mad = np.median(np.abs(H_estimates[mask3] - H1_best))
-    k1_mad = np.median(np.abs(k_estimates[mask3] - k1_best))
-    logging.info(f"Low Frequency RFs: H = {H1_best:.2f} ± {H1_mad:.2f} km")
-    logging.info(f"Low Frequency RFs: k = {k1_best:.2f} ± {k1_mad:.2f} Vp/Vs")
-    # Save results
-    Hk_results_all = xr.concat(LFreq_results, dim='rf')
-    Hk_results_all.attrs['station'] = sta
-    Hk_results_all.attrs['network'] = net   
-    Hk_results_all.to_netcdf(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_results.nc"), mode='w')
-    with open(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_QC.dat"), 'w') as f:
-        f.write("# filename H_best k_best Hk_energy\n")
-        QC_results = [res for res, m in zip(LFreq_results, mask3) if m]
-        for res in QC_results:
-            f.write(
-                f"{os.path.basename(res.attrs['rf_file'])} "
-                f"{res.attrs['H_best']:.4f} {res.attrs['k_best']:.4f} {res.attrs['amp_max']:.4f}\n"
+            mode=2,
+            h0=H0_best,
+            vp0=sediment_params['Vp'],
+            vs0= sediment_params['Vs'],
+            k0=k0_best
             )
+        
+        LowFreq_RF_list = init_RFtraces(LowFreq_RF_dir)
+        LFreq_results = Parallel(n_jobs=-1)(
+            delayed(hk_func)(rf) for rf in tqdm(LowFreq_RF_list)
+        )
+        LFreq_QC_params = Params['QC']['LowFreq']
+        LFreq_QC = HkQController(LFreq_results, LFreq_QC_params)
+        mask0, _ = LFreq_QC.hk_energy_select(return_mask_only=True)
+        mask1, _ = LFreq_QC.elliptical_mad_select(return_mask_only=True)
+        mask2    = mask0 & mask1
+        mask3, _ = LFreq_QC.mahalanobis_dist_select(return_mask_only=True)
+        logging.info(f"Low Frequency RFs: {len(LFreq_results)} total")
+        logging.info(f"Low Frequency RFs after energy select: {np.sum(mask0)}")
+        logging.info(f"Low Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
+        logging.info(f"Low Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
+        logging.info(f"Low Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
+
+        H_estimates = np.array([res.attrs['H_best'] for res in LFreq_results])
+        k_estimates = np.array([res.attrs['k_best'] for res in LFreq_results])
+        logging.info(f"Mahalanobis distance-based QC is taken")
+        if np.sum(mask3) < 15:
+            H1_best = np.mean(H_estimates[mask3])
+            k1_best = np.mean(k_estimates[mask3])
+            H1_uncert = np.std(H_estimates[mask3])
+            k1_uncert = np.std(k_estimates[mask3])
+        else:
+            H1_best = np.median(H_estimates[mask3])
+            k1_best = np.median(k_estimates[mask3])
+            H1_uncert = np.median(np.abs(H_estimates[mask3] - H1_best))
+            k1_uncert = np.median(np.abs(k_estimates[mask3] - k1_best))
+        logging.info(f"Low Frequency RFs: H = {H1_best:.2f} ± {H1_uncert:.2f} km")
+        logging.info(f"Low Frequency RFs: k = {k1_best:.2f} ± {k1_uncert:.2f} Vp/Vs")
+        # Save results
+        Hk_results_all = xr.concat(LFreq_results, dim='rf')
+        Hk_results_all.attrs['station'] = sta
+        Hk_results_all.attrs['network'] = net   
+        Hk_results_all.to_netcdf(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_results.nc"), mode='w')
+        # Save QC results
+        Hk_results_QC = xr.concat(
+            [res for res, m in zip(LFreq_results, mask3) if m],
+            dim='rf'
+        )
+        Hk_results_QC.attrs['H_best'] = H1_best
+        Hk_results_QC.attrs['k_best'] = k1_best
+        Hk_results_QC.attrs['H_uncert'] = H1_uncert
+        Hk_results_QC.attrs['k_uncert'] = k1_uncert
+        Hk_results_QC.attrs['station'] = sta
+        Hk_results_QC.attrs['network'] = net
+        Hk_results_QC.to_netcdf(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_results_QC.nc"), mode='w')
+        with open(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_QC.dat"), 'w') as f:
+            f.write("# filename H_best k_best Hk_energy\n")
+            QC_results = [res for res, m in zip(LFreq_results, mask3) if m]
+            for res in QC_results:
+                f.write(
+                    f"{os.path.basename(res.attrs['rf_file'])} "
+                    f"{res.attrs['H_best']:.4f} {res.attrs['k_best']:.4f} {res.attrs['amp_max']:.4f}\n"
+                )
 
 
-    if plot:
-        QC_key = ["Energy Select", "Elliptical MAD Select", "Energy & Elliptical Combined", "Mahalanobis Select"]
-        fig_title = f"{sta}.{net} (Low Frequency RFs)"
-        fig = plot_hk_QC(LFreq_results, QC_masks=[mask0, mask1, mask2, mask3], QC_key=QC_key, title=fig_title)
-        fig.savefig(os.path.join(figdir, f"{sta}.{net}_LFreq_QC.png"), dpi=300, bbox_inches='tight')
+        logging.info(f"Hk analysis for Low Frequency RFs completed and saved.")
+        if plot:
+            QC_key = ["Energy Select", "Elliptical MAD Select", "Energy & Elliptical Combined", "Mahalanobis Select"]
+            fig_title = f"{net}.{sta} (Low Frequency RFs)"
+            fig = plot_hk_QC(LFreq_results, QC_masks=[mask0, mask1, mask2, mask3], QC_key=QC_key, title=fig_title)
+            if mode == "both":
+                figfile = f"{net}.{sta}_HFreq_LFreq_QC_mode2.png"
+            else:
+                figfile = f"{net}.{sta}_LFreq_QC_mode1.png"
+            
+            fig.savefig(os.path.join(figdir, figfile), dpi=300, bbox_inches='tight')
+
     logging.info(f"Completed H-k analysis for {net}.{sta}")
 
     
@@ -779,7 +843,9 @@ def hkSeq(Params, plot=False):
 def load_parse_args():
     parser = argparse.ArgumentParser(description="Sequential Hk Analysis")
     parser.add_argument("-c", "--config_file", type=str, required=True, help="Hk analysis configuration file in YAML format")
+    parser.add_argument("-m", "--mode", type=str, default="both", choices=["both", "high", "low"], help="Mode of Hk analysis: 'both', 'high' or 'low'")
     parser.add_argument("-p", "--plot", action="store_true", help="Plot the results if set")
+
     return parser.parse_args()
 
 def main():
@@ -789,4 +855,4 @@ def main():
     
     plot_flag = args.plot
 
-    hkSeq(params, plot=plot_flag)
+    hkSeq(params, mode=args.mode, plot=plot_flag)

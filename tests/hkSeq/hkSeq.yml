@@ -5,8 +5,8 @@ IO:
   HighFreq_RF: Gauss_5.0_CLEAN
   LowFreq_RF: Gauss_2.5_CLEAN
   SAVE: hkSeq
-  FIGURE: ./
-  LOG: ./
+  FIGURE: /home/mengjie/Project/CREST.Proj/DATA/RF/SeisForge/tests/hkSeq
+  LOG: /home/mengjie/Project/CREST.Proj/DATA/RF/SeisForge/tests/hkSeq
 
 Meta:
   station: S26
