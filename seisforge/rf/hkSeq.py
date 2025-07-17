@@ -2,12 +2,13 @@ import os
 from seisforge.rf.rf import RFstream, RFtrace
 import numpy as np
 import xarray as xr
+import pickle
 from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 import argparse
 import yaml
 from functools import partial
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, load, dump
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import logging
@@ -41,7 +42,7 @@ class HkStack_classic:
         self.weight = weight
 
     def stack(self):
-        p = self.RFtrace.slowness / radius  # s/rad --> s/km
+        p = self.RFtrace.slowness 
 
         H_grid = self.H.values
         k_grid = self.k.values
@@ -110,7 +111,7 @@ class HkStack_classic:
      
         """
         if method == "seispy":
-            p = self.RFtrace.slowness / radius
+            p = self.RFtrace.slowness 
             amp_corr = 151.5478 * p**2 + 3.2896 * p + 0.2618
             data = self.RFtrace.trace.data
             return amp_corr * data
@@ -185,7 +186,7 @@ class HkStack:
         self.k0 = k0
     
     def _calc_phase_times(self):
-        p = self.RFtrace.slowness / radius  # s/rad --> s/km
+        p = self.RFtrace.slowness 
 
         H_grid = self.H.values
         k_grid = self.k.values
@@ -289,7 +290,7 @@ class HkStack:
 
     def _amp_correct(self, method="seispy", P_wins=[-2, 2]):
         if method == "seispy":
-            p = self.RFtrace.slowness / radius
+            p = self.RFtrace.slowness 
             amp_corr = 151.5478 * p**2 + 3.2896 * p + 0.2618
             data = self.RFtrace.trace.data
             return amp_corr * data
@@ -415,7 +416,7 @@ class HkQController:
             QC_results = [res for res, m in zip(self.hk_results, mask) if m]
         return mask, QC_results
 
-def elliptical_mad_filter(x0, x1, sigma=2.0):
+def elliptical_mad_filter(x0, x1, sigma=2.0, scaled_MAD=True):
     """
     2D elliptical outlier filtering using the median and MAD (Median Absolute Deviation)
     """
@@ -423,6 +424,10 @@ def elliptical_mad_filter(x0, x1, sigma=2.0):
     x1_median = np.median(x1)
     x0_mad = np.median(np.abs(x0 - x0_median))
     x1_mad = np.median(np.abs(x1 - x1_median))
+
+    if scaled_MAD:
+        x0_mad = x0_mad * 1.4826  # Scale MAD to match standard deviation for normal distribution
+        x1_mad = x1_mad * 1.4826  # Scale MAD to match standard deviation for normal distribution
 
     x0_mad = x0_mad if x0_mad > 1e-6 else 1e-6
     x1_mad = x1_mad if x1_mad > 1e-6 else 1e-6
@@ -671,8 +676,8 @@ def hkSeq(Params, mode="both", plot=False):
         if np.sum(mask3) < 15:
             H0_best = np.mean(H_estimates[mask3])
             k0_best = np.mean(k_estimates[mask3])
-            H0_ucert = np.std(H_estimates[mask3])
-            k0_ucert = np.std(k_estimates[mask3])
+            H0_uncert = np.std(H_estimates[mask3])
+            k0_uncert = np.std(k_estimates[mask3])
         else:
             H0_best = np.median(H_estimates[mask3])
             k0_best = np.median(k_estimates[mask3])
@@ -681,23 +686,34 @@ def hkSeq(Params, mode="both", plot=False):
         logging.info(f"High Frequency RFs: H = {H0_best:.2f} ± {H0_uncert:.2f} km")
         logging.info(f"High Frequency RFs: k = {k0_best:.2f} ± {k0_uncert:.2f} Vp/Vs")
         # Save results
-        Hk_results_all = xr.concat(HFreq_results, dim='rf')
-        Hk_results_all.attrs['station'] = sta
-        Hk_results_all.attrs['network'] = net
-        Hk_results_all.to_netcdf(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_results.nc"), mode='w')
+        # datasets = []
+        # for res in HFreq_results:
+        #     res = res.expand_dims(rf=[0])
+        #     datasets.append(res)
+        # HFreq_results_all = xr.concat(datasets, dim='rf')
+        # HFreq_results_all.attrs['station'] = sta
+        # HFreq_results_all.attrs['network'] = net
+        # HFreq_results_all.to_netcdf(os.path.join(savedir, f"{net}.{sta}_HFreq_Hk_results.nc"), mode='w')
+        dump(HFreq_results, os.path.join(savedir, f"{net}.{sta}_HFreq_Hk_results.joblib"))
 
         # Save QC results
-        Hk_results_QC = xr.concat(
-            [res for res, m in zip(HFreq_results, mask3) if m],
-            dim='rf'
-        )
-        Hk_results_QC.attrs['station'] = sta
-        Hk_results_QC.attrs['network'] = net
-        Hk_results_QC.attrs['H_best'] = H0_best
-        Hk_results_QC.attrs['k_best'] = k0_best
-        Hk_results_QC.attrs['H_uncert'] = H0_uncert
-        Hk_results_QC.attrs['k_uncert'] = k0_uncert
-        Hk_results_QC.to_netcdf(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_results_QC.nc"), mode='w')
+        # qc_datasets = []
+        # for res, m in zip(HFreq_results, mask3):
+        #     if m:
+        #         res = res.expand_dims(rf=[0])
+        #         qc_datasets.append(res)
+        
+        # Hk_results_QC = xr.concat(qc_datasets, dim='rf')
+        # Hk_results_QC.attrs['station'] = sta
+        # Hk_results_QC.attrs['network'] = net
+        # Hk_results_QC.attrs['H_best'] = H0_best
+        # Hk_results_QC.attrs['k_best'] = k0_best
+        # Hk_results_QC.attrs['H_uncert'] = H0_uncert
+        # Hk_results_QC.attrs['k_uncert'] = k0_uncert
+        # Hk_results_QC.to_netcdf(os.path.join(savedir, f"{net}.{sta}_HFreq_Hk_results_QC.nc"), mode='w')
+        HFreq_results_QC = [res for res, m in zip(HFreq_results, mask3) if m]
+        dump(HFreq_results_QC, os.path.join(savedir, f"{net}.{sta}_HFreq_Hk_results_QC.joblib"))
+
         with open(os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_QC.dat"), 'w') as f:
             f.write("# filename H_best k_best Hk_energy\n")
             QC_results = [res for res, m in zip(HFreq_results, mask3) if m]
@@ -797,22 +813,32 @@ def hkSeq(Params, mode="both", plot=False):
         logging.info(f"Low Frequency RFs: H = {H1_best:.2f} ± {H1_uncert:.2f} km")
         logging.info(f"Low Frequency RFs: k = {k1_best:.2f} ± {k1_uncert:.2f} Vp/Vs")
         # Save results
-        Hk_results_all = xr.concat(LFreq_results, dim='rf')
-        Hk_results_all.attrs['station'] = sta
-        Hk_results_all.attrs['network'] = net   
-        Hk_results_all.to_netcdf(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_results.nc"), mode='w')
+        dump(LFreq_results, os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results.joblib"))
+        # datasets = []
+        # for res in LFreq_results:
+        #     res = res.expand_dims(rf=[0])
+        #     datasets.append(res)
+        # # Concatenate all results
+        # Hk_results_all = xr.concat(datasets, dim='rf')
+        # Hk_results_all.attrs['station'] = sta
+        # Hk_results_all.attrs['network'] = net
+        # Hk_results_all.to_netcdf(os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results.nc"), mode='w')
         # Save QC results
-        Hk_results_QC = xr.concat(
-            [res for res, m in zip(LFreq_results, mask3) if m],
-            dim='rf'
-        )
-        Hk_results_QC.attrs['H_best'] = H1_best
-        Hk_results_QC.attrs['k_best'] = k1_best
-        Hk_results_QC.attrs['H_uncert'] = H1_uncert
-        Hk_results_QC.attrs['k_uncert'] = k1_uncert
-        Hk_results_QC.attrs['station'] = sta
-        Hk_results_QC.attrs['network'] = net
-        Hk_results_QC.to_netcdf(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_results_QC.nc"), mode='w')
+        # qc_datasets = []
+        # for res, m in zip(LFreq_results, mask3):
+        #     if m:
+        #         res = res.expand_dims(rf=[0])
+        #         qc_datasets.append(res)
+        # Hk_results_QC = xr.concat(qc_datasets, dim='rf')
+        # Hk_results_QC.attrs['H_best'] = H1_best
+        # Hk_results_QC.attrs['k_best'] = k1_best
+        # Hk_results_QC.attrs['H_uncert'] = H1_uncert
+        # Hk_results_QC.attrs['k_uncert'] = k1_uncert
+        # Hk_results_QC.attrs['station'] = sta
+        # Hk_results_QC.attrs['network'] = net
+        # Hk_results_QC.to_netcdf(os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results_QC.nc"), mode='w')
+        LFreq_results_QC = [res for res, m in zip(LFreq_results, mask3) if m]
+        dump(LFreq_results_QC, os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results_QC.joblib"))
         with open(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_QC.dat"), 'w') as f:
             f.write("# filename H_best k_best Hk_energy\n")
             QC_results = [res for res, m in zip(LFreq_results, mask3) if m]
