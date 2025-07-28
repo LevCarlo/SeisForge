@@ -1,0 +1,70 @@
+IO:
+  ROOT: /home/mengjie/data/CREST.Data/RFs/RFs_SEISPY/XP.S26
+  RAW_HighFreq_RF: Gauss_5.0
+  RAW_LowFreq_RF: Gauss_2.5
+  CLEAN_HighFreq_RF: Gauss_5.0_CLEAN
+  CLEAN_LowFreq_RF: Gauss_2.5_CLEAN
+  FIGURE: /home/mengjie/Project/CREST.Proj/DATA/RF/SeisForge/tests/hkSeq
+  LOG: ./
+
+META:
+  station: S26
+  network: XP
+  component: R
+
+QC:
+  HighFreq:
+    SNR:
+      ENABLE: True
+      THRESHOLD: 5.0
+      SAC_HEADER: user2
+    SLOWNESS:
+      ENABLE: True
+      MIN: 0.04
+      MAX: 0.10
+      SAC_HEADER: user0
+    PAMP:
+      ENABLE: True
+      TMIN: -2.0
+      TMAX: 2.0
+      WINDOW: [-5, 30]
+    MAD:
+      ENABLE: True
+      THRESHOLD: 2.5
+      WINDOW: [-5, 30]
+    F_TEST:
+      ENABLE: True
+      THRESHOLD: 0.05
+      WINDOW: [-5, 30]
+    CC:
+      ENABLE: True
+      THRESHOLD: 0.5
+      WINDOW: [-5, 30]
+  LowFreq:
+    SNR:
+      ENABLE: True
+      THRESHOLD: 3.0
+      SAC_HEADER: user2
+    SLOWNESS:
+      ENABLE: True
+      MIN: 0.04
+      MAX: 0.10
+      SAC_HEADER: user0
+    PAMP:
+      ENABLE: True
+      TMIN: -2.0
+      TMAX: 2.0
+      WINDOW: [-5, 30]
+    MAD:
+      ENABLE: True
+      THRESHOLD: 2.5
+      WINDOW: [-5, 30]
+    F_TEST:
+      ENABLE: True
+      THRESHOLD: 0.05
+      WINDOW: [-5, 30]
+    CC:
+      ENABLE: True
+      THRESHOLD: 0.5
+      WINDOW: [-5, 30]
+

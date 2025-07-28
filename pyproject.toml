@@ -17,7 +17,9 @@ dependencies = [
     "obspy",
     "xarray",
     "joblib",
+    "pyyaml"
 ]
 
 [project.scripts]
+rfqc = "seisforge.rf.rf:main"
 hkseq = "seisforge.rf.hkSeq:main"

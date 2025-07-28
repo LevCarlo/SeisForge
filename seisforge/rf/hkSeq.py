@@ -593,7 +593,6 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
 
     return fig
 
-
 def hkSeq(Params, mode="both", plot=False):
     IO_params = Params['IO']
     rootdir = IO_params['ROOT']
@@ -602,21 +601,25 @@ def hkSeq(Params, mode="both", plot=False):
     savedir = os.path.join(rootdir, IO_params['SAVE'])
     figdir = os.path.join(rootdir, IO_params['FIGURE'])
     logdir = os.path.join(rootdir, IO_params['LOG'])
+    if os.path.exists(savedir):
+        os.system(f"rm -rf {savedir}")
     os.makedirs(savedir, exist_ok=True)
     os.makedirs(figdir, exist_ok=True)
     os.makedirs(logdir, exist_ok=True)
 
+    meta_params = Params['Meta']
+    sta = meta_params['station']
+    net = meta_params['network']
+
     logging.basicConfig(
-        filename=os.path.join(logdir, 'HkSeq.log'),
+        filename=os.path.join(logdir, f"{net}.{sta}_hkSeq.log"),
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
         filemode='w'
     )
 
-    meta_params = Params['Meta']
-    sta = meta_params['station']
-    net = meta_params['network']
+
     logging.info(f"Starting H-k analysis for {net}.{sta}")
 
     if mode not in ["both", "low", "high"]:
@@ -814,29 +817,6 @@ def hkSeq(Params, mode="both", plot=False):
         logging.info(f"Low Frequency RFs: k = {k1_best:.2f} ± {k1_uncert:.2f} Vp/Vs")
         # Save results
         dump(LFreq_results, os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results.joblib"))
-        # datasets = []
-        # for res in LFreq_results:
-        #     res = res.expand_dims(rf=[0])
-        #     datasets.append(res)
-        # # Concatenate all results
-        # Hk_results_all = xr.concat(datasets, dim='rf')
-        # Hk_results_all.attrs['station'] = sta
-        # Hk_results_all.attrs['network'] = net
-        # Hk_results_all.to_netcdf(os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results.nc"), mode='w')
-        # Save QC results
-        # qc_datasets = []
-        # for res, m in zip(LFreq_results, mask3):
-        #     if m:
-        #         res = res.expand_dims(rf=[0])
-        #         qc_datasets.append(res)
-        # Hk_results_QC = xr.concat(qc_datasets, dim='rf')
-        # Hk_results_QC.attrs['H_best'] = H1_best
-        # Hk_results_QC.attrs['k_best'] = k1_best
-        # Hk_results_QC.attrs['H_uncert'] = H1_uncert
-        # Hk_results_QC.attrs['k_uncert'] = k1_uncert
-        # Hk_results_QC.attrs['station'] = sta
-        # Hk_results_QC.attrs['network'] = net
-        # Hk_results_QC.to_netcdf(os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results_QC.nc"), mode='w')
         LFreq_results_QC = [res for res, m in zip(LFreq_results, mask3) if m]
         dump(LFreq_results_QC, os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results_QC.joblib"))
         with open(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_QC.dat"), 'w') as f:
@@ -855,15 +835,15 @@ def hkSeq(Params, mode="both", plot=False):
             fig_title = f"{net}.{sta} (Low Frequency RFs)"
             fig = plot_hk_QC(LFreq_results, QC_masks=[mask0, mask1, mask2, mask3], QC_key=QC_key, title=fig_title)
             if mode == "both":
-                figfile = f"{net}.{sta}_HFreq_LFreq_QC_mode2.png"
+                figfile = f"{net}.{sta}_HFreq_LFreq_QC.png"
             else:
-                figfile = f"{net}.{sta}_LFreq_QC_mode1.png"
+                figfile = f"{net}.{sta}_LFreq_QC.png"
             
             fig.savefig(os.path.join(figdir, figfile), dpi=300, bbox_inches='tight')
 
     logging.info(f"Completed H-k analysis for {net}.{sta}")
 
-    
+ 
     
 
 def load_parse_args():

@@ -1,7 +1,13 @@
+import os
+import glob
 import numpy as np
+import shutil
+import logging
 from scipy.stats import f as f_dist
 from obspy import Stream, Trace, read
 import matplotlib.pyplot as plt
+import argparse
+import yaml
 plt.rcParams['font.family'] = 'Arial'
 plt.rcParams['font.size'] = 12
 
@@ -62,7 +68,7 @@ class RFstream():
         """
         return RFstream(files=self.files.copy(), st=self.st.copy() if self.st else None, qc_metrics=self.qc_metrics.copy())
     
-    def SNR_select(self, threshold=5, reverse=False):
+    def SNR_select(self, threshold=5, reverse=False, sac_head='user2'):
         """
         Select traces based on a signal-to-noise ratio threshold.
 
@@ -78,10 +84,9 @@ class RFstream():
         
         new = self.copy()
 
-
         to_keep = []
         for i, tr in enumerate(self.st):
-            isnr = tr.stats.sac.user2
+            isnr = tr.stats.sac[sac_head]
             new.qc_metrics.append(isnr)
             if isnr >= threshold:
                 to_keep.append(i)
@@ -94,13 +99,13 @@ class RFstream():
         new.qc_metrics = [new.qc_metrics[i] for i in to_keep]
         return new
     
-    def slowness_select(self, slow_min=0.04, slow_max=0.1, reverse=False):
+    def slowness_select(self, slow_min=0.04, slow_max=0.1, reverse=False, sac_head='user0'):
         """
         Select traces based on slowness range.
 
         Args:
-            slow_min (float): Minimum slowness (s/deg).
-            slow_max (float): Maximum slowness (s/deg).
+            slow_min (float): Minimum slowness (s/km).
+            slow_max (float): Maximum slowness (s/km).
             reverse (bool): If True, keep traces outside the range.
         
         Returns:
@@ -112,7 +117,7 @@ class RFstream():
 
         to_keep = []
         for i, tr in enumerate(self.st):
-            slowness = tr.stats.sac.user0
+            slowness = tr.stats.sac[sac_head]
             new.qc_metrics.append(slowness)
             if slow_min <= slowness <= slow_max:
                 to_keep.append(i)
@@ -363,7 +368,7 @@ class RFstream():
         )
 
 
-        ax[1].set_ylabel('Slowness (s/deg)', fontdict={'family': 'Times New Roman', 'weight': 'bold'})
+        ax[1].set_ylabel('Slowness (s/km)', fontdict={'family': 'Times New Roman', 'weight': 'bold'})
         ax[1].set_xlabel('Time (s)', fontdict={'family': 'Times New Roman', 'weight': 'bold'})
         ax[1].set_xlim(window[0], window[1])
         ax[1].axvline(0, color='k', lw=1.0, ls='--')
@@ -378,17 +383,133 @@ class RFstream():
         
         plt.close()
 
-        
+def rf_QC(params, type='LowFreq', plot=True):
+    # IO setup
+    IO_params = params['IO']
+    rootdir = IO_params['ROOT']
+    raw_RF_dir = os.path.join(rootdir, IO_params[f"RAW_{type}_RF"])
+    clean_RF_dir = os.path.join(rootdir, IO_params[f"CLEAN_{type}_RF"])
+    figdir = os.path.join(rootdir, IO_params['FIGURE'])
+    logdir = os.path.join(rootdir, IO_params['LOG'])
+    os.makedirs(clean_RF_dir, exist_ok=True)
+    os.makedirs(figdir, exist_ok=True)
+    os.makedirs(logdir, exist_ok=True)
 
 
-if __name__ == "__main__":
-    import os
-    import glob
-    datadir = "/home/mengjie/data/CREST.Data/RFs/RFs_SEISPY"
-    sta = "IW.SMCO"
-    gauss_factor = [2.5, 5.0]
-    sta_datadir = os.path.join(datadir, sta)
-    filelst0 = glob.glob(os.path.join(sta_datadir, f"Gauss_{gauss_factor[0]}", f"*R*"))
-    rf0 = RFstream(files=filelst0)
-    rf0.load_data()
-    rf0_1 = rf0.SNR_select()
+    # meta 
+    meta_params = params['META']
+    sta = meta_params['station']
+    net = meta_params['network']
+    comp = meta_params.get('component', 'R')
+
+    # QC
+    qc_params = params['QC'][type]
+
+    # High Frequency RF QC
+    filelst = glob.glob(os.path.join(raw_RF_dir, f"*{comp}*"))
+    if not filelst:
+        logging.warning(f"No RF files found in {raw_RF_dir}. Skipping QC for {net}.{sta}.")
+        return
+    
+    rf = RFstream(files=filelst)
+    rf.load_data()
+    logging.info(f"Number of RF traces loaded: {len(rf.st)}")
+    # SNR selection
+    SNR_params = qc_params['SNR']
+    if SNR_params["ENABLE"]:
+        rf0 = rf.SNR_select(threshold=SNR_params['THRESHOLD'], sac_head=SNR_params['SAC_HEADER'])
+        logging.info(f"Number of RF traces after SNR selection: {len(rf0.st)}")
+    else:
+        rf0 = rf.copy()
+        logging.info("No SNR selection applied.")
+    
+    # Slowness selection
+    slowness_params = qc_params['SLOWNESS']
+    if slowness_params["ENABLE"]:
+        slow_min = slowness_params['MIN']
+        slow_max = slowness_params['MAX']
+        rf1 = rf0.slowness_select(slow_min=slow_min, slow_max=slow_max, sac_head=slowness_params['SAC_HEADER'])
+        logging.info(f"Number of RF traces after slowness selection: {len(rf1.st)}")
+    else:
+        rf1 = rf0.copy()
+        logging.info("No slowness selection applied.")
+    
+    # P amplitude selection
+    Pamp_params = qc_params['PAMP']
+    if Pamp_params["ENABLE"]:
+        rf2 = rf1.P_amp_select(
+            tmin=Pamp_params['TMIN'], 
+            tmax=Pamp_params['TMAX'], 
+            window=Pamp_params['WINDOW'])
+        logging.info(f"Number of RF traces after P amplitude selection: {len(rf2.st)}")
+    else:
+        rf2 = rf1.copy()
+        logging.info("No P amplitude selection applied.")
+    # MAD selection
+    MAD_params = qc_params['MAD']
+    if MAD_params["ENABLE"]:
+        rf3 = rf2.MAD_select(threshold=MAD_params['THRESHOLD'], window=MAD_params['WINDOW'])
+        logging.info(f"Number of RF traces after MAD selection: {len(rf3.st)}")
+    else:
+        rf3 = rf2.copy()
+        logging.info("No MAD selection applied.")
+    # F-test selection
+    F_test_params = qc_params['F_TEST']
+    if F_test_params["ENABLE"]:
+        rf4 = rf3.f_test_select(threshold=F_test_params['THRESHOLD'], window=F_test_params['WINDOW'])
+        logging.info(f"Number of RF traces after F-test selection: {len(rf4.st)}")
+    else:
+        rf4 = rf3.copy()
+        logging.info("No F-test selection applied.")
+    # Cross-correlation selection
+    CC_params = qc_params['CC']
+    if CC_params["ENABLE"]:
+        rf5 = rf4.CC_select(threshold=CC_params['THRESHOLD'], window=CC_params['WINDOW'])
+        logging.info(f"Number of RF traces after CC selection: {len(rf5.st)}")
+    else:
+        rf5 = rf4.copy()
+        logging.info("No CC selection applied.")
+    
+    # Save cleaned RFs
+    for file in rf5.files:
+        shutil.copy(file, clean_RF_dir)
+    logging.info(f"Cleaned RF traces saved")
+
+    if plot:
+        # Plot the cleaned RFs
+        rf5.plot(save=True, save_path=os.path.join(figdir, f"{net}.{sta}_RF_QC_{type}.png"))
+        logging.info(f"RF QC plot completed and saved")
+    
+
+def load_parse_args():
+    parser = argparse.ArgumentParser(description="Receiver Function Quality Control")
+    parser.add_argument("-c", "--config_file", type=str, required=True, help="Path to the QC config YAML file.")
+    parser.add_argument("-p", "--plot", action='store_true', help="Enable plotting of RF QC results.")
+    return parser.parse_args()
+
+
+def main():
+    args = load_parse_args()
+    with open(args.config_file, 'r') as f:
+        params = yaml.safe_load(f)
+    
+    IO_params = params['IO']
+    rootdir = IO_params['ROOT']
+    logdir = os.path.join(rootdir, IO_params['LOG'])
+    os.makedirs(logdir, exist_ok=True)
+
+    sta = params['META']['station']
+    net = params['META']['network']
+    logging.basicConfig(
+        filename=os.path.join(logdir, f"{net}.{sta}_RF_QC.log"),
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filemode="w",
+    )
+
+    print(f"Running RF QC for {params['META']['network']}.{params['META']['station']}...")
+    logging.info(f"=" * 20 + "High-Frequency RF QC" + "=" * 20)
+    rf_QC(params, type='HighFreq', plot=args.plot)
+    logging.info(f"=" * 20 + "Low-Frequency RF QC" + "=" * 20)
+    rf_QC(params, type='LowFreq', plot=args.plot)
