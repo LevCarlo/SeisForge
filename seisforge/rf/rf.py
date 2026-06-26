@@ -1,3 +1,4 @@
+from hashlib import new
 import os
 import glob
 import numpy as np
@@ -12,7 +13,7 @@ plt.rcParams['font.family'] = 'Arial'
 plt.rcParams['font.size'] = 12
 
 class RFtrace():
-    def __init__(self, trace: Trace=None, file=None, slowness=None, baz=None, slowness_key='user0', baz_key='user1'):
+    def __init__(self, trace: Trace=None, file=None, slowness=None, baz=None, slowness_key='user0', baz_key='baz'):
         if trace is not None:
             self.trace = trace
             self.file = file
@@ -168,6 +169,54 @@ class RFstream():
         new.qc_metrics = [new.qc_metrics[i] for i in to_keep]
         return new
 
+    def late_rms_select(self, p_window=[-2.0, 2.0], late_window=[2.0, 10.0], qmax=0.30, reverse=False):
+        """
+        Select RF traces using late-time RMS relative to the P-window peak amplitude.
+
+        Q = RMS(late_window) / max(p_window)
+
+        Args:
+            p_window (list): Time window [start, end] in seconds for P-window peak.
+            late_window (list): Time window [start, end] in seconds for late-time RMS.
+            qmax (float): Maximum allowed Q value.
+            reverse (bool): If True, keep traces that do not meet criteria.
+
+        Returns:
+            RFstream: A new RFstream instance with filtered traces.
+        """
+        new = self.copy()
+
+        b = new.st[0].stats.sac.b
+        e = new.st[0].stats.sac.e
+        npts = new.st[0].stats.npts
+        t = np.linspace(b, e, npts)
+
+        p_idx = (t >= p_window[0]) & (t <= p_window[1])
+        late_idx = (t >= late_window[0]) & (t <= late_window[1])
+
+        to_keep = []
+
+        for i, tr in enumerate(new.st):
+            data = tr.data
+
+            p_amp = np.max(data[p_idx])
+            late_rms = np.sqrt(np.mean(data[late_idx] ** 2))
+
+            q = late_rms / p_amp if p_amp > 0 else np.inf
+
+            new.qc_metrics.append([q, p_amp, late_rms])
+
+            if q <= qmax:
+                to_keep.append(i)
+
+        if reverse:
+            to_keep = [i for i in range(len(new.st)) if i not in to_keep]
+
+        new.st = Stream([new.st[i] for i in to_keep])
+        new.files = [new.files[i] for i in to_keep]
+        new.qc_metrics = [new.qc_metrics[i] for i in to_keep]
+
+        return new
 
     def MAD_select(self, threshold=2.5, window=[-5, 30], reverse=False):
         """
@@ -316,7 +365,7 @@ class RFstream():
         new.qc_metrics = [new.qc_metrics[i] for i in to_keep]
         return new
     
-    def plot(self, window=[-5, 30], save=False, save_path=None, **kwargs):
+    def plot(self, by="slow", window=[-5, 30], save=False, save_path=None, show=False, **kwargs):
         """
         Plot normalized RF traces by slowness and the average waveform.
 
@@ -335,26 +384,36 @@ class RFstream():
 
         fig, ax = plt.subplots(2, 1, figsize=(6, 8), height_ratios=[0.15, 1.0], sharex=True)
         rf_data = []
-        for tr in self.st:
-            slow = tr.stats.sac.user0
-            data_norm = tr.data[t_idx] / np.max(np.abs(tr.data[t_idx])) * 1.2e-3
-            shifted = data_norm + slow
+        for i, tr in enumerate(self.st):
+            if by == "slow":
+                slow = tr.stats.sac.user0
+                yy = slow
+                data_norm = tr.data[t_idx] / np.max(np.abs(tr.data[t_idx]))
+                shifted = data_norm * 1.2e-3 + yy
+            elif by == None:
+                data_norm = tr.data[t_idx] / np.max(np.abs(tr.data[t_idx]))
+                shifted = data_norm + i
+                yy = i
+            else:
+                raise ValueError("Invalid `by` argument. Use 'slow' or 'None'.")
+
             ax[1].plot(t[t_idx], shifted, c='k', lw=0.5)
             ax[1].fill_between(t[t_idx], 
-                               slow,
+                               yy,
                                shifted, 
-                               where=(shifted > slow),
+                               where=(shifted > yy),
                                facecolor='tab:red'
                                  )
             ax[1].fill_between(t[t_idx],
-                               slow,
+                               yy,
                                shifted, 
-                               where=(shifted < slow),
+                               where=(shifted < yy),
                                facecolor='blue'
                                  )
-            rf_data.append(tr.data[t_idx])
+            rf_data.append(data_norm)
         
         ave_rf = np.mean(rf_data, axis=0)
+        # ave_rf = np.median(rf_data, axis=0)
         ax[0].plot(t[t_idx], ave_rf, c='k', lw=1.0)
         ax[0].fill_between(t[t_idx],
                            ave_rf,
@@ -367,8 +426,13 @@ class RFstream():
                             facecolor='blue'
         )
 
-
-        ax[1].set_ylabel('Slowness (s/km)', fontdict={'family': 'Times New Roman', 'weight': 'bold'})
+        if by == "slow":
+            ax[1].set_ylabel('Slowness (s/km)', fontdict={'family': 'Times New Roman', 'weight': 'bold'})
+        elif by == None:
+            ax[1].set_ylabel('Index (#)', fontdict={'family': 'Times New Roman', 'weight': 'bold'})
+        else:
+            raise ValueError("Invalid `by` argument. Use 'slow' or 'None'.")
+        
         ax[1].set_xlabel('Time (s)', fontdict={'family': 'Times New Roman', 'weight': 'bold'})
         ax[1].set_xlim(window[0], window[1])
         ax[1].axvline(0, color='k', lw=1.0, ls='--')
@@ -380,8 +444,10 @@ class RFstream():
 
         if save:
             fig.savefig(save_path, dpi=300, bbox_inches='tight')
-        
-        plt.close()
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
 
 def rf_QC(params, type='LowFreq', plot=True):
     # IO setup

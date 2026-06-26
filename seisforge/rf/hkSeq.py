@@ -476,7 +476,7 @@ def Hk_analysis(rf, H, k, Vp, Vs, weight, mode, h0=None, vp0=None, vs0=None, k0=
 
 def init_RFtraces(RFs_datadir, suffix=".sac"):
     RFtrace_list = []
-    RF_files = [f for f in os.listdir(RFs_datadir) if f.endswith(suffix)]
+    RF_files = [f for f in os.listdir(RFs_datadir) if f.endswith(suffix) and not f.startswith('.')]
     for rf_file in RF_files:
         rf = RFtrace(file=os.path.join(RFs_datadir, rf_file))
         RFtrace_list.append(rf)
@@ -537,7 +537,10 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
             amp_stack_max = np.max(amp_stack, axis=(1, 2), keepdims=True)
             amp_stack_norm = amp_stack / amp_stack_max
             amp_stack_mean = np.mean(amp_stack_norm, axis=0)
-
+        
+        # tmp = amp_stack_mean.T / np.max(np.abs(amp_stack_mean.T))
+        # if i == 0:
+        #     print(np.min(tmp), np.max(tmp))
         ax[i].pcolormesh(
             HH, kk, amp_stack_mean.T / np.max(np.abs(amp_stack_mean.T)),
             cmap='binary', shading='auto', vmin=0, vmax=1
@@ -819,7 +822,7 @@ def hkSeq(Params, mode="both", plot=False):
         dump(LFreq_results, os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results.joblib"))
         LFreq_results_QC = [res for res, m in zip(LFreq_results, mask3) if m]
         dump(LFreq_results_QC, os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results_QC.joblib"))
-        with open(os.path.join(savedir, f"{sta}.{net}_LFreq_Hk_QC.dat"), 'w') as f:
+        with open(os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_QC.dat"), 'w') as f:
             f.write("# filename H_best k_best Hk_energy\n")
             QC_results = [res for res, m in zip(LFreq_results, mask3) if m]
             for res in QC_results:
