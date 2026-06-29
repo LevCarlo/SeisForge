@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -20,6 +20,24 @@ dependencies = [
     "pyyaml"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
 [project.scripts]
-rfqc = "seisforge.rf.rf:main"
-hkseq = "seisforge.rf.hkSeq:main"
+seisforge = "seisforge.cli.main:main"
+rfqc = "seisforge.rf.qc:main"
+hkseq = "seisforge.rf.hk:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]

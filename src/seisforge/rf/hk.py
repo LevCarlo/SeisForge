@@ -1,20 +1,40 @@
 import os
-from seisforge.rf.rf import RFstream, RFtrace
+import shutil
+from seisforge.rf.traces import RFtrace
 import numpy as np
 import xarray as xr
-import pickle
 from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 import argparse
 import yaml
 from functools import partial
-from joblib import Parallel, delayed, load, dump
+from joblib import Parallel, delayed, dump
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 import logging
 
 
 radius=6371.0 # Earth radius in km
+
+
+def _default_weights(weight):
+    return [0.5, 0.2, 0.3] if weight is None else weight
+
+
+def _safe_normalize_abs(values):
+    max_abs = np.max(np.abs(values))
+    if max_abs == 0:
+        return values
+    return values / max_abs
+
+
+def _reset_output_dir(path, rootdir):
+    path_abs = os.path.abspath(path)
+    root_abs = os.path.abspath(rootdir)
+    if path_abs in {root_abs, os.path.dirname(root_abs), os.path.abspath(os.sep)}:
+        raise ValueError(f"Refusing to reset unsafe output directory: {path_abs}")
+    if os.path.exists(path_abs):
+        shutil.rmtree(path_abs)
+    os.makedirs(path_abs, exist_ok=True)
 
 class HkParam:
     def __init__(self, name: str, vmin, vmax, dv=None, values=None):
@@ -33,13 +53,13 @@ class HkParam:
         return f"HkParam(name={self.name}, vmin={self.vmin}, vmax={self.vmax}, dv={self.dv})"
 
 class HkStack_classic:
-    def __init__(self, RFtrace: RFtrace, H: HkParam, k: HkParam, Vp=6.3, Vs=None, weight=[0.5, 0.2, 0.3]):
+    def __init__(self, RFtrace: RFtrace, H: HkParam, k: HkParam, Vp=6.3, Vs=None, weight=None):
         self.RFtrace = RFtrace
         self.H = H
         self.k = k
         self.Vp = Vp
         self.Vs = Vs
-        self.weight = weight
+        self.weight = _default_weights(weight)
 
     def stack(self):
         p = self.RFtrace.slowness 
@@ -96,7 +116,7 @@ class HkStack_classic:
         idx_flat = np.abs(t_axis[:, None] - t_grid_flat[None, :]).argmin(axis=0)
         return idx_flat.reshape(t_grid.shape)
 
-    def _amp_correct(self, method="seispy", P_wins=[-2, 2]):
+    def _amp_correct(self, method="seispy", P_wins=None):
         """
         Apply amplitude correction to the RF trace before H-k stacking.
 
@@ -116,6 +136,7 @@ class HkStack_classic:
             data = self.RFtrace.trace.data
             return amp_corr * data
         elif method == "max_amp":
+            P_wins = [-2, 2] if P_wins is None else P_wins
             tr = self.RFtrace.trace
             b = tr.stats.sac.b
             dt = tr.stats.sac.delta
@@ -171,14 +192,14 @@ class HkStack_classic:
         fig.tight_layout()
 
 class HkStack:
-    def __init__(self, RFtrace: RFtrace, H: HkParam, k: HkParam, Vp: float = 6.3, Vs: float = None, weight: list = [0.5, 0.2, 0.3],
+    def __init__(self, RFtrace: RFtrace, H: HkParam, k: HkParam, Vp: float = 6.3, Vs: float = None, weight: list | None = None,
                  mode: int = 1, h0: float = 0.0, vp0: float = 4.5, vs0: float = None, k0: float = 2.0):
         self.RFtrace = RFtrace
         self.H = H
         self.k = k
         self.Vp = Vp
         self.Vs = Vs
-        self.weight = weight
+        self.weight = _default_weights(weight)
         self.mode = mode
         self.h0 = h0
         self.vp0 = vp0
@@ -288,13 +309,14 @@ class HkStack:
         idx_flat = np.abs(t_axis[:, None] - t_grid_flat[None, :]).argmin(axis=0)
         return idx_flat.reshape(t_grid.shape)
 
-    def _amp_correct(self, method="seispy", P_wins=[-2, 2]):
+    def _amp_correct(self, method="seispy", P_wins=None):
         if method == "seispy":
             p = self.RFtrace.slowness 
             amp_corr = 151.5478 * p**2 + 3.2896 * p + 0.2618
             data = self.RFtrace.trace.data
             return amp_corr * data
         elif method == "max_amp":
+            P_wins = [-2, 2] if P_wins is None else P_wins
             tr = self.RFtrace.trace
             b = tr.stats.sac.b
             dt = tr.stats.sac.delta
@@ -364,6 +386,9 @@ class HkQController:
         self.QC_params = QC_params
 
     def hk_energy_select(self, return_mask_only=True):
+        if len(self.hk_results) == 0:
+            return np.array([], dtype=bool), None if return_mask_only else []
+
         hk_energys = np.array([res.attrs['amp_max'] for res in self.hk_results])
         maximum_energy = np.max(hk_energys)
         
@@ -376,6 +401,8 @@ class HkQController:
         return mask, QC_results
     
     def elliptical_mad_select(self, return_mask_only=True):
+        if len(self.hk_results) == 0:
+            return np.array([], dtype=bool), None if return_mask_only else []
 
         H_estimates = np.array([res.attrs['H_best'] for res in self.hk_results])
         k_estimates = np.array([res.attrs['k_best'] for res in self.hk_results])
@@ -389,6 +416,13 @@ class HkQController:
         return mask, QC_results
 
     def mahalanobis_dist_select(self, return_mask_only=True):
+        if len(self.hk_results) == 0:
+            return np.array([], dtype=bool), None if return_mask_only else []
+        if len(self.hk_results) < 2:
+            mask = np.ones(len(self.hk_results), dtype=bool)
+            QC_results = None if return_mask_only else self.hk_results.copy()
+            return mask, QC_results
+
         H_estimates = np.array([res.attrs['H_best'] for res in self.hk_results])
         k_estimates = np.array([res.attrs['k_best'] for res in self.hk_results])
         Hk_energy = np.array([res.attrs['amp_max'] for res in self.hk_results])
@@ -398,6 +432,9 @@ class HkQController:
         X = np.column_stack((H_estimates, k_estimates))
         E = Hk_energy.reshape(-1, 1)
         E_sum = np.sum(E)
+        if E_sum <= 0:
+            E = np.ones_like(E)
+            E_sum = np.sum(E)
 
         # weighted mean
         mu = np.sum(X * E, axis=0) / E_sum
@@ -405,7 +442,7 @@ class HkQController:
         # weighted covariance
         X_centered = X - mu
         cov = (E * X_centered).T @ X_centered / E_sum
-        cov_inv = np.linalg.inv(cov)
+        cov_inv = np.linalg.pinv(cov)
 
         # Mahalanobis distance
         m_dist = np.sqrt(np.sum((X_centered @ cov_inv) * X_centered, axis=1))
@@ -483,7 +520,13 @@ def init_RFtraces(RFs_datadir, suffix=".sac"):
     return RFtrace_list
 
 def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
+    if len(Hk_results) == 0:
+        raise ValueError("No H-k results available for plotting.")
+
     all_masks = np.ones(len(Hk_results), dtype=bool)
+    QC_masks = [] if QC_masks is None else QC_masks
+    QC_key = [] if QC_key is None else QC_key
+    title = "" if title is None else title
     QC_masks = [all_masks] + QC_masks
     QC_key = ["Raw"] + QC_key
 
@@ -519,22 +562,28 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
         H_estimates = np.array([res.attrs['H_best'] for res in QC_results])
         k_estimates = np.array([res.attrs['k_best'] for res in QC_results])
         Hk_energy = np.array([res.attrs['amp_max'] for res in QC_results])
-        if len(H_estimates) < 15:
-            H_best = np.mean(H_estimates)
-            k_best = np.mean(k_estimates)
-            H_uncert = np.std(H_estimates)
-            k_uncert = np.std(k_estimates)
-        else: 
-            H_best = np.median(H_estimates)
-            H_uncert = np.median(np.abs(H_estimates - H_best))
-            k_best = np.median(k_estimates)
-            k_uncert = np.median(np.abs(k_estimates - k_best))
 
         if len(QC_results) == 0:
             amp_stack_mean = np.zeros((len(kvals), len(Hvals)))
+            H_best = np.nan
+            k_best = np.nan
+            H_uncert = np.nan
+            k_uncert = np.nan
         else:
+            if len(H_estimates) < 15:
+                H_best = np.mean(H_estimates)
+                k_best = np.mean(k_estimates)
+                H_uncert = np.std(H_estimates)
+                k_uncert = np.std(k_estimates)
+            else:
+                H_best = np.median(H_estimates)
+                H_uncert = np.median(np.abs(H_estimates - H_best))
+                k_best = np.median(k_estimates)
+                k_uncert = np.median(np.abs(k_estimates - k_best))
+
             amp_stack = np.stack([res.amp_stack.values for res in QC_results])
             amp_stack_max = np.max(amp_stack, axis=(1, 2), keepdims=True)
+            amp_stack_max[amp_stack_max == 0] = 1
             amp_stack_norm = amp_stack / amp_stack_max
             amp_stack_mean = np.mean(amp_stack_norm, axis=0)
         
@@ -542,7 +591,7 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
         # if i == 0:
         #     print(np.min(tmp), np.max(tmp))
         ax[i].pcolormesh(
-            HH, kk, amp_stack_mean.T / np.max(np.abs(amp_stack_mean.T)),
+            HH, kk, _safe_normalize_abs(amp_stack_mean.T),
             cmap='binary', shading='auto', vmin=0, vmax=1
         )
         ax[i].scatter(
@@ -604,9 +653,7 @@ def hkSeq(Params, mode="both", plot=False):
     savedir = os.path.join(rootdir, IO_params['SAVE'])
     figdir = os.path.join(rootdir, IO_params['FIGURE'])
     logdir = os.path.join(rootdir, IO_params['LOG'])
-    if os.path.exists(savedir):
-        os.system(f"rm -rf {savedir}")
-    os.makedirs(savedir, exist_ok=True)
+    _reset_output_dir(savedir, rootdir)
     os.makedirs(figdir, exist_ok=True)
     os.makedirs(logdir, exist_ok=True)
 

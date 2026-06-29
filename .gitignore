@@ -4,3 +4,4 @@ tests/**/*.png
 tests/**/*.nc
 tests/**/*.log
 */**/__pycache__/
+*.vscode/
