@@ -62,5 +62,6 @@ stacking depending on whether the sediment estimate is valid.
 - `seisforge.rf.traces`: `RFtrace`, `RFstream`, and RF selection methods.
 - `seisforge.rf.plotting`: RF plotting helpers.
 - `seisforge.rf.qc`: YAML-driven RF QC workflow and `rfqc` entry point.
-- `seisforge.rf.hk`: H-k stacking and sequential H-k workflow.
+- `seisforge.rf.hk`: public H-k stacking API.
+- `seisforge.rf.hk_workflow`: H-k stacking and sequential H-k implementation.
 - `seisforge.rf.rf` and `seisforge.rf.hkSeq`: compatibility wrappers.

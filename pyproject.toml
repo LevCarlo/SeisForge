@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seisforge"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Python toolkit for seismic processing and analysis"
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{name = "Mengjie Zheng", email = "mengjie.zheng@utoronto.ca"}]
+authors = [{name = "Mengjie Zheng", email = "mengjie.zheng96@outlook.com"}]
 dependencies = [
     "numpy",
     "scipy",
@@ -22,8 +22,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "disba",
     "pytest",
     "ruff",
+]
+inv = [
+    "disba",
 ]
 
 [project.scripts]
