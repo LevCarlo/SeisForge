@@ -16,6 +16,7 @@ from typing import Protocol
 
 import numpy as np
 
+from seisforge.inv.bspline import evaluate_bspline
 from seisforge.inv.scaling import estimate_rho, estimate_vp
 
 
@@ -29,6 +30,29 @@ def _as_array(values, *, name: str) -> np.ndarray:
     if not np.all(np.isfinite(array)):
         raise ValueError(f"{name} must contain only finite values.")
     return array
+
+
+def _validate_depth_profile(
+    z,
+    values,
+    *,
+    value_name: str,
+    min_points: int,
+    positive: bool = True,
+) -> tuple[np.ndarray, np.ndarray]:
+    z = _as_array(z, name="z")
+    values = _as_array(values, name=value_name)
+    if len(z) != len(values):
+        raise ValueError(f"z and {value_name} must have the same length.")
+    if len(z) < min_points:
+        raise ValueError(f"z and {value_name} must contain at least {min_points} points.")
+    if not np.isclose(z[0], 0.0):
+        raise ValueError("The first depth must be 0 km.")
+    if np.any(np.diff(z) <= 0):
+        raise ValueError("Depth values must be strictly increasing.")
+    if positive and np.any(values <= 0):
+        raise ValueError(f"{value_name} must be positive.")
+    return z, values
 
 
 @dataclass(frozen=True)
@@ -118,14 +142,39 @@ class GradientVs:
 
 @dataclass(frozen=True)
 class BSplineVs:
-    """Placeholder interface for future B-spline Vs parameterization."""
+    """B-spline Vs profile inside one depth segment.
 
-    control_depths: ArrayLike
-    control_vs: ArrayLike
+    Coefficients are basis-expansion weights on the segment-local normalized
+    coordinate. They are not point velocities except at the open-clamped segment
+    endpoints.
+    """
+
+    coefficients: ArrayLike
     degree: int = 3
+    knot_spacing: str = "geometric"
+    knot_alpha: float = 2.0
+
+    def __post_init__(self):
+        coefficients = _as_array(self.coefficients, name="coefficients")
+        if np.any(coefficients <= 0):
+            raise ValueError("B-spline Vs coefficients must be positive.")
+        if self.degree < 0:
+            raise ValueError("B-spline degree must be non-negative.")
+        if self.knot_alpha <= 0:
+            raise ValueError("B-spline knot_alpha must be positive.")
+        object.__setattr__(self, "coefficients", coefficients)
 
     def evaluate(self, z_local: ArrayLike, *, thickness: float) -> np.ndarray:
-        raise NotImplementedError("BSplineVs will be implemented after the BayesBay MVP.")
+        if thickness <= 0:
+            raise ValueError("BSplineVs requires a positive segment thickness.")
+        return evaluate_bspline(
+            z_local,
+            self.coefficients,
+            degree=self.degree,
+            domain=(0.0, float(thickness)),
+            spacing=self.knot_spacing,
+            alpha=self.knot_alpha,
+        )
 
 
 @dataclass(frozen=True)
@@ -233,6 +282,174 @@ class LayeredVsModel:
         return LayeredModel(self.thickness, vp, self.vs, rho)
 
 
+def layered_vs_model_from_layer_top_depths(
+    z: ArrayLike,
+    vs: ArrayLike,
+    *,
+    scaling: ScalingConfig = ScalingConfig(),
+) -> LayeredVsModel:
+    """Build a piecewise-constant model when depths are layer tops.
+
+    The final depth marks the top of the half-space. For example,
+    z=[0, 2, 5] and vs=[1.5, 2.5, 3.5] becomes 0-2 km, 2-5 km, and a
+    5+ km half-space. Use this only when a reference model is already layered,
+    not for point-sampled continuous profiles.
+    """
+    z, vs = _validate_depth_profile(z, vs, value_name="vs", min_points=1)
+    thickness = np.r_[np.diff(z), 0.0]
+    return LayeredVsModel(thickness=thickness, vs=vs, scaling=scaling)
+
+
+def layered_model_from_layer_top_depths(
+    z: ArrayLike,
+    *,
+    vs: ArrayLike,
+    vp: ArrayLike | None = None,
+    rho: ArrayLike | None = None,
+    scaling: ScalingConfig = ScalingConfig(),
+) -> LayeredModel:
+    """Build a full elastic `LayeredModel` when depths are layer tops.
+
+    `vs` is required. If `vp` or `rho` are omitted, they are estimated from
+    `vs` using `scaling`. Explicit `vp`/`rho` arrays must use the same layer-top
+    depths as `vs`.
+    """
+    vs_model = layered_vs_model_from_layer_top_depths(z, vs, scaling=scaling)
+    scaled_vp, scaled_rho = scaling.apply(vs_model.vs)
+    if vp is None:
+        layer_vp = scaled_vp
+    else:
+        _, layer_vp = _validate_depth_profile(z, vp, value_name="vp", min_points=1)
+    if rho is None:
+        layer_rho = scaled_rho
+    else:
+        _, layer_rho = _validate_depth_profile(z, rho, value_name="rho", min_points=1)
+    return LayeredModel(
+        thickness=vs_model.thickness,
+        vp=layer_vp,
+        vs=vs_model.vs,
+        rho=layer_rho,
+    )
+
+
+def layer_values_from_depth_profile(
+    z: ArrayLike,
+    values: ArrayLike,
+    *,
+    config: DiscretizationConfig | None = None,
+    boundaries: ArrayLike | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample a point-valued depth profile into layer thicknesses and values.
+
+    Here `(z, values)` means "property value measured/evaluated at this depth",
+    not "layer-top value". The profile is linearly interpolated, and each output
+    layer is assigned the midpoint value. The returned arrays both include the
+    final half-space marker/value.
+
+    Pass `boundaries` for variable layer spacing, for example dense shallow
+    layers and coarser deep layers. If omitted, `config.dz` builds a regular
+    grid from 0 to `config.zmax` or the deepest input depth.
+    """
+    z, values = _validate_depth_profile(
+        z,
+        values,
+        value_name="values",
+        min_points=2,
+    )
+    config = config or DiscretizationConfig()
+    zmax = z[-1] if config.zmax is None else min(config.zmax, z[-1])
+
+    if boundaries is None:
+        boundaries = _segment_boundaries(
+            0.0,
+            float(zmax),
+            dz=config.dz,
+            force_depths=config.force_depths,
+        )
+    else:
+        boundaries = _as_array(boundaries, name="boundaries")
+        if len(boundaries) < 2:
+            raise ValueError("boundaries must contain at least two depths.")
+        if not np.isclose(boundaries[0], 0.0):
+            raise ValueError("The first boundary must be 0 km.")
+        if np.any(np.diff(boundaries) <= 0):
+            raise ValueError("boundaries must be strictly increasing.")
+        if boundaries[-1] > z[-1] and not np.isclose(boundaries[-1], z[-1]):
+            raise ValueError("The deepest boundary cannot exceed the input profile.")
+        zmax = float(boundaries[-1])
+
+    layer_tops = boundaries[:-1]
+    layer_bottoms = boundaries[1:]
+    z_mid = 0.5 * (layer_tops + layer_bottoms)
+    layer_values = np.interp(z_mid, z, values)
+    halfspace_value = float(np.interp(zmax, z, values))
+    thickness = np.r_[np.diff(boundaries), 0.0]
+    layer_values = np.r_[layer_values, halfspace_value]
+    return thickness, layer_values
+
+
+def layered_vs_model_from_depth_profile(
+    z: ArrayLike,
+    vs: ArrayLike,
+    *,
+    config: DiscretizationConfig | None = None,
+    boundaries: ArrayLike | None = None,
+    scaling: ScalingConfig = ScalingConfig(),
+) -> LayeredVsModel:
+    """Build a `LayeredVsModel` from a point-sampled `(z, Vs)` profile."""
+    thickness, layer_vs = layer_values_from_depth_profile(
+        z,
+        vs,
+        config=config,
+        boundaries=boundaries,
+    )
+    return LayeredVsModel(thickness=thickness, vs=layer_vs, scaling=scaling)
+
+
+def layered_model_from_depth_profiles(
+    z: ArrayLike,
+    *,
+    vs: ArrayLike,
+    vp: ArrayLike | None = None,
+    rho: ArrayLike | None = None,
+    config: DiscretizationConfig | None = None,
+    boundaries: ArrayLike | None = None,
+    scaling: ScalingConfig = ScalingConfig(),
+) -> LayeredModel:
+    """Build a full elastic `LayeredModel` from sampled depth profiles.
+
+    `vs` is required. If `vp` or `rho` are omitted, they are estimated from
+    `vs` using `scaling`. Explicit `vp`/`rho` profiles use the same layer
+    boundaries and midpoint sampling as `vs`.
+    """
+    thickness, layer_vs = layer_values_from_depth_profile(
+        z,
+        vs,
+        config=config,
+        boundaries=boundaries,
+    )
+    scaled_vp, scaled_rho = scaling.apply(layer_vs)
+    if vp is None:
+        layer_vp = scaled_vp
+    else:
+        _, layer_vp = layer_values_from_depth_profile(
+            z,
+            vp,
+            config=config,
+            boundaries=boundaries,
+        )
+    if rho is None:
+        layer_rho = scaled_rho
+    else:
+        _, layer_rho = layer_values_from_depth_profile(
+            z,
+            rho,
+            config=config,
+            boundaries=boundaries,
+        )
+    return LayeredModel(thickness=thickness, vp=layer_vp, vs=layer_vs, rho=layer_rho)
+
+
 @dataclass(frozen=True)
 class ParameterizedVsModel:
     """Feature-preserving Vs model composed of depth segments."""
@@ -315,6 +532,31 @@ class ParameterizedVsModel:
         vs = np.asarray(vs, dtype=float)
         vp, rho = self.scaling.apply(vs)
         return LayeredModel(thickness, vp, vs, rho)
+
+
+def parameterized_vs_model_from_depth_profile(
+    z: ArrayLike,
+    vs: ArrayLike,
+    *,
+    scaling: ScalingConfig = ScalingConfig(),
+) -> ParameterizedVsModel:
+    """Build a linearly interpolated Vs model from sampled depth-Vs pairs.
+
+    This is the usual helper for continuous reference profiles. Each adjacent
+    pair of depth samples becomes one `GradientVs` segment. Later,
+    `to_layered_model(DiscretizationConfig(dz=...))` controls how finely those
+    gradient segments are approximated by constant-velocity layers.
+    """
+    z, vs = _validate_depth_profile(z, vs, value_name="vs", min_points=2)
+    segments = tuple(
+        VsSegment(
+            top=float(z[i]),
+            bottom=float(z[i + 1]),
+            profile=GradientVs(top=float(vs[i]), bottom=float(vs[i + 1])),
+        )
+        for i in range(len(z) - 1)
+    )
+    return ParameterizedVsModel(segments=segments, scaling=scaling)
 
 
 def _segment_boundaries(

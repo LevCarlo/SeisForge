@@ -1,0 +1,150 @@
+Model:
+  scaling:
+    vp:
+      method: brocher2005
+    rho:
+      method: brocher2005
+  segments:
+    - top_km: 0.0
+      bottom_km: 2.0
+      profile:
+        type: gradient
+        top:
+          parameter: sediment.vs_top
+        bottom:
+          parameter: sediment.vs_bottom
+    - top_km: 2.0
+      bottom_km: 60.0
+      profile:
+        type: bspline
+        degree: 3
+        knot_spacing: geometric
+        knot_alpha: 2.0
+        coefficients:
+          - parameter: crust_mantle.c0
+          - parameter: crust_mantle.c1
+          - parameter: crust_mantle.c2
+          - parameter: crust_mantle.c3
+          - parameter: crust_mantle.c4
+          - parameter: crust_mantle.c5
+          - parameter: crust_mantle.c6
+          - parameter: crust_mantle.c7
+
+Inversion:
+  parameters:
+    - name: sediment.vs_top
+      initial: 1.0
+      prior:
+        type: uniform
+        bounds: [0.5, 2.0]
+      proposal:
+        sigma: 0.04
+    - name: sediment.vs_bottom
+      initial: 2.0
+      prior:
+        type: uniform
+        bounds: [1.0, 3.0]
+      proposal:
+        sigma: 0.04
+    - name: crust_mantle.c0
+      initial: 2.2
+      prior:
+        type: uniform
+        bounds: [1.8, 3.2]
+      proposal:
+        sigma: 0.04
+    - name: crust_mantle.c1
+      initial: 2.6
+      prior:
+        type: uniform
+        bounds: [2.0, 3.6]
+      proposal:
+        sigma: 0.04
+    - name: crust_mantle.c2
+      initial: 3.0
+      prior:
+        type: uniform
+        bounds: [2.4, 4.0]
+      proposal:
+        sigma: 0.04
+    - name: crust_mantle.c3
+      initial: 3.4
+      prior:
+        type: uniform
+        bounds: [2.8, 4.4]
+      proposal:
+        sigma: 0.04
+    - name: crust_mantle.c4
+      initial: 3.7
+      prior:
+        type: uniform
+        bounds: [3.0, 4.7]
+      proposal:
+        sigma: 0.04
+    - name: crust_mantle.c5
+      initial: 4.0
+      prior:
+        type: uniform
+        bounds: [3.3, 4.8]
+      proposal:
+        sigma: 0.04
+    - name: crust_mantle.c6
+      initial: 4.2
+      prior:
+        type: uniform
+        bounds: [3.6, 4.9]
+      proposal:
+        sigma: 0.04
+    - name: crust_mantle.c7
+      initial: 4.4
+      prior:
+        type: uniform
+        bounds: [3.8, 4.9]
+      proposal:
+        sigma: 0.04
+
+Discretization:
+  dz: 0.5
+  zmax: 60.0
+  force_depths: [2.0]
+
+Constraints:
+  constraints:
+    - type: positive_velocity
+    - type: vp_gt_vs
+      margin: 0.05
+    - type: boundary_non_decreasing_vs
+      tolerance: 0.05
+    - type: vs_range
+      depth_range: [0.0, 60.0]
+      bounds: [0.5, 4.9]
+      dz: 0.5
+    - type: max_vs_gradient
+      depth_range: [0.0, 60.0]
+      max_abs: 0.8
+      dz: 0.5
+
+Observations:
+  dispersion:
+    wave: rayleigh
+    kind: phase
+    mode: 0
+  hv:
+    wave: rayleigh
+    mode: 0
+
+Likelihood:
+  dispersion_weight: 1.0
+  hv_weight: 1.0
+
+Sampler:
+  n_steps: 20000
+  burn_in: 5000
+  thin: 5
+  n_chains: 4
+  executor: serial
+  seed: 20260701
+  initial_strategy: prior_uniform
+  proposal_sigma: from_parameters
+  use_parameter_bounds: true
+  global_jump_interval: 1000

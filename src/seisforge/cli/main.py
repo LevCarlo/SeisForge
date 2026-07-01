@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from seisforge.cli import rf
+from seisforge.cli import inv, rf
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="domain", metavar="<domain>")
     rf.register(subparsers)
     _register_placeholder(subparsers, "ant", "Ambient-noise tools.")
-    _register_placeholder(subparsers, "inv", "Single-station inversion tools.")
+    inv.register(subparsers)
 
     return parser
 

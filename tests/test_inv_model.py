@@ -6,6 +6,7 @@ from seisforge.inv.io import (
     parameterized_vs_model_from_config,
 )
 from seisforge.inv.model import (
+    BSplineVs,
     ConstantVs,
     DiscretizationConfig,
     GradientVs,
@@ -13,7 +14,14 @@ from seisforge.inv.model import (
     LayeredVsModel,
     ParameterizedVsModel,
     VsSegment,
+    layer_values_from_depth_profile,
+    layered_model_from_depth_profiles,
+    layered_model_from_layer_top_depths,
+    layered_vs_model_from_depth_profile,
+    layered_vs_model_from_layer_top_depths,
+    parameterized_vs_model_from_depth_profile,
 )
+from seisforge.inv.plotting import layer_stairs, model_property_stairs
 
 
 def test_layered_model_requires_halfspace():
@@ -44,6 +52,87 @@ def test_layered_vs_model_converts_to_elastic_model():
     assert np.all(layered.vp > layered.vs)
 
 
+def test_layer_values_from_depth_profile_uses_midpoint_interpolation():
+    thickness, values = layer_values_from_depth_profile(
+        z=[0.0, 2.0, 4.0],
+        values=[2.0, 4.0, 6.0],
+        config=DiscretizationConfig(dz=1.0),
+    )
+
+    np.testing.assert_allclose(thickness, np.array([1.0, 1.0, 1.0, 1.0, 0.0]))
+    np.testing.assert_allclose(values, np.array([2.5, 3.5, 4.5, 5.5, 6.0]))
+
+
+def test_layered_vs_model_from_depth_profile_accepts_custom_boundaries():
+    model = layered_vs_model_from_depth_profile(
+        z=[0.0, 1.0, 3.0],
+        vs=[2.0, 3.0, 4.0],
+        boundaries=[0.0, 0.25, 0.5, 1.0, 3.0],
+    )
+
+    np.testing.assert_allclose(model.thickness, np.array([0.25, 0.25, 0.5, 2.0, 0.0]))
+    assert model.vs[0] < model.vs[-2]
+
+
+def test_layered_model_from_depth_profiles_can_derive_vp_and_rho():
+    model = layered_model_from_depth_profiles(
+        z=[0.0, 2.0, 4.0],
+        vs=[2.0, 3.0, 4.0],
+        config=DiscretizationConfig(dz=2.0),
+    )
+
+    assert isinstance(model, LayeredModel)
+    np.testing.assert_allclose(model.vs, np.array([2.5, 3.5, 4.0]))
+    assert np.all(model.vp > model.vs)
+    assert np.all(model.rho > 0.0)
+
+
+def test_layered_model_from_depth_profiles_accepts_explicit_vp_and_rho():
+    model = layered_model_from_depth_profiles(
+        z=[0.0, 2.0, 4.0],
+        vs=[2.0, 3.0, 4.0],
+        vp=[4.0, 5.0, 6.0],
+        rho=[2.5, 2.6, 2.7],
+        config=DiscretizationConfig(dz=2.0),
+    )
+
+    np.testing.assert_allclose(model.vs, np.array([2.5, 3.5, 4.0]))
+    np.testing.assert_allclose(model.vp, np.array([4.5, 5.5, 6.0]))
+    np.testing.assert_allclose(model.rho, np.array([2.55, 2.65, 2.7]))
+
+
+def test_layered_vs_model_from_layer_top_depths_keeps_layer_values():
+    model = layered_vs_model_from_layer_top_depths(
+        z=[0.0, 2.0, 5.0],
+        vs=[1.5, 2.5, 3.5],
+    )
+
+    np.testing.assert_allclose(model.thickness, np.array([2.0, 3.0, 0.0]))
+    np.testing.assert_allclose(model.vs, np.array([1.5, 2.5, 3.5]))
+
+
+def test_layered_model_from_layer_top_depths_accepts_explicit_properties():
+    model = layered_model_from_layer_top_depths(
+        z=[0.0, 2.0, 5.0],
+        vs=[2.0, 3.0, 4.0],
+        vp=[4.0, 5.0, 6.0],
+        rho=[2.5, 2.6, 2.7],
+    )
+
+    np.testing.assert_allclose(model.thickness, np.array([2.0, 3.0, 0.0]))
+    np.testing.assert_allclose(model.vp, np.array([4.0, 5.0, 6.0]))
+    np.testing.assert_allclose(model.rho, np.array([2.5, 2.6, 2.7]))
+
+
+def test_parameterized_vs_model_from_depth_profile_builds_gradient_segments():
+    model = parameterized_vs_model_from_depth_profile(
+        z=[0.0, 2.0, 4.0],
+        vs=[2.0, 4.0, 5.0],
+    )
+
+    np.testing.assert_allclose(model.evaluate(np.array([0.0, 1.0, 3.0])), [2.0, 3.0, 4.5])
+
+
 def test_parameterized_model_preserves_segment_boundary():
     model = ParameterizedVsModel(
         segments=(
@@ -64,6 +153,45 @@ def test_gradient_segment_evaluates_with_local_depth():
     values = segment.evaluate(np.array([10.0, 15.0, 20.0]))
 
     np.testing.assert_allclose(values, np.array([3.0, 3.5, 4.0]))
+
+
+def test_bspline_segment_evaluates_with_local_depth():
+    segment = VsSegment(
+        10.0,
+        20.0,
+        BSplineVs(coefficients=[3.0, 3.2, 3.6, 4.0], degree=3),
+    )
+
+    values = segment.evaluate(np.array([10.0, 15.0, 20.0]))
+
+    assert values.shape == (3,)
+    np.testing.assert_allclose(values[[0, -1]], np.array([3.0, 4.0]))
+    assert 3.0 < values[1] < 4.0
+
+
+def test_parameterized_model_combines_gradient_and_bspline_segments():
+    model = ParameterizedVsModel(
+        segments=(
+            VsSegment(0.0, 2.0, GradientVs(top=1.5, bottom=2.5)),
+            VsSegment(
+                2.0,
+                10.0,
+                BSplineVs(
+                    coefficients=[2.6, 3.0, 3.4, 3.8],
+                    degree=3,
+                    knot_spacing="uniform",
+                ),
+            ),
+        )
+    )
+
+    values = model.evaluate(np.array([0.0, 1.0, 2.0, 6.0, 10.0]))
+    layered = model.to_layered_model(DiscretizationConfig(dz=2.0))
+
+    np.testing.assert_allclose(values[:3], np.array([1.5, 2.0, 2.6]))
+    np.testing.assert_allclose(values[-1], 3.8)
+    assert any(np.isclose(layered.interfaces, 2.0))
+    assert np.all(layered.vs > 0.0)
 
 
 def test_layered_vs_model_from_config():
@@ -109,3 +237,57 @@ def test_parameterized_model_from_config_and_discretization_config():
 
     assert any(np.isclose(layered.interfaces, 1.5))
     assert any(np.isclose(layered.interfaces, 2.0))
+
+
+def test_parameterized_model_from_config_accepts_bspline_profile():
+    config = {
+        "Model": {
+            "segments": [
+                {
+                    "top_km": 0.0,
+                    "bottom_km": 1.0,
+                    "profile": {"type": "gradient", "top": 1.0, "bottom": 2.0},
+                },
+                {
+                    "top_km": 1.0,
+                    "bottom_km": 6.0,
+                    "profile": {
+                        "type": "bspline",
+                        "coefficients": [2.0, 2.4, 2.8, 3.2],
+                        "degree": 3,
+                        "knot_spacing": "uniform",
+                    },
+                },
+            ],
+        },
+    }
+
+    model = parameterized_vs_model_from_config(config)
+    values = model.evaluate(np.array([0.0, 1.0, 6.0]))
+
+    np.testing.assert_allclose(values, np.array([1.0, 2.0, 3.2]))
+
+
+def test_layer_stairs_clip_to_zmax():
+    values, edges = layer_stairs(
+        thickness=[1.0, 1.0, 0.0],
+        values=[2.0, 3.0, 4.0],
+        zmax=1.5,
+    )
+
+    np.testing.assert_allclose(values, np.array([2.0, 3.0]))
+    np.testing.assert_allclose(edges, np.array([0.0, 1.0, 1.5]))
+
+
+def test_model_property_stairs_can_plot_vp():
+    model = LayeredModel(
+        thickness=[1.0, 1.0, 0.0],
+        vp=[4.0, 5.0, 6.0],
+        vs=[2.0, 3.0, 4.0],
+        rho=[2.5, 2.6, 2.7],
+    )
+
+    values, edges = model_property_stairs(model, model.vp, zmax=2.5)
+
+    np.testing.assert_allclose(values, np.array([4.0, 5.0, 6.0]))
+    np.testing.assert_allclose(edges, np.array([0.0, 1.0, 2.0, 2.5]))
