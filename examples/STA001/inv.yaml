@@ -1,0 +1,189 @@
+# Inversion settings for station STA001.
+#
+# This file is meant to be edited often during experiments. Observation files,
+# wave type, mode number, and forward-model numerical settings live in obs.yaml.
+
+Model:
+  # Vs is the primary inverted variable. Vp and rho are derived for disba.
+  scaling:
+    vp:
+      method: brocher2005
+    rho:
+      method: brocher2005
+
+  # Segment idea: the shallow part is a simple gradient, and the rest is a
+  # B-spline basis on local normalized depth inside that segment.
+  segments:
+    - top_km: 0.0
+      bottom_km: 1.0
+      profile:
+        type: gradient
+        top:
+          parameter: sediment.vs_top
+        bottom:
+          parameter: sediment.vs_bottom
+
+    - top_km: 1.0
+      bottom_km: 15.0
+      profile:
+        type: bspline
+        degree: 3
+        knot_spacing: geometric
+        knot_alpha: 1.6
+        coefficients:
+          - parameter: crust.c0
+          - parameter: crust.c1
+          - parameter: crust.c2
+          - parameter: crust.c3
+          - parameter: crust.c4
+          - parameter: crust.c5
+          - parameter: crust.c6
+          - parameter: crust.c7
+
+Inversion:
+  # Parameter priors define the scalar support before model-level hard
+  # constraints are evaluated. Proposal sigma is only sampler tuning.
+  parameters:
+    - name: sediment.vs_top
+      initial: 2.00
+      prior:
+        type: uniform
+        bounds: [1.20, 2.70]
+      proposal:
+        sigma: 0.04
+
+    - name: sediment.vs_bottom
+      initial: 3.05
+      prior:
+        type: uniform
+        bounds: [2.40, 3.45]
+      proposal:
+        sigma: 0.035
+
+    - name: crust.c0
+      initial: 3.05
+      prior:
+        type: uniform
+        bounds: [2.50, 3.55]
+      proposal:
+        sigma: 0.035
+
+    - name: crust.c1
+      initial: 3.15
+      prior:
+        type: uniform
+        bounds: [2.60, 3.65]
+      proposal:
+        sigma: 0.035
+
+    - name: crust.c2
+      initial: 3.25
+      prior:
+        type: uniform
+        bounds: [2.70, 3.75]
+      proposal:
+        sigma: 0.035
+
+    - name: crust.c3
+      initial: 3.35
+      prior:
+        type: uniform
+        bounds: [2.80, 3.85]
+      proposal:
+        sigma: 0.035
+
+    - name: crust.c4
+      initial: 3.45
+      prior:
+        type: uniform
+        bounds: [2.90, 3.95]
+      proposal:
+        sigma: 0.035
+
+    - name: crust.c5
+      initial: 3.55
+      prior:
+        type: uniform
+        bounds: [3.00, 4.05]
+      proposal:
+        sigma: 0.035
+
+    - name: crust.c6
+      initial: 3.60
+      prior:
+        type: uniform
+        bounds: [3.05, 4.15]
+      proposal:
+        sigma: 0.035
+
+    - name: crust.c7
+      initial: 3.65
+      prior:
+        type: uniform
+        bounds: [3.10, 4.25]
+      proposal:
+        sigma: 0.035
+
+Discretization:
+  dz: 0.25
+  zmax: 15.0
+  # Segment boundaries are preserved automatically. Use force_depths only for
+  # extra fixed internal depths that are not already model segment boundaries.
+  force_depths: []
+
+Constraints:
+  # These are hard geophysical priors. Invalid models receive log prior = -inf
+  # and are rejected before the forward calculation contributes to likelihood.
+  constraints:
+    - type: positive_velocity
+
+    - type: vp_vs_range
+      bounds: [1.45, 2.70]
+
+    - type: boundary_non_decreasing_vs
+      tolerance: 0.05
+
+    - type: vs_range
+      depth_range: [0.0, 15.0]
+      bounds: [0.8, 4.6]
+      dz: 0.25
+
+    # A small tolerance keeps the prior geologically smooth without requiring
+    # mathematically strict monotonicity at every sampled depth.
+    - type: monotonic_vs
+      depth_range: [0.0, 15.0]
+      tolerance: 0.06
+      dz: 0.25
+
+    - type: max_vs_gradient
+      depth_range: [0.0, 15.0]
+      max_abs: 1.2
+      dz: 0.25
+
+Likelihood:
+  # Current implementation uses explicit weighted Gaussian chi-square terms:
+  # log L = -0.5 * (w_disp * chi2_disp + w_hv * chi2_hv).
+  dispersion_weight: 1.0
+  hv_weight: 1.0
+
+Sampler:
+  n_steps: 5000
+  burn_in: 1000
+  thin: 5
+  n_chains: 4
+  executor: serial
+  max_workers: null
+  seed: 20260702
+
+  # prior_uniform draws legal starting points from parameter bounds plus hard
+  # constraints. Use theta0 when you intentionally want all chains near the
+  # listed initial values.
+  initial_strategy: prior_uniform
+  max_initial_attempts: 50000
+
+  proposal_sigma: from_parameters
+  use_parameter_bounds: true
+
+  # Every N steps, use a global uniform proposal over parameter bounds. This is
+  # the pymcinv step4uwalk idea, kept as an occasional escape move.
+  global_jump_interval: 1000

@@ -79,6 +79,19 @@ class VpGreaterThanVsConstraint:
 
 
 @dataclass(frozen=True)
+class VpVsRangeConstraint:
+    """Require the Vp/Vs ratio to stay inside a geophysical range."""
+
+    bounds: tuple[float, float]
+    name: str = "vp_vs_range"
+
+    def check(self, model: ParameterizedVsModel, layered: LayeredModel) -> bool:
+        lower, upper = self.bounds
+        ratio = layered.vp / layered.vs
+        return bool(np.all((ratio >= lower) & (ratio <= upper)))
+
+
+@dataclass(frozen=True)
 class BoundaryNonDecreasingVsConstraint:
     """Require Vs not to drop across segment boundaries."""
 
@@ -157,6 +170,8 @@ def _constraint_from_config(config: dict) -> PhysicalConstraint:
         return PositiveVelocityConstraint()
     if constraint_type == "vp_gt_vs":
         return VpGreaterThanVsConstraint(margin=float(config.get("margin", 0.0)))
+    if constraint_type == "vp_vs_range":
+        return VpVsRangeConstraint(bounds=_as_pair(config["bounds"]))
     if constraint_type in {"boundary_non_decreasing_vs", "boundary_vs"}:
         return BoundaryNonDecreasingVsConstraint(tolerance=float(config.get("tolerance", 0.0)))
     if constraint_type == "vs_range":

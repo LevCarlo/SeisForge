@@ -1,9 +1,9 @@
 import numpy as np
 
 
-_ZRT_COMPONENTS = ("ZZ", "ZR", "ZT", "RZ", "RR", "RT", "TZ", "TR", "TT")
+ZRT_COMPONENTS = ("ZZ", "ZR", "ZT", "RZ", "RR", "RT", "TZ", "TR", "TT")
 
-_REQUIRED_BY_COMPONENT = {
+REQUIRED_ZNE_BY_ZRT_COMPONENT = {
     "ZZ": ("ZZ",),
     "ZR": ("ZN", "ZE"),
     "ZT": ("ZN", "ZE"),
@@ -14,6 +14,31 @@ _REQUIRED_BY_COMPONENT = {
     "TR": ("NN", "NE", "EN", "EE"),
     "TT": ("NN", "NE", "EN", "EE"),
 }
+_ZRT_COMPONENTS = ZRT_COMPONENTS
+_REQUIRED_BY_COMPONENT = REQUIRED_ZNE_BY_ZRT_COMPONENT
+
+
+def required_zne_components(components=None):
+    """Return the ZNE input components needed for requested ZRT outputs."""
+    if components is None:
+        components = ZRT_COMPONENTS
+    else:
+        components = tuple(components)
+
+    invalid_components = [comp for comp in components if comp not in ZRT_COMPONENTS]
+    if invalid_components:
+        raise ValueError(
+            "Invalid components requested for rotation: "
+            f"{invalid_components}. Valid components are: {ZRT_COMPONENTS}"
+        )
+
+    return tuple(
+        dict.fromkeys(
+            req
+            for comp in components
+            for req in REQUIRED_ZNE_BY_ZRT_COMPONENT[comp]
+        )
+    )
 
 
 def rotate_zne_ccf_to_zrt(
@@ -61,24 +86,18 @@ def rotate_zne_ccf_to_zrt(
         Rotated cross-correlation functions in the ZRT coordinate system.
     """
     if components is None:
-        components = _ZRT_COMPONENTS
+        components = ZRT_COMPONENTS
     else:
         components = tuple(components)
 
-    invalid_components = [comp for comp in components if comp not in _ZRT_COMPONENTS]
+    invalid_components = [comp for comp in components if comp not in ZRT_COMPONENTS]
     if invalid_components:
         raise ValueError(
             "Invalid components requested for rotation: "
-            f"{invalid_components}. Valid components are: {_ZRT_COMPONENTS}"
+            f"{invalid_components}. Valid components are: {ZRT_COMPONENTS}"
         )
 
-    required_components = tuple(
-        dict.fromkeys(
-            req
-            for comp in components
-            for req in _REQUIRED_BY_COMPONENT[comp]
-        )
-    )
+    required_components = required_zne_components(components)
 
     if check:
         missing_components = [comp for comp in required_components if comp not in ccf]

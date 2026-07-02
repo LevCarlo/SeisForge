@@ -1,0 +1,29 @@
+io:
+  input_dir: /path/to/CCF_ZNE/NET.STA1_NET.STA2
+  output_dir: /path/to/CCF_ZRT/NET.STA1_NET.STA2
+  input_template: "*_{component}_pws.SAC"
+  # Output names preserve the matched input filename by default, replacing only
+  # the component token. For example:
+  # NET.STA1_NET.STA2_ZN_pws.SAC -> NET.STA1_NET.STA2_ZR_pws.SAC
+  # output_template: "{source_name}"
+
+rotation:
+  obj_components: [ZZ, ZR, ZT, RZ, RR, RT, TZ, TR, TT]
+  degrees: true
+  overwrite: false
+
+# By default, azimuth/back_azimuth are inferred from SAC headers.
+# The workflow reads az/baz first, then computes them from coordinates when
+# az/baz are missing:
+# evla/evlo = virtual-source station, stla/stlo = receiver station.
+# Uncomment these to override header-based inference.
+# azimuth: 120.0
+# back_azimuth: 300.0
+
+# For multiple station pairs, keep the defaults above and override per job:
+# jobs:
+#   - name: NET.STA1_NET.STA2
+#     input_dir: /path/to/CCF_ZNE/NET.STA1_NET.STA2
+#     output_dir: /path/to/CCF_ZRT/NET.STA1_NET.STA2
+#     azimuth: 120.0       # optional override
+#     back_azimuth: 300.0  # optional override

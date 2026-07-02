@@ -1,6 +1,6 @@
 import numpy as np
 
-from seisforge.ant.rotation import rotate_zne_ccf_to_zrt
+from seisforge.ant.rotation import required_zne_components, rotate_zne_ccf_to_zrt
 
 
 def test_rotate_zne_ccf_to_zrt_identity_angles():
@@ -36,3 +36,14 @@ def test_rotate_zne_ccf_to_zrt_validates_missing_components():
         assert "Missing input ZNE components" in str(exc)
     else:
         raise AssertionError("missing input components should raise KeyError")
+
+
+def test_required_zne_components_for_selected_outputs():
+    assert required_zne_components(["ZR", "RR"]) == (
+        "ZN",
+        "ZE",
+        "NN",
+        "NE",
+        "EN",
+        "EE",
+    )

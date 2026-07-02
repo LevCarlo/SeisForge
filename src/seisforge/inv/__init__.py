@@ -16,6 +16,7 @@ from seisforge.inv.constraints import (
     PhysicalConstraint,
     PositiveVelocityConstraint,
     VpGreaterThanVsConstraint,
+    VpVsRangeConstraint,
     VsRangeConstraint,
     constraints_from_config,
 )
@@ -160,6 +161,7 @@ __all__ = [
     "SamplerSettings",
     "UniformPrior",
     "VpGreaterThanVsConstraint",
+    "VpVsRangeConstraint",
     "VsEnsemble",
     "VsRangeConstraint",
     "VsSegment",

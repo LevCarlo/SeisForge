@@ -106,6 +106,24 @@ def _write_observations(tmp_path, config):
     return disp_file, hv_file
 
 
+def _obs_config():
+    return {
+        "Observations": {
+            "dispersion": {
+                "file": "vph_disp.dat",
+                "wave": "rayleigh",
+                "kind": "phase",
+                "mode": 0,
+            },
+            "hv": {"file": "hv.dat", "wave": "rayleigh", "mode": 0},
+        },
+        "Forward": {
+            "dispersion": {"algorithm": "dunkin", "dc": 0.005, "dt": 0.025},
+            "hv": {"algorithm": "dunkin", "dc": 0.005},
+        },
+    }
+
+
 def test_read_observation_dat_sorts_periods(tmp_path):
     disp_file = tmp_path / "disp.dat"
     hv_file = tmp_path / "hv.dat"
@@ -142,6 +160,32 @@ def test_disp_hv_runner_writes_xarray_outputs(tmp_path):
     with xr.open_dataset(result.posterior_mcmc) as dataset:
         assert "theta" in dataset
         assert list(dataset.coords["parameter"].values) == ["vs0", "vs1", "vs2"]
+    with xr.open_dataset(result.posterior_predictive) as dataset:
+        assert "dispersion_predicted_velocity" in dataset
+        assert "hv_predicted_hv" in dataset
+
+
+def test_disp_hv_runner_reads_split_inv_and_obs_configs(tmp_path):
+    config = _config()
+    inv_config = dict(config)
+    inv_config.pop("Observations", None)
+    inv_file = tmp_path / "inv.yaml"
+    obs_file = tmp_path / "obs.yaml"
+    dump_yaml(inv_config, inv_file)
+    dump_yaml(_obs_config(), obs_file)
+    _write_observations(tmp_path, config)
+    output = tmp_path / "disp_hv_split"
+
+    result = run_dispersion_hv_inversion(
+        inv_file=inv_file,
+        obs_file=obs_file,
+        output=output,
+        progress=False,
+    )
+
+    assert result.posterior_mcmc == output / "disp_hv_mcmc.nc"
+    assert (output / "resolved_inv.yaml").exists()
+    assert (output / "resolved_obs.yaml").exists()
     with xr.open_dataset(result.posterior_predictive) as dataset:
         assert "dispersion_predicted_velocity" in dataset
         assert "hv_predicted_hv" in dataset

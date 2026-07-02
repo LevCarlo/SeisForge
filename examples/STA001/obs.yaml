@@ -1,0 +1,31 @@
+# Observation and forward-model settings for station STA001.
+#
+# The .dat files use three columns:
+#   period  observed_value  one_sigma_uncertainty
+
+Observations:
+  dispersion:
+    file: vph_disp.dat
+    wave: rayleigh
+    kind: phase
+    mode: 0
+
+  hv:
+    file: hv.dat
+    wave: rayleigh
+    mode: 0
+
+Forward:
+  # Numerical settings for disba dispersion calculation. These describe how the
+  # synthetic data are computed, so they live with the observation definition
+  # rather than in inv.yaml.
+  dispersion:
+    algorithm: dunkin
+    dc: 0.005
+    dt: 0.025
+
+  # Rayleigh H/V forward settings. Only fundamental-mode Rayleigh is currently
+  # implemented in the inversion workflow.
+  hv:
+    algorithm: dunkin
+    dc: 0.005

@@ -4,6 +4,7 @@ from seisforge.inv.constraints import (
     BoundaryNonDecreasingVsConstraint,
     ConstraintSuite,
     MonotonicVsConstraint,
+    VpVsRangeConstraint,
     VsRangeConstraint,
     constraints_from_config,
 )
@@ -133,6 +134,7 @@ def test_constraint_suite_reports_physical_prior_support():
             BoundaryNonDecreasingVsConstraint(),
             MonotonicVsConstraint(depth_range=(0.0, 10.0), dz=0.5),
             VsRangeConstraint(bounds=(0.5, 4.5), dz=0.5),
+            VpVsRangeConstraint(bounds=(1.4, 2.7)),
         )
     )
 
@@ -163,13 +165,14 @@ def test_constraints_from_config_builds_yaml_declared_rules():
             "constraints": [
                 {"type": "positive_velocity"},
                 {"type": "vp_gt_vs", "margin": 0.01},
+                {"type": "vp_vs_range", "bounds": [1.4, 2.7]},
                 {"type": "boundary_non_decreasing_vs"},
                 {"type": "vs_range", "bounds": [0.5, 4.5], "depth_range": [0.0, 10.0]},
             ]
         }
     )
 
-    assert len(suite.constraints) == 4
+    assert len(suite.constraints) == 5
 
 
 def test_geophysical_prior_is_prior_only_mcmc_target():

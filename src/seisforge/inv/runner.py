@@ -44,9 +44,11 @@ class InversionRunResult:
 
 def run_dispersion_inversion(
     *,
-    config_file: str | Path,
-    dispersion_file: str | Path | None,
     output: str | Path,
+    inv_file: str | Path | None = None,
+    obs_file: str | Path | None = None,
+    config_file: str | Path | None = None,
+    dispersion_file: str | Path | None = None,
     prior_only: bool = False,
     with_prior: bool = False,
     overwrite: bool = False,
@@ -56,6 +58,8 @@ def run_dispersion_inversion(
 ) -> InversionRunResult:
     return run_inversion(
         kind="disp",
+        inv_file=inv_file,
+        obs_file=obs_file,
         config_file=config_file,
         dispersion_file=dispersion_file,
         hv_file=None,
@@ -71,9 +75,11 @@ def run_dispersion_inversion(
 
 def run_hv_inversion(
     *,
-    config_file: str | Path,
-    hv_file: str | Path | None,
     output: str | Path,
+    inv_file: str | Path | None = None,
+    obs_file: str | Path | None = None,
+    config_file: str | Path | None = None,
+    hv_file: str | Path | None = None,
     prior_only: bool = False,
     with_prior: bool = False,
     overwrite: bool = False,
@@ -83,6 +89,8 @@ def run_hv_inversion(
 ) -> InversionRunResult:
     return run_inversion(
         kind="hv",
+        inv_file=inv_file,
+        obs_file=obs_file,
         config_file=config_file,
         dispersion_file=None,
         hv_file=hv_file,
@@ -98,10 +106,12 @@ def run_hv_inversion(
 
 def run_dispersion_hv_inversion(
     *,
-    config_file: str | Path,
-    dispersion_file: str | Path | None,
-    hv_file: str | Path | None,
     output: str | Path,
+    inv_file: str | Path | None = None,
+    obs_file: str | Path | None = None,
+    config_file: str | Path | None = None,
+    dispersion_file: str | Path | None = None,
+    hv_file: str | Path | None = None,
     prior_only: bool = False,
     with_prior: bool = False,
     overwrite: bool = False,
@@ -111,6 +121,8 @@ def run_dispersion_hv_inversion(
 ) -> InversionRunResult:
     return run_inversion(
         kind="disp_hv",
+        inv_file=inv_file,
+        obs_file=obs_file,
         config_file=config_file,
         dispersion_file=dispersion_file,
         hv_file=hv_file,
@@ -127,10 +139,12 @@ def run_dispersion_hv_inversion(
 def run_inversion(
     *,
     kind: InversionKind,
-    config_file: str | Path,
-    dispersion_file: str | Path | None,
-    hv_file: str | Path | None,
     output: str | Path,
+    inv_file: str | Path | None = None,
+    obs_file: str | Path | None = None,
+    config_file: str | Path | None = None,
+    dispersion_file: str | Path | None = None,
+    hv_file: str | Path | None = None,
     prior_only: bool = False,
     with_prior: bool = False,
     overwrite: bool = False,
@@ -142,15 +156,20 @@ def run_inversion(
 
     if prior_only and with_prior:
         raise ValueError("--prior-only and --with-prior cannot both be used.")
+    inv_path, obs_path, inv_config, obs_config = _load_run_configs(
+        inv_file=inv_file,
+        obs_file=obs_file,
+        config_file=config_file,
+    )
     output_dir = _prepare_output_dir(output, overwrite=overwrite)
     prefix = _prefix(kind)
     log_file = output_dir / f"{prefix}.log"
     logger = _configure_logger(log_file, level=log_level)
 
-    config_file = Path(config_file)
-    config = load_yaml(config_file)
     run_config = _config_with_observations(
-        config,
+        inv_config,
+        obs_config=obs_config,
+        obs_base_dir=None if obs_path is None else obs_path.parent,
         kind=kind,
         dispersion_file=dispersion_file,
         hv_file=hv_file,
@@ -159,19 +178,31 @@ def run_inversion(
     setup = joint_inversion_setup_from_config(run_config)
     attrs = _run_attrs(
         kind=kind,
-        config_file=config_file,
+        inv_file=inv_path,
+        obs_file=obs_path,
         dispersion_file=dispersion_file,
         hv_file=hv_file,
         setup=setup,
     )
     _write_resolved_config(
-        config,
+        run_config,
         output_dir / "resolved_config.yaml",
+        attrs=attrs,
+    )
+    _write_input_snapshots(
+        output_dir,
+        inv_config=inv_config,
+        obs_config=obs_config,
         attrs=attrs,
     )
 
     logger.info("inversion kind: %s", kind)
-    logger.info("config: %s", config_file)
+    if config_file is not None:
+        logger.info("config: %s", config_file)
+    else:
+        logger.info("inv: %s", inv_path)
+        if obs_path is not None:
+            logger.info("obs: %s", obs_path)
     if dispersion_file is not None:
         logger.info("dispersion file: %s", dispersion_file)
     if hv_file is not None:
@@ -232,28 +263,49 @@ def run_inversion(
 def _config_with_observations(
     config: dict,
     *,
+    obs_config: dict | None = None,
+    obs_base_dir: Path | None = None,
     kind: InversionKind,
     dispersion_file: str | Path | None,
     hv_file: str | Path | None,
     require_data: bool,
 ) -> dict:
     run_config = copy.deepcopy(config)
-    obs_meta = copy.deepcopy(run_config.get("Observations", {}))
+    obs_meta = _observation_metadata(run_config, obs_config)
     observations = {}
     if kind in {"disp", "disp_hv"}:
+        dispersion_meta = obs_meta.get("dispersion", {})
+        dispersion_file = _observation_file(
+            dispersion_file,
+            dispersion_meta,
+            base_dir=obs_base_dir,
+        )
         if dispersion_file is None:
             if require_data:
-                raise ValueError("--disp is required for dispersion posterior runs.")
+                raise ValueError(
+                    "--disp or Observations.dispersion.file is required "
+                    "for dispersion posterior runs."
+                )
         else:
-            dispersion = obs_meta.get("dispersion", {})
+            dispersion = copy.deepcopy(dispersion_meta)
+            dispersion.pop("file", None)
             dispersion.update(read_dispersion_dat(dispersion_file))
             observations["dispersion"] = dispersion
     if kind in {"hv", "disp_hv"}:
+        hv_meta = obs_meta.get("hv", obs_meta.get("rayleigh_hv", {}))
+        hv_file = _observation_file(
+            hv_file,
+            hv_meta,
+            base_dir=obs_base_dir,
+        )
         if hv_file is None:
             if require_data:
-                raise ValueError("--hv is required for H/V posterior runs.")
+                raise ValueError(
+                    "--hv or Observations.hv.file is required for H/V posterior runs."
+                )
         else:
-            hv = obs_meta.get("hv", obs_meta.get("rayleigh_hv", {}))
+            hv = copy.deepcopy(hv_meta)
+            hv.pop("file", None)
             hv.update(read_hv_dat(hv_file))
             observations["hv"] = hv
     if observations:
@@ -261,6 +313,57 @@ def _config_with_observations(
     else:
         run_config.pop("Observations", None)
     return run_config
+
+
+def _load_run_configs(
+    *,
+    inv_file: str | Path | None,
+    obs_file: str | Path | None,
+    config_file: str | Path | None,
+) -> tuple[Path, Path | None, dict, dict | None]:
+    if config_file is not None and (inv_file is not None or obs_file is not None):
+        raise ValueError("Use either --config or --inv/--obs, not both.")
+    if config_file is not None:
+        path = Path(config_file)
+        return path, None, load_yaml(path), None
+    if inv_file is None:
+        raise ValueError("--inv is required unless --config is used.")
+    inv_path = Path(inv_file)
+    obs_path = None if obs_file is None else Path(obs_file)
+    obs_config = None if obs_path is None else load_yaml(obs_path)
+    return inv_path, obs_path, load_yaml(inv_path), obs_config
+
+
+def _observation_metadata(
+    inv_config: dict,
+    obs_config: dict | None,
+) -> dict:
+    if obs_config is None:
+        return copy.deepcopy(inv_config.get("Observations", {}))
+    observations = copy.deepcopy(obs_config.get("Observations", obs_config.get("Data", {})))
+    forward = copy.deepcopy(obs_config.get("Forward", {}))
+    for key, settings in forward.items():
+        if not isinstance(settings, dict):
+            continue
+        observation = observations.setdefault(key, {})
+        if isinstance(observation, dict):
+            observation.update(settings)
+    return observations
+
+
+def _observation_file(
+    explicit_file: str | Path | None,
+    metadata: dict,
+    *,
+    base_dir: Path | None,
+) -> Path | None:
+    path = explicit_file if explicit_file is not None else metadata.get("file")
+    if path is None:
+        return None
+    path = Path(path)
+    if not path.is_absolute() and explicit_file is None and base_dir is not None:
+        path = base_dir / path
+    return path
 
 
 def _write_prior_outputs(
@@ -380,6 +483,22 @@ def _write_resolved_config(config: dict, path: Path, *, attrs: dict) -> None:
     dump_yaml(resolved, path)
 
 
+def _write_input_snapshots(
+    output_dir: Path,
+    *,
+    inv_config: dict,
+    obs_config: dict | None,
+    attrs: dict,
+) -> None:
+    inv_snapshot = copy.deepcopy(inv_config)
+    inv_snapshot.setdefault("Run", {}).update(attrs)
+    dump_yaml(inv_snapshot, output_dir / "resolved_inv.yaml")
+    if obs_config is not None:
+        obs_snapshot = copy.deepcopy(obs_config)
+        obs_snapshot.setdefault("Run", {}).update(attrs)
+        dump_yaml(obs_snapshot, output_dir / "resolved_obs.yaml")
+
+
 def _configure_logger(path: Path, *, level: str) -> logging.Logger:
     logger = logging.getLogger(f"seisforge.inv.{path}")
     logger.handlers.clear()
@@ -440,14 +559,16 @@ def _progress_every(
 def _run_attrs(
     *,
     kind: InversionKind,
-    config_file: Path,
+    inv_file: Path,
+    obs_file: Path | None,
     dispersion_file: str | Path | None,
     hv_file: str | Path | None,
     setup: JointInversionSetup,
 ) -> dict:
     attrs = {
         "inversion_kind": kind,
-        "config_file": str(config_file),
+        "inv_file": str(inv_file),
+        "obs_file": None if obs_file is None else str(obs_file),
         "dispersion_file": None if dispersion_file is None else str(dispersion_file),
         "hv_file": None if hv_file is None else str(hv_file),
         "parameter_names": ", ".join(setup.parameterization.names),
