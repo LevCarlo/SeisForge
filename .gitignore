@@ -1,6 +1,7 @@
 *.egg-info/
 notebook/
 */**/*.ipynb
+!examples/AFTAN/compare.ipynb
 tests/**/*.png
 tests/**/*.nc
 tests/**/*.log
