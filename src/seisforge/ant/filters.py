@@ -148,7 +148,7 @@ class PhaseMatchedFilter:
         return _four_corner_frequency_taper(freqs, f1, f2, f3, f4)
 
     def clean_undispersed(self, spectrum: np.ndarray, npts: int) -> np.ndarray:
-        """Clean the compressed PMF signal using local minima and Gaussian skirts."""
+        """Clean the compressed PMF signal using PyAFTAN-style Gaussian skirts."""
         analytic = ifft(spectrum)[:npts]
         signal_data = analytic.real
         envelope = np.abs(analytic)
@@ -158,7 +158,7 @@ class PhaseMatchedFilter:
         left = minima[minima < peak_index]
         right = minima[minima > peak_index]
 
-        left_cut = _closest_minimum(
+        left_inner, left_outer = _closest_two_minima(
             left[::-1],
             envelope[left][::-1],
             peak_index,
@@ -166,8 +166,9 @@ class PhaseMatchedFilter:
             self.dt,
             self.min_half_length,
             self.amplitude_ratio,
+            default_outer=0,
         )
-        right_cut = _closest_minimum(
+        right_inner, right_outer = _closest_two_minima(
             right,
             envelope[right],
             peak_index,
@@ -175,19 +176,37 @@ class PhaseMatchedFilter:
             self.dt,
             self.min_half_length,
             self.amplitude_ratio,
+            default_outer=npts - 1,
         )
 
         window = np.ones(npts)
-        if left_cut is not None:
-            start = _scaled_index(left_cut, peak_index, self.window_factor, npts)
-            width = max(1, peak_index - start)
-            edge = np.arange(start, dtype=float)
-            window[:start] = np.exp(-0.5 * ((edge - start) / width) ** 2)
-        if right_cut is not None:
-            stop = _scaled_index(right_cut, peak_index, self.window_factor, npts)
-            width = max(1, stop - peak_index)
-            edge = np.arange(stop, npts, dtype=float)
-            window[stop:] = np.exp(-0.5 * ((edge - stop) / width) ** 2)
+        if left_inner is not None and right_inner is not None:
+            inner_width = max(peak_index - left_inner, right_inner - peak_index)
+            outer_width = max(left_inner - left_outer, right_outer - right_inner)
+            left_inner = peak_index - inner_width
+            right_inner = peak_index + inner_width
+            left_outer = left_inner - outer_width
+            right_outer = right_outer + outer_width
+        if left_inner is not None:
+            left_inner, left_outer, left_window = _pyftan_clean_gauss(
+                npts,
+                left_inner,
+                left_outer,
+                peak_index,
+                self.window_factor,
+                edge=0,
+            )
+            window[:left_inner] = left_window[::-1]
+        if right_inner is not None:
+            right_inner, right_outer, right_window = _pyftan_clean_gauss(
+                npts,
+                right_inner,
+                right_outer,
+                peak_index,
+                self.window_factor,
+                edge=npts,
+            )
+            window[right_inner:] = right_window
         return signal_data * window
 
     def redisperse(self, data: np.ndarray, iphi: np.ndarray, npts: int) -> np.ndarray:
@@ -400,10 +419,13 @@ def _four_corner_frequency_taper(
 
 
 def _local_minima(data: np.ndarray) -> np.ndarray:
-    return signal.find_peaks(-np.asarray(data))[0]
+    values = np.asarray(data)
+    minima = signal.argrelextrema(values, np.less_equal)[0]
+    flats = signal.argrelextrema(values, np.equal)[0]
+    return np.setxor1d(minima, flats, assume_unique=True)
 
 
-def _closest_minimum(
+def _closest_two_minima(
     indices: np.ndarray,
     values: np.ndarray,
     peak_index: int,
@@ -411,17 +433,41 @@ def _closest_minimum(
     dt: float,
     min_half_length: float,
     amplitude_ratio: float,
-) -> int | None:
+    *,
+    default_outer: int,
+) -> tuple[int | None, int]:
     if indices.size == 0:
-        return None
+        return None, default_outer
     far_enough = np.abs(indices - peak_index) * dt > min_half_length
     quiet_enough = values < amplitude_ratio * peak_amp
     candidates = indices[far_enough & quiet_enough]
     if candidates.size == 0:
-        return None
-    return int(candidates[0])
+        return None, default_outer
+    inner = int(candidates[0])
+    outer = int(candidates[1]) if candidates.size > 1 else int(default_outer)
+    return inner, outer
 
 
-def _scaled_index(index: int, center: int, factor: float, npts: int) -> int:
-    scaled = int(round((index - center) * factor + center))
-    return min(max(scaled, 0), npts - 1)
+def _pyftan_clean_gauss(
+    npts: int,
+    inner: int,
+    outer: int,
+    peak_index: int,
+    window_factor: float,
+    *,
+    edge: int,
+) -> tuple[int, int, np.ndarray]:
+    def limit(index: float) -> int:
+        if index < 0:
+            return 0
+        if index > npts - 1:
+            return npts - 1
+        return int(round(index))
+
+    inner = limit((inner - peak_index) * window_factor + peak_index)
+    outer = limit((outer - peak_index) * window_factor + peak_index)
+    width = abs(outer - inner) + 1
+    length = abs(edge - inner)
+    samples = np.arange(length, dtype=float)
+    window = np.exp(-0.5 * (samples / width) ** 2)
+    return inner, outer, window

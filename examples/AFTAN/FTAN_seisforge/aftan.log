@@ -1,0 +1,24 @@
+
+[2026-07-03T15:48:26] aftan start
+station: NAN
+input_dir: .
+sac_pattern: *.SAC
+output_dir: FTAN_seisforge
+requested_branch: stack
+debug: False
+snr_output: snr
+matched_sac_files: 1
+input: COR_M07A_M15A.SAC
+basic_result COR_M07A_M15A.SAC [stack]: distance=561.939 km, alpha=14.9925 (aftan_distance_scaling), period_grid=1-60 s (81 samples), retained=81/81
+outputs COR_M07A_M15A.SAC [stack] basic: dat=FTAN_seisforge/COR_M07A_M15A.stack.dat
+outputs COR_M07A_M15A.SAC [stack] diagnostics: energy_map=FTAN_seisforge/COR_M07A_M15A.stack.basic_ftan.nc, summary_plot=FTAN_seisforge/COR_M07A_M15A.stack.basic_ftan.png, phase_velocity_map=FTAN_seisforge/COR_M07A_M15A.stack.phase_velocity.nc
+warning COR_M07A_M15A.SAC [stack]: instant_period differs strongly from target_period: max_relative_mismatch=1.7, threshold=0.35; check alpha, energy map, and phase-derivative stability
+qc COR_M07A_M15A.SAC [stack]: retained_periods=81/81, retained_fraction=1, valid_points=81, period_abs_median=0.729488 s, period_rel_median=0.0730438, period_rel_max=1.70189
+qc COR_M07A_M15A.SAC [stack]: group_velocity_range=2.67791-3.60904 km/s, amplitude_max=1.89625
+pmf_result COR_M07A_M15A.SAC [stack]: alpha=29.985 (aftan_distance_scaling), raw_period_bounds=1-60 s, used_period_grid=1-60 s, retained=81/81
+outputs COR_M07A_M15A.SAC [stack] pmf: dat=FTAN_seisforge/COR_M07A_M15A.stack.pmf.dat
+warning PMF COR_M07A_M15A.SAC [stack]: instant_period differs strongly from target_period: max_relative_mismatch=1.24, threshold=0.35; check alpha, energy map, and phase-derivative stability
+qc PMF COR_M07A_M15A.SAC [stack]: retained_periods=81/81, retained_fraction=1, valid_points=81, period_abs_median=0.52035 s, period_rel_median=0.0473607, period_rel_max=1.23896
+qc PMF COR_M07A_M15A.SAC [stack]: group_velocity_range=2.64341-3.66648 km/s, amplitude_max=1.51976
+outputs COR_M07A_M15A.SAC [stack] pmf_diagnostics: energy_map=FTAN_seisforge/COR_M07A_M15A.stack.pmf_ftan.nc, summary_plot=FTAN_seisforge/COR_M07A_M15A.stack.pmf_ftan.png, phase_velocity_map=FTAN_seisforge/COR_M07A_M15A.stack.pmf_phase_velocity.nc
+status: ok, measured 1 files

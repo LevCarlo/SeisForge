@@ -1,25 +1,27 @@
-station: WT.2001
+station: NAN
 
 io:
-  input_dir: /path/to/CCF_ZRT/WT.2001
-  output_dir: /path/to/FTAN/WT.2001
-  sac_pattern: "*/*_ZR_pws.SAC"
-  overwrite: false
+  input_dir: .
+  output_dir: FTAN_seisforge
+  sac_pattern: "*.SAC"
+  overwrite: true
 
 aftan:
   debug: false
   # positive, negative, both, or stack.
   # If a two-sided option is requested for a one-sided trace, SeisForge logs a
   # warning and falls back to positive.
-  branch: positive
-  min_period: 0.5
-  max_period: 10.0
+  branch: stack
+  min_period: 1.0
+  max_period: 60.0
   period_sampling:
     # Options:
     #   uniform: min_period:max_period with a fixed period step.
     #   geomspace: PyAFTAN-style logarithmic grid; use dfreq/min_count or count.
     #   list: explicit periods, useful for hand-picked test grids.
-    mode: uniform
+    mode: geomspace
+    dfreq: 0.05
+    min_count: 3
     step: 0.1
     # count: 60
     # mode: list
@@ -30,7 +32,7 @@ aftan:
   # it only requires the reference travel time to contain at least half a period.
   # Increase toward 1-2 for stricter short-path QC; decrease to relax.
   reference_velocity: 4.0
-  max_period_nwl: 0.5
+  max_period_nwl: 1.0
   pi_over_4: -1.0
   velocity_window:
     min: 0.5
@@ -45,20 +47,21 @@ aftan:
       #   empirical_distance_table: interpolate SeisForge's distance-alpha table.
       #   aftan_distance_scaling: alpha = factor * 20 * sqrt(distance_km / 1000).
       #   pyftan_constant: PyAFTAN-style constant multiplied by factor.
-      mode: constant
+      mode: aftan_distance_scaling
       value: 20.0
-      # factor: 1.0
+      factor: 1.0
     trig_threshold: 50.0
     jump_points: 3
   pmf:
-    enabled: false
+    enabled: true
     # PMF has its own Gaussian filter and jump correction, matching PyAFTAN's
     # bas/pmf separation. The alpha is used by the PMF spectral taper and the
     # second-pass FTAN on the PMF-clean waveform.
     alpha:
-      mode: constant
-      value: 20.0
-    trig_threshold: 20.0
+      mode: aftan_distance_scaling
+      value: 20
+      factor: 2.0
+    trig_threshold: 30.0
     jump_points: 3
     nalpha: 2.0
     min_half_length: 5.0
@@ -73,14 +76,14 @@ aftan:
       min_method: floor
       max_method: ceil
   energy_map:
-    enabled: false
-    plot: false
+    enabled: true
+    plot: true
     # Number of samples in the plotted/output velocity axis between
     # velocity_window.min and velocity_window.max.
     velocity_count: 240
     normalize: true
     # Diagnostic map for phase-velocity cycle candidates.
-    phase_velocity: false
+    phase_velocity: true
     phase_cycle_count: 5
   qc:
     # Warning only. SeisForge logs if max(abs(instant_period-target_period)
@@ -97,7 +100,7 @@ aftan:
     #   local: signal window around t_pick = distance/group_velocity.
     #   pyftan: PyAFTAN/Bensen-style signal and tail-noise windows.
     #   aftan: FTAN-diagram peak/minimum contrast diagnostic.
-    definition: local
+    definition: pyftan
     # false writes linear SNR; true writes dB.
     output_db: false
     # local only: tail uses a trailing noise window; complement uses everything

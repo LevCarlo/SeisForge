@@ -25,8 +25,6 @@ The current config uses explicit branch and alpha choices:
 aftan:
   debug: false
   branch: positive  # positive, negative, both, stack
-  trig_threshold: 50.0
-  jump_points: 3
   period_sampling:
     mode: uniform
     step: 0.1
@@ -34,8 +32,15 @@ aftan:
     alpha:
       mode: constant
       value: 20.0
+    trig_threshold: 50.0
+    jump_points: 3
   pmf:
     enabled: false
+    alpha:
+      mode: constant
+      value: 20.0
+    trig_threshold: 20.0
+    jump_points: 3
     period_bounds:
       mode: raw  # raw or step
       # step: 0.1
@@ -50,9 +55,10 @@ positive branch and records a warning in `aftan.log`.
 
 `period_sampling` defines the target filter periods. `uniform` uses a fixed
 period step or a fixed count; `list` uses the periods supplied in the config;
-`geomspace` remains available when logarithmic period spacing is useful. This
-replaces the older `dfreq`-style naming: the sampling is defined on period
-targets, not on linear Hz.
+`geomspace` uses the PyAFTAN-style logarithmic grid:
+`count = max(min_count, int(log(max_period / min_period) / dfreq))`, followed by
+`geomspace(min_period, max_period, count)`. Despite the historical `dfreq` name,
+this is a logarithmic period/frequency sampling density, not a linear Hz step.
 
 When `aftan.debug: true`, the `.dat`, `.npz`, and optional xarray energy map
 include phase-diagnostic outputs. The debug `.dat` appends
@@ -366,15 +372,16 @@ SeisForge currently aligns with the reference implementations in these places:
 - Alpha selection exposes the three useful conventions: original AFTAN distance
   scaling, PyAFTAN's modified constant scaling, and a user empirical distance
   table.
-- Basic and PMF passes share the same Gaussian alpha, matching the idea that PMF
-  is a cleanup between two FTAN passes rather than a separate filter-width
-  regime.
+- Basic and PMF passes have separate Gaussian alpha and jump-correction
+  parameters, matching PyAFTAN's `bas`/`pmf` split. This is useful because PMF
+  often benefits from a different second-pass trigger threshold or filter width.
 - PMF uses the first-pass apparent/instant period branch to build the phase
   correction and then runs a second Gaussian FTAN pass on the PMF-clean waveform.
-- Jump correction follows the AFTAN trigger idea with one shared
-  `trig_threshold`/`jump_points` pair for both the basic and PMF second FTAN
-  passes: detect excessive curvature in the dispersion branch, repair short jump
-  segments, and keep the longest stable branch.
+- Jump correction follows the AFTAN trigger idea with independent
+  `basic.trig_threshold`/`basic.jump_points` and
+  `pmf.trig_threshold`/`pmf.jump_points`: detect excessive curvature in the
+  dispersion branch, repair short jump segments, and keep the longest stable
+  branch.
 - `pi_over_4` enters the picked phase as a constant phase shift and therefore
   affects phase velocity, not group velocity.
 

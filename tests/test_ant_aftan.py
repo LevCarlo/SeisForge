@@ -7,7 +7,9 @@ import xarray as xr
 
 from seisforge.ant.aftan import (
     AFTANSNRConfig,
+    AFTANConfig,
     AFTANQCConfig,
+    AFTANPeriodSamplingConfig,
     AFTANPMFPeriodBoundsConfig,
     _align_to_period_grid,
     _aftan_diagram_snr,
@@ -19,6 +21,7 @@ from seisforge.ant.aftan import (
     build_station_aftan_config,
     run_aftan_config,
 )
+from seisforge.ant.aftan.core import AFTANMeasurement, _build_period_grid
 
 
 def _write_wave_packet(path, distance_km=100.0, velocity_km_s=3.0):
@@ -76,6 +79,11 @@ def test_build_station_aftan_config_is_station_scoped(tmp_path):
             "period_sampling": {"mode": "uniform", "step": 0.5},
             "velocity_window": {"min": 2.0, "max": 4.5},
             "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "pmf": {
+                "alpha": {"mode": "constant", "value": 22.0},
+                "trig_threshold": 20.0,
+                "jump_points": 5,
+            },
             "snr": {"noise_mode": "complement"},
         },
     }
@@ -94,6 +102,11 @@ def test_build_station_aftan_config_is_station_scoped(tmp_path):
     assert built.aftan.period_sampling.step == 0.5
     assert built.aftan.basic.alpha.mode == "constant"
     assert built.aftan.basic.alpha.value == 18.0
+    assert built.aftan.basic.trig_threshold == 50.0
+    assert built.aftan.basic.jump_points == 3
+    assert built.aftan.pmf.alpha.value == 22.0
+    assert built.aftan.pmf.trig_threshold == 20.0
+    assert built.aftan.pmf.jump_points == 5
     assert built.aftan.snr.noise_mode == "complement"
 
 
@@ -111,9 +124,16 @@ def test_energy_map_override_preserves_jump_correction_config(tmp_path):
             "max_period": 8.0,
             "period_sampling": {"mode": "uniform", "step": 0.5},
             "velocity_window": {"min": 2.0, "max": 4.5},
-            "trig_threshold": 123.0,
-            "jump_points": 7,
-            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "basic": {
+                "alpha": {"mode": "constant", "value": 18.0},
+                "trig_threshold": 123.0,
+                "jump_points": 7,
+            },
+            "pmf": {
+                "alpha": {"mode": "constant", "value": 28.0},
+                "trig_threshold": 21.0,
+                "jump_points": 4,
+            },
         },
     }
     built = build_station_aftan_config(config, base_dir=tmp_path)
@@ -124,8 +144,11 @@ def test_energy_map_override_preserves_jump_correction_config(tmp_path):
         plot_energy_map=True,
     )
 
-    assert overridden.aftan.trig_threshold == 123.0
-    assert overridden.aftan.jump_points == 7
+    assert overridden.aftan.basic.trig_threshold == 123.0
+    assert overridden.aftan.basic.jump_points == 7
+    assert overridden.aftan.pmf.alpha.value == 28.0
+    assert overridden.aftan.pmf.trig_threshold == 21.0
+    assert overridden.aftan.pmf.jump_points == 4
 
 
 def test_build_station_aftan_config_rejects_invalid_numeric_parameters(tmp_path):
@@ -258,7 +281,7 @@ def test_run_aftan_config_writes_dispersion_outputs(tmp_path):
 
     assert len(results) == 1
     result = results[0]
-    assert result.output_npz.exists()
+    assert result.output_npz is None
     assert result.output_dat.exists()
     dat_lines = result.output_dat.read_text().splitlines()
     data_lines = [line for line in dat_lines if line and not line.startswith("#")]
@@ -268,16 +291,16 @@ def test_run_aftan_config_writes_dispersion_outputs(tmp_path):
         fields = line.split()
         assert "e" in fields[4].lower()
         assert not any("e" in field.lower() for field in fields[:4] + fields[5:])
-    assert result.output_npz.exists()
-    with np.load(result.output_npz) as data:
-        assert "hilbert_instant_period" not in data
     log_file = tmp_path / "ftan" / "aftan.log"
     assert log_file.exists()
     log_text = log_file.read_text()
     assert "requested_branch: positive" in log_text
-    assert "alpha_mode=constant" in log_text
+    assert "basic_result WT.2001_WT.2100_ZR_pws.SAC [positive]" in log_text
+    assert "alpha=20 (constant)" in log_text
     assert "qc WT.2001_WT.2100_ZR_pws.SAC [positive]" in log_text
-    assert "period_sampling: mode=uniform" in log_text
+    assert "period_grid=" in log_text
+    assert "outputs WT.2001_WT.2100_ZR_pws.SAC [positive] basic:" in log_text
+    assert "npz=" not in log_text
     assert result.branch == "positive"
     assert result.alpha == 20.0
     assert result.alpha_mode == "constant"
@@ -290,6 +313,83 @@ def test_run_aftan_config_writes_dispersion_outputs(tmp_path):
     assert np.all(np.isfinite(result.phase_velocity))
     assert np.nanmedian(result.group_velocity) > 2.0
     assert np.nanmedian(result.group_velocity) < 4.5
+
+
+def test_snr_uses_raw_signal_and_picked_periods(monkeypatch, tmp_path):
+    trace = Trace(data=np.linspace(1.0, 2.0, 800).astype(np.float32))
+    trace.stats.delta = 0.5
+    trace.stats.sac = {"b": 0.0, "dist": 100.0}
+    config = AFTANConfig(
+        min_period=2.0,
+        max_period=8.0,
+        period_sampling=AFTANPeriodSamplingConfig(mode="uniform", step=0.5),
+        snr=AFTANSNRConfig(
+            definition="pyftan",
+            output_db=False,
+            dsn=20.0,
+            nlen=40.0,
+            vmax=4.5,
+            vmin=1.0,
+        ),
+    )
+    measurement = AFTANMeasurement(trace, tmp_path / "test.SAC", config)
+    picked_periods = np.array([3.0, 4.0, 5.0])
+    raw_signal = np.arange(trace.stats.npts, dtype=float)
+    calls = []
+
+    def fake_ftan_complex(self, signal_data, target_periods, alpha):
+        calls.append((signal_data.copy(), target_periods.copy(), alpha))
+        return np.ones((self.nfft, target_periods.size), dtype=np.complex128)
+
+    monkeypatch.setattr(AFTANMeasurement, "_ftan_complex", fake_ftan_complex)
+
+    snr = measurement._spectral_snr(
+        np.zeros_like(raw_signal),
+        picked_periods,
+        np.full(picked_periods.size, 3.0),
+        config.snr,
+        alpha=22.0,
+        target_periods=np.array([2.0, 6.0, 8.0]),
+        snr_signal_data=raw_signal,
+    )
+
+    assert len(calls) == 1
+    assert np.array_equal(calls[0][0], raw_signal)
+    assert np.array_equal(calls[0][1], picked_periods)
+    assert calls[0][2] == 22.0
+    assert np.allclose(snr, 1.0)
+
+    local_config = AFTANConfig(
+        min_period=2.0,
+        max_period=8.0,
+        period_sampling=AFTANPeriodSamplingConfig(mode="uniform", step=0.5),
+        snr=AFTANSNRConfig(
+            definition="local",
+            output_db=False,
+            dsn=20.0,
+            nlen=40.0,
+            vmax=4.5,
+            vmin=1.0,
+        ),
+    )
+    local_measurement = AFTANMeasurement(trace, tmp_path / "test.SAC", local_config)
+    calls.clear()
+
+    snr = local_measurement._spectral_snr(
+        np.zeros_like(raw_signal),
+        picked_periods,
+        np.full(picked_periods.size, 3.0),
+        local_config.snr,
+        alpha=24.0,
+        target_periods=np.array([2.0, 6.0, 8.0]),
+        snr_signal_data=raw_signal,
+    )
+
+    assert len(calls) == 1
+    assert np.array_equal(calls[0][0], raw_signal)
+    assert np.array_equal(calls[0][1], picked_periods)
+    assert calls[0][2] == 24.0
+    assert np.allclose(snr, 1.0)
 
 
 def test_run_aftan_config_optionally_writes_energy_map_and_plot(tmp_path):
@@ -422,9 +522,7 @@ def test_run_aftan_config_writes_debug_phase_outputs_when_requested(tmp_path):
         fields = line.split()
         assert "e" in fields[4].lower()
         assert not any("e" in field.lower() for field in fields[:4] + fields[5:])
-    with np.load(result.output_npz) as data:
-        assert bool(data["debug"])
-        assert "hilbert_instant_period" in data
+    assert result.output_npz is None
     dataset = xr.open_dataset(result.output_energy_map, engine="scipy")
     try:
         assert dataset.attrs["debug"]
@@ -530,6 +628,11 @@ def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path):
                 *_alpha_config_lines(),
                 "  pmf:",
                 "    enabled: true",
+                "    alpha:",
+                "      mode: constant",
+                "      value: 24.0",
+                "    trig_threshold: 25.0",
+                "    jump_points: 5",
                 "    period_bounds:",
                 "      mode: step",
                 "      step: 0.1",
@@ -544,8 +647,7 @@ def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path):
 
     result = run_aftan_config(config_file)[0]
 
-    assert result.output_pmf_npz is not None
-    assert result.output_pmf_npz.exists()
+    assert result.output_pmf_npz is None
     assert result.output_pmf_dat is not None
     assert result.output_pmf_dat.exists()
     pmf_lines = [
@@ -555,15 +657,11 @@ def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path):
     ]
     assert pmf_lines
     assert {len(line.split()) for line in pmf_lines} == {6}
-    with np.load(result.output_pmf_npz) as data:
-        assert data["stage"] == "pmf"
-        assert data["pmf_raw_period_min"] >= result.period.min()
-        assert data["pmf_raw_period_max"] <= result.period.max()
-        assert data["pmf_period_min"] <= data["pmf_raw_period_min"]
-        assert data["pmf_period_max"] >= data["pmf_raw_period_max"]
-        assert data["pmf_period_bounds_mode"] == "step"
-        assert data["pmf_period_bounds_step"] == 0.1
-        assert data["target_period"].size > 0
+    assert result.pmf_alpha == 24.0
+    assert result.pmf_raw_period_min >= result.period.min()
+    assert result.pmf_raw_period_max <= result.period.max()
+    assert result.pmf_period_min <= result.pmf_raw_period_min
+    assert result.pmf_period_max >= result.pmf_raw_period_max
 
 
 def test_pmf_period_bounds_can_snap_to_decimal_step():
@@ -625,7 +723,7 @@ def test_run_aftan_config_can_measure_both_symmetric_branches(tmp_path):
     results = run_aftan_config(config_file)
 
     assert [result.branch for result in results] == ["positive", "negative"]
-    assert all(result.output_npz.exists() for result in results)
+    assert all(result.output_npz is None for result in results)
     assert all(result.output_dat.exists() for result in results)
 
 
@@ -699,3 +797,35 @@ def test_period_sampling_accepts_explicit_list(tmp_path):
 
     assert built.aftan.period_sampling.mode == "list"
     assert built.aftan.period_sampling.periods == (1.0, 2.0, 3.0, 5.0, 9.0)
+
+
+def test_period_sampling_geomspace_uses_pyftan_dfreq_formula(tmp_path):
+    config = {
+        "station": "WT.2001",
+        "io": {
+            "input_dir": "ccf",
+            "output_dir": "ftan",
+            "sac_pattern": "*_ZR.SAC",
+        },
+        "aftan": {
+            "branch": "positive",
+            "min_period": 2.0,
+            "max_period": 8.0,
+            "period_sampling": {
+                "mode": "geomspace",
+                "dfreq": 0.03,
+                "min_count": 3,
+            },
+            "velocity_window": {"min": 2.0, "max": 4.5},
+            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+        },
+    }
+
+    built = build_station_aftan_config(config, base_dir=tmp_path)
+    periods = _build_period_grid(built.aftan.period_sampling, 2.0, 8.0)
+
+    expected_count = int(np.log(8.0 / 2.0) / 0.03)
+    assert built.aftan.period_sampling.mode == "geomspace"
+    assert built.aftan.period_sampling.dfreq == 0.03
+    assert periods.size == expected_count
+    assert np.allclose(periods, np.geomspace(2.0, 8.0, expected_count))
