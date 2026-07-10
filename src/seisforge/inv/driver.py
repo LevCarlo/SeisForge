@@ -138,13 +138,13 @@ def _write_prior_outputs(
         parameter_names=setup.parameterization.names,
         prior_diagnostics=evaluate_prior_samples(prior_result.samples, setup.prior),
         attrs=attrs,
-    ).to_netcdf(mcmc_file)
+    ).to_netcdf(mcmc_file, engine="h5netcdf")
     vs = extract_vs_ensemble_from_result(
         prior_result,
         parameterization=setup.parameterization,
         z=setup.depth_grid(),
     )
-    vs_ensemble_to_xarray(vs, attrs=attrs).to_netcdf(vs_file)
+    vs_ensemble_to_xarray(vs, attrs=attrs).to_netcdf(vs_file, engine="h5netcdf")
     logger.info("prior acceptance rates: %s", prior_result.acceptance_rates)
     logger.info("prior mean acceptance: %.6g", prior_result.mean_acceptance_rate)
     logger.info("wrote %s", mcmc_file)
@@ -180,18 +180,18 @@ def _write_posterior_outputs(
         prior_diagnostics=prior_diagnostics,
         log_likelihood=posterior_result.log_prob - prior_diagnostics.log_prior,
         attrs=attrs,
-    ).to_netcdf(mcmc_file)
+    ).to_netcdf(mcmc_file, engine="h5netcdf")
     vs = extract_vs_ensemble_from_result(
         posterior_result,
         parameterization=setup.parameterization,
         z=setup.depth_grid(),
     )
-    vs_ensemble_to_xarray(vs, attrs=attrs).to_netcdf(vs_file)
+    vs_ensemble_to_xarray(vs, attrs=attrs).to_netcdf(vs_file, engine="h5netcdf")
     prediction = extract_prediction_ensemble_from_result(
         posterior_result,
         target=setup.target,
     )
-    prediction_ensemble_to_xarray(prediction, attrs=attrs).to_netcdf(predictive_file)
+    prediction_ensemble_to_xarray(prediction, attrs=attrs).to_netcdf(predictive_file, engine="h5netcdf")
     best_theta = vs.best_theta
     logger.info("posterior acceptance rates: %s", posterior_result.acceptance_rates)
     logger.info("posterior mean acceptance: %.6g", posterior_result.mean_acceptance_rate)
