@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +22,13 @@ from .io import (
     _write_dispersion_dat,
 )
 from .models import AFTANResult, BranchTrace, StationAFTANConfig
+from .phase import (
+    automatic_pi_over_4,
+    physical_branch_for_branch,
+    physical_component_for_branch,
+    physical_station_pair_for_branch,
+    reciprocal_zrt_component,
+)
 from .plot import _write_aftan_summary_plot
 from .qc import (
     _format_qc_log_lines,
@@ -50,18 +58,19 @@ def run_station_aftan(config: StationAFTANConfig) -> list[AFTANResult]:
     log_file = config.output_dir / "aftan.log"
     log_lines = _start_log(config)
     try:
-        files = _find_sac_files(config.input_dir, config.sac_pattern)
-        log_lines.append(f"matched_sac_files: {len(files)}")
-        for path in files:
-            log_lines.append(f"input: {path}")
-        if not files:
+        inputs = _find_component_inputs(config)
+        log_lines.append(f"matched_sac_files: {len(inputs)}")
+        for path, component in inputs:
+            component_label = component if component is not None else "unspecified"
+            log_lines.append(f"input {component_label}: {path}")
+        if not inputs:
             raise FileNotFoundError(
                 f"No SAC files matched {config.input_dir / config.sac_pattern}"
             )
 
         results = []
-        for path in files:
-            path_results = run_aftan_file(path, config)
+        for path, component in inputs:
+            path_results = run_aftan_file(path, config, input_component=component)
             for result in path_results:
                 log_lines.extend(_result_log_lines(result))
             results.extend(path_results)
@@ -74,7 +83,12 @@ def run_station_aftan(config: StationAFTANConfig) -> list[AFTANResult]:
         raise
 
 
-def run_aftan_file(path: str | Path, config: StationAFTANConfig) -> list[AFTANResult]:
+def run_aftan_file(
+    path: str | Path,
+    config: StationAFTANConfig,
+    *,
+    input_component: str | None = None,
+) -> list[AFTANResult]:
     """Measure dispersion for one SAC file."""
     path = Path(path)
     trace = read(str(path))[0]
@@ -82,23 +96,140 @@ def run_aftan_file(path: str | Path, config: StationAFTANConfig) -> list[AFTANRe
 
     results = []
     for branch_trace in branch_traces:
-        results.append(_run_aftan_branch(path, branch_trace, config))
+        results.append(
+            _run_aftan_branch(
+                path,
+                branch_trace,
+                config,
+                input_component=input_component,
+            )
+        )
     return results
+
+
+def _find_component_inputs(config: StationAFTANConfig) -> list[tuple[Path, str | None]]:
+    if not config.components:
+        return [(path, None) for path in _find_sac_files(config.input_dir, config.sac_pattern)]
+
+    inputs: list[tuple[Path, str | None]] = []
+    missing: list[str] = []
+    for component in config.components:
+        pattern = _component_sac_pattern(config, component)
+        matches = _find_sac_files(config.input_dir, pattern)
+        if not matches:
+            missing.append(f"{component}: {config.input_dir / pattern}")
+            continue
+        if len(matches) > 1:
+            raise FileExistsError(
+                f"AFTAN component {component} matched multiple SAC files: "
+                + ", ".join(str(item) for item in matches)
+            )
+        inputs.append((matches[0], component))
+    if missing:
+        raise FileNotFoundError("Missing AFTAN component input(s): " + "; ".join(missing))
+    return inputs
+
+
+def _component_sac_pattern(config: StationAFTANConfig, component: str) -> str:
+    template = config.input_template or config.sac_pattern
+    pair_name = (
+        f"{config.source_station}_{config.receiver_station}"
+        if config.source_station and config.receiver_station
+        else ""
+    )
+    return template.format(component=component, name=pair_name)
+
+
+def _physical_output_stem(
+    path: Path,
+    config: StationAFTANConfig,
+    branch: str,
+    input_component: str | None,
+    physical_component: str | None,
+) -> str:
+    stem = path.stem
+    stored_source = config.source_station or config.station
+    stored_receiver = config.receiver_station
+    physical_source, physical_receiver = _physical_station_pair(config, branch)
+    stored_pair = _station_pair_name(stored_source, stored_receiver)
+    physical_pair = _station_pair_name(physical_source, physical_receiver)
+    if stored_pair is not None and physical_pair is not None:
+        stem = stem.replace(stored_pair, physical_pair, 1)
+    stem = _replace_component_token(stem, input_component, physical_component)
+    branch_label = physical_branch_for_branch(branch) if physical_pair is not None else branch
+    return f"{stem}.{branch_label}"
+
+
+def _physical_station_pair(
+    config: StationAFTANConfig,
+    branch: str,
+) -> tuple[str | None, str | None]:
+    return physical_station_pair_for_branch(
+        config.source_station or config.station,
+        config.receiver_station,
+        branch,
+    )
+
+
+def _station_pair_name(
+    source_station: str | None,
+    receiver_station: str | None,
+) -> str | None:
+    if source_station is None or receiver_station is None:
+        return None
+    return f"{source_station}_{receiver_station}"
+
+
+def _replace_component_token(
+    stem: str,
+    input_component: str | None,
+    physical_component: str | None,
+) -> str:
+    if input_component is None or physical_component is None:
+        return stem
+    if input_component == physical_component:
+        return stem
+
+    parts = stem.split("_")
+    for index, part in enumerate(parts):
+        if part == input_component:
+            parts[index] = physical_component
+            return "_".join(parts)
+    return stem.replace(input_component, physical_component, 1)
 
 
 def _run_aftan_branch(
     path: Path,
     branch_trace: BranchTrace,
     config: StationAFTANConfig,
+    *,
+    input_component: str | None = None,
 ) -> AFTANResult:
-    output_dat = config.output_dir / f"{path.stem}.{branch_trace.name}.dat"
-    output_energy_map = config.output_dir / f"{path.stem}.{branch_trace.name}.basic_ftan.nc"
-    output_energy_plot = config.output_dir / f"{path.stem}.{branch_trace.name}.basic_ftan.png"
-    output_phase_map = config.output_dir / f"{path.stem}.{branch_trace.name}.phase_velocity.nc"
-    output_pmf_dat = config.output_dir / f"{path.stem}.{branch_trace.name}.pmf.dat"
-    output_pmf_energy_map = config.output_dir / f"{path.stem}.{branch_trace.name}.pmf_ftan.nc"
-    output_pmf_energy_plot = config.output_dir / f"{path.stem}.{branch_trace.name}.pmf_ftan.png"
-    output_pmf_phase_map = config.output_dir / f"{path.stem}.{branch_trace.name}.pmf_phase_velocity.nc"
+    branch_config, physical_component = _aftan_config_for_branch(
+        config,
+        branch_trace.name,
+        input_component,
+    )
+    physical_source_station, physical_receiver_station = _physical_station_pair(
+        config,
+        branch_trace.name,
+    )
+    physical_branch = physical_branch_for_branch(branch_trace.name)
+    output_stem = _physical_output_stem(
+        path,
+        config,
+        branch_trace.name,
+        input_component,
+        physical_component,
+    )
+    output_dat = config.output_dir / f"{output_stem}.dat"
+    output_energy_map = config.output_dir / f"{output_stem}.basic_ftan.nc"
+    output_energy_plot = config.output_dir / f"{output_stem}.basic_ftan.png"
+    output_phase_map = config.output_dir / f"{output_stem}.phase_velocity.nc"
+    output_pmf_dat = config.output_dir / f"{output_stem}.pmf.dat"
+    output_pmf_energy_map = config.output_dir / f"{output_stem}.pmf_ftan.nc"
+    output_pmf_energy_plot = config.output_dir / f"{output_stem}.pmf_ftan.png"
+    output_pmf_phase_map = config.output_dir / f"{output_stem}.pmf_phase_velocity.nc"
     output_paths = [output_dat]
     if config.aftan.pmf.enabled:
         output_paths.append(output_pmf_dat)
@@ -119,55 +250,64 @@ def _run_aftan_branch(
             f"One or more output files for {path.name} already exist. Enable io.overwrite."
         )
 
-    measurement = AFTANMeasurement(branch_trace.trace, path, config.aftan)
+    measurement = AFTANMeasurement(branch_trace.trace, path, branch_config)
     measured = measurement.measure()
     qc = _period_qc(measured)
-    warnings = branch_trace.warnings + _qc_warnings(qc, config.aftan.qc)
-    _raise_short_branch_if_requested(qc, config.aftan.qc, f"{path.name} [{branch_trace.name}]")
+    warnings = branch_trace.warnings + _qc_warnings(qc, branch_config.qc)
+    _raise_short_branch_if_requested(qc, branch_config.qc, f"{path.name} [{branch_trace.name}]")
 
     output_dat.parent.mkdir(parents=True, exist_ok=True)
     _write_dispersion_dat(
         output_dat,
         measured,
-        debug=config.aftan.debug,
-        snr_label=_snr_column_name(config.aftan.snr),
+        debug=branch_config.debug,
+        snr_label=_snr_column_name(branch_config.snr),
+        metadata=_dat_metadata(
+            config,
+            path,
+            branch_trace.name,
+            input_component,
+            physical_component,
+            branch_config,
+            stage="basic",
+        ),
     )
 
     written_energy_map = None
     written_energy_plot = None
     written_phase_map = None
-    if config.aftan.energy_map.enabled or config.aftan.energy_map.plot:
+    if branch_config.energy_map.enabled or branch_config.energy_map.plot:
         dataset = measurement.energy_map_dataset(
             measured,
             stage="basic",
             source_file=path,
             branch=branch_trace.name,
-            velocity_count=config.aftan.energy_map.velocity_count,
-            normalize=config.aftan.energy_map.normalize,
+            velocity_count=branch_config.energy_map.velocity_count,
+            normalize=branch_config.energy_map.normalize,
         )
-        if config.aftan.energy_map.enabled:
+        if branch_config.energy_map.enabled:
             dataset.to_netcdf(output_energy_map, engine="scipy")
             written_energy_map = output_energy_map
         phase_dataset = None
-        if config.aftan.energy_map.phase_velocity:
+        if branch_config.energy_map.phase_velocity:
             phase_dataset = measurement.phase_velocity_map_dataset(
                 measured,
                 stage="basic",
                 source_file=path,
                 branch=branch_trace.name,
-                velocity_count=config.aftan.energy_map.velocity_count,
-                normalize=config.aftan.energy_map.normalize,
-                cycle_count=config.aftan.energy_map.phase_cycle_count,
+                velocity_count=branch_config.energy_map.velocity_count,
+                normalize=branch_config.energy_map.normalize,
+                cycle_count=branch_config.energy_map.phase_cycle_count,
             )
-            if config.aftan.energy_map.enabled:
+            if branch_config.energy_map.enabled:
                 phase_dataset.to_netcdf(output_phase_map, engine="scipy")
                 written_phase_map = output_phase_map
-        if config.aftan.energy_map.plot:
+        if branch_config.energy_map.plot:
             _write_aftan_summary_plot(
                 dataset,
                 output_energy_plot,
                 phase_dataset=phase_dataset,
-                snr_label=_snr_column_name(config.aftan.snr),
+                snr_label=_snr_column_name(branch_config.snr),
             )
             written_energy_plot = output_energy_plot
 
@@ -178,55 +318,64 @@ def _run_aftan_branch(
     pmf_qc = None
     pmf_warnings: tuple[str, ...] = ()
     pmf_measured = None
-    if config.aftan.pmf.enabled:
+    if branch_config.pmf.enabled:
         pmf_measured = measurement.measure_pmf(measured)
         pmf_qc = _period_qc(pmf_measured)
-        pmf_warnings = _qc_warnings(pmf_qc, config.aftan.qc)
+        pmf_warnings = _qc_warnings(pmf_qc, branch_config.qc)
         _raise_short_branch_if_requested(
             pmf_qc,
-            config.aftan.qc,
+            branch_config.qc,
             f"PMF {path.name} [{branch_trace.name}]",
         )
         _write_dispersion_dat(
             output_pmf_dat,
             pmf_measured,
-            debug=config.aftan.debug,
-            snr_label=_snr_column_name(config.aftan.snr),
+            debug=branch_config.debug,
+            snr_label=_snr_column_name(branch_config.snr),
+            metadata=_dat_metadata(
+                config,
+                path,
+                branch_trace.name,
+                input_component,
+                physical_component,
+                branch_config,
+                stage="pmf",
+            ),
         )
         written_pmf_dat = output_pmf_dat
-        if config.aftan.energy_map.enabled or config.aftan.energy_map.plot:
+        if branch_config.energy_map.enabled or branch_config.energy_map.plot:
             pmf_dataset = measurement.energy_map_dataset(
                 pmf_measured,
                 stage="pmf",
                 source_file=path,
                 branch=branch_trace.name,
-                velocity_count=config.aftan.energy_map.velocity_count,
-                normalize=config.aftan.energy_map.normalize,
+                velocity_count=branch_config.energy_map.velocity_count,
+                normalize=branch_config.energy_map.normalize,
                 signal_data=pmf_measured["signal"],
             )
-            if config.aftan.energy_map.enabled:
+            if branch_config.energy_map.enabled:
                 pmf_dataset.to_netcdf(output_pmf_energy_map, engine="scipy")
                 written_pmf_energy_map = output_pmf_energy_map
             pmf_phase_dataset = None
-            if config.aftan.energy_map.phase_velocity:
+            if branch_config.energy_map.phase_velocity:
                 pmf_phase_dataset = measurement.phase_velocity_map_dataset(
                     pmf_measured,
                     stage="pmf",
                     source_file=path,
                     branch=branch_trace.name,
-                    velocity_count=config.aftan.energy_map.velocity_count,
-                    normalize=config.aftan.energy_map.normalize,
-                    cycle_count=config.aftan.energy_map.phase_cycle_count,
+                    velocity_count=branch_config.energy_map.velocity_count,
+                    normalize=branch_config.energy_map.normalize,
+                    cycle_count=branch_config.energy_map.phase_cycle_count,
                 )
-                if config.aftan.energy_map.enabled:
+                if branch_config.energy_map.enabled:
                     pmf_phase_dataset.to_netcdf(output_pmf_phase_map, engine="scipy")
                     written_pmf_phase_map = output_pmf_phase_map
-            if config.aftan.energy_map.plot:
+            if branch_config.energy_map.plot:
                 _write_aftan_summary_plot(
                     pmf_dataset,
                     output_pmf_energy_plot,
                     phase_dataset=pmf_phase_dataset,
-                    snr_label=_snr_column_name(config.aftan.snr),
+                    snr_label=_snr_column_name(branch_config.snr),
                 )
                 written_pmf_energy_plot = output_pmf_energy_plot
 
@@ -247,10 +396,19 @@ def _run_aftan_branch(
         alpha_mode=measurement.basic_alpha_mode,
         qc=qc,
         warnings=warnings,
+        input_component=input_component,
+        physical_component=physical_component,
+        stored_source_station=config.source_station or config.station,
+        stored_receiver_station=config.receiver_station,
+        physical_source_station=physical_source_station,
+        physical_receiver_station=physical_receiver_station,
+        physical_branch=physical_branch,
+        pi_over_4=branch_config.pi_over_4,
+        pi_over_4_mode=branch_config.pi_over_4_mode,
         output_npz=None,
-        pmf_alpha=measurement.pmf_alpha if config.aftan.pmf.enabled else None,
+        pmf_alpha=measurement.pmf_alpha if branch_config.pmf.enabled else None,
         pmf_alpha_mode=(
-            measurement.pmf_alpha_mode if config.aftan.pmf.enabled else None
+            measurement.pmf_alpha_mode if branch_config.pmf.enabled else None
         ),
         output_phase_map=written_phase_map,
         output_phase_plot=None,
@@ -277,12 +435,69 @@ def _run_aftan_branch(
     )
 
 
+def _aftan_config_for_branch(
+    config: StationAFTANConfig,
+    branch: str,
+    input_component: str | None,
+):
+    if input_component is not None and branch == "stack":
+        reciprocal_component = reciprocal_zrt_component(input_component)
+        if reciprocal_component != input_component:
+            raise ValueError(
+                "AFTAN stack branch is not defined for asymmetric component "
+                f"{input_component}; measure positive/negative separately."
+            )
+
+    physical_component = None
+    pi_over_4 = config.aftan.pi_over_4
+    if input_component is not None:
+        if config.aftan.pi_over_4_mode == "auto":
+            physical_component, pi_over_4 = automatic_pi_over_4(input_component, branch)
+        else:
+            physical_component = physical_component_for_branch(input_component, branch)
+    elif config.aftan.pi_over_4_mode == "auto":
+        raise ValueError("aftan.pi_over_4 auto mode requires an explicit component.")
+
+    return replace(config.aftan, pi_over_4=pi_over_4), physical_component
+
+
+def _dat_metadata(
+    config: StationAFTANConfig,
+    path: Path,
+    branch: str,
+    input_component: str | None,
+    physical_component: str | None,
+    branch_config,
+    *,
+    stage: str,
+) -> dict[str, object]:
+    stored_source = config.source_station or config.station
+    stored_receiver = config.receiver_station
+    physical_source, physical_receiver = _physical_station_pair(config, branch)
+    return {
+        "stage": stage,
+        "stored_source_station": stored_source,
+        "stored_receiver_station": stored_receiver,
+        "physical_source_station": physical_source,
+        "physical_receiver_station": physical_receiver,
+        "input_file": path.name,
+        "input_component": input_component,
+        "physical_component": physical_component,
+        "selected_branch": branch,
+        "physical_branch": physical_branch_for_branch(branch),
+        "pi_over_4": branch_config.pi_over_4,
+        "pi_over_4_mode": branch_config.pi_over_4_mode,
+    }
+
+
 def _start_log(config: StationAFTANConfig) -> list[str]:
     timestamp = datetime.now().isoformat(timespec="seconds")
     return [
         "",
         f"[{timestamp}] aftan start",
-        f"station: {config.station}",
+        f"source_station: {config.source_station or config.station}",
+        f"receiver_station: {config.receiver_station or 'unspecified'}",
+        f"components: {','.join(config.components) if config.components else 'from_sac_pattern'}",
         f"input_dir: {config.input_dir}",
         f"sac_pattern: {config.sac_pattern}",
         f"output_dir: {config.output_dir}",
@@ -297,6 +512,13 @@ def _result_log_lines(result: AFTANResult) -> list[str]:
         (
             f"basic_result {result.input_file.name} [{result.branch}]: "
             f"distance={result.distance_km:.3f} km, "
+            f"stored_pair={_format_pair(result.stored_source_station, result.stored_receiver_station)}"
+            f"->{_format_pair(result.physical_source_station, result.physical_receiver_station)}, "
+            f"branch={result.branch}->{result.physical_branch or 'unspecified'}, "
+            f"component={result.input_component or 'unspecified'}"
+            f"->{result.physical_component or 'unspecified'}, "
+            f"pi_over_4={_optional_float(result.pi_over_4)} "
+            f"({result.pi_over_4_mode or 'manual'}), "
             f"alpha={result.alpha:.6g} ({result.alpha_mode}), "
             f"period_grid={_period_range(result.target_period)}, "
             f"retained={result.qc['qc_retained_period_count']}/"
@@ -386,6 +608,18 @@ def _optional_range(min_value: float | None, max_value: float | None) -> str:
     if min_value is None or max_value is None:
         return "n/a"
     return f"{min_value:.6g}-{max_value:.6g} s"
+
+
+def _format_pair(source_station: str | None, receiver_station: str | None) -> str:
+    if source_station is None and receiver_station is None:
+        return "unspecified"
+    return f"{source_station or '?'}_{receiver_station or '?'}"
+
+
+def _optional_float(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.6g}"
 
 
 def _append_log(path: Path, lines: list[str]) -> None:

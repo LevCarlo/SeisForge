@@ -42,6 +42,7 @@ def _write_dispersion_dat(
     *,
     debug: bool,
     snr_label: str = "snr",
+    metadata: dict[str, object] | None = None,
 ) -> None:
     if debug:
         table = np.column_stack(
@@ -81,13 +82,25 @@ def _write_dispersion_dat(
             "target_period_s instant_period_s group_velocity_km_s "
             f"phase_velocity_km_s amplitude {snr_label}"
         )
+    header_lines = _dat_metadata_lines(metadata) + [dat_header]
     np.savetxt(
         path,
         table,
         fmt=dat_fmt,
         delimiter=_AFTAN_DAT_DELIMITER,
-        header=dat_header,
+        header="\n".join(header_lines),
     )
+
+
+def _dat_metadata_lines(metadata: dict[str, object] | None) -> list[str]:
+    if not metadata:
+        return []
+    lines = []
+    for key, value in metadata.items():
+        if value is None:
+            continue
+        lines.append(f"{key}: {value}")
+    return lines
 
 
 def _snr_column_name(config: AFTANSNRConfig) -> str:

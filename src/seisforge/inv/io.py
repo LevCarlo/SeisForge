@@ -22,6 +22,7 @@ from seisforge.inv.model import (
     VsSegment,
 )
 from seisforge.inv.predictive import JointPredictionEnsemble, ObservablePredictionEnsemble
+from seisforge.inv.prior import PriorSampleDiagnostics
 from seisforge.inv.samplers import MCMCResult
 
 
@@ -63,6 +64,36 @@ def parameterized_vs_model_from_config(config: dict) -> ParameterizedVsModel:
         segments=segments,
         scaling=scaling_from_config(model_cfg.get("scaling")),
     )
+
+
+def parameterized_vs_model_to_config(
+    model: ParameterizedVsModel,
+    *,
+    discretization: DiscretizationConfig | None = None,
+) -> dict:
+    """Serialize a fixed segmented Vs model to the current YAML schema.
+
+    The result contains literal profile values only. Scalar MCMC priors and
+    parameter references are scientific choices that cannot be inferred from a
+    concrete model object, so callers should add an ``Inversion`` section
+    explicitly when preparing an inversion configuration.
+    """
+
+    config = {
+        "Model": {
+            "scaling": _scaling_to_config(model.scaling),
+            "segments": [_segment_to_config(segment) for segment in model.segments],
+        }
+    }
+    if discretization is not None:
+        discretization_config = {
+            "dz": float(discretization.dz),
+            "force_depths": [float(depth) for depth in discretization.force_depths],
+        }
+        if discretization.zmax is not None:
+            discretization_config["zmax"] = float(discretization.zmax)
+        config["Discretization"] = discretization_config
+    return config
 
 
 def discretization_from_config(config: dict | None) -> DiscretizationConfig:
@@ -146,6 +177,8 @@ def mcmc_result_to_xarray(
     result: MCMCResult,
     *,
     parameter_names: Sequence[str],
+    prior_diagnostics: PriorSampleDiagnostics | None = None,
+    log_likelihood: np.ndarray | None = None,
     attrs: dict | None = None,
 ) -> xr.Dataset:
     """Convert MCMC samples and diagnostics to an xarray dataset."""
@@ -193,7 +226,36 @@ def mcmc_result_to_xarray(
             "mean_acceptance_rate": float(result.mean_acceptance_rate),
         }
     )
+    sample_dims = ("chain", "draw")
+    if prior_diagnostics is not None:
+        _add_prior_diagnostics(dataset, prior_diagnostics, sample_dims=sample_dims)
+    if log_likelihood is not None:
+        log_likelihood = np.asarray(log_likelihood, dtype=float)
+        if log_likelihood.shape != result.log_prob.shape:
+            raise ValueError("log_likelihood must match result.log_prob shape.")
+        dataset["log_likelihood"] = (sample_dims, log_likelihood)
     return dataset
+
+
+def _add_prior_diagnostics(
+    dataset: xr.Dataset,
+    diagnostics: PriorSampleDiagnostics,
+    *,
+    sample_dims: tuple[str, str],
+) -> None:
+    expected_shape = tuple(dataset.sizes[dim] for dim in sample_dims)
+    values = {
+        "log_prior": diagnostics.log_prior,
+        "log_parameter_prior": diagnostics.parameter_log_prior,
+        "log_physical_hard_prior": diagnostics.physical_log_prior,
+        "log_soft_prior": diagnostics.soft_log_prior,
+        **diagnostics.soft_diagnostics,
+    }
+    for name, value in values.items():
+        value = np.asarray(value, dtype=float)
+        if value.shape != expected_shape:
+            raise ValueError(f"{name} must match retained MCMC sample dimensions.")
+        dataset[name] = (sample_dims, value)
 
 
 def vs_ensemble_to_xarray(
@@ -279,6 +341,40 @@ def _profile_from_config(config: dict):
             knot_alpha=config.get("knot_alpha", 2.0),
         )
     raise ValueError(f"Unknown Vs profile type: {config['type']}")
+
+
+def _scaling_to_config(scaling: ScalingConfig) -> dict:
+    vp = {"method": scaling.vp_method, **(scaling.vp_kwargs or {})}
+    rho = {"method": scaling.rho_method, **(scaling.rho_kwargs or {})}
+    return {"vp": vp, "rho": rho}
+
+
+def _segment_to_config(segment: VsSegment) -> dict:
+    return {
+        "top_km": float(segment.top),
+        "bottom_km": float(segment.bottom),
+        "profile": _profile_to_config(segment.profile),
+    }
+
+
+def _profile_to_config(profile: ConstantVs | GradientVs | BSplineVs) -> dict:
+    if isinstance(profile, ConstantVs):
+        return {"type": "constant", "value": float(profile.value)}
+    if isinstance(profile, GradientVs):
+        return {
+            "type": "gradient",
+            "top": float(profile.top),
+            "bottom": float(profile.bottom),
+        }
+    if isinstance(profile, BSplineVs):
+        return {
+            "type": "bspline",
+            "coefficients": [float(value) for value in profile.coefficients],
+            "degree": int(profile.degree),
+            "knot_spacing": profile.knot_spacing,
+            "knot_alpha": float(profile.knot_alpha),
+        }
+    raise TypeError(f"Unsupported Vs profile type: {type(profile).__name__}")
 
 
 def _add_observable(

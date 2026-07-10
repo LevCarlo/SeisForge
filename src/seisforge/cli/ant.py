@@ -35,8 +35,26 @@ def _register_rotate_ccf(
         required=True,
         help="Path to the rotate-ccf YAML configuration file.",
     )
-    parser.add_argument("--input-dir", default=None, help="Override input directory.")
-    parser.add_argument("--output-dir", default=None, help="Override output directory.")
+    parser.add_argument(
+        "--root-datadir",
+        default=None,
+        help="Override ZNE CCF root data directory.",
+    )
+    parser.add_argument(
+        "--output-root-datadir",
+        default=None,
+        help="Override ZRT CCF output root data directory.",
+    )
+    parser.add_argument(
+        "--source-station",
+        default=None,
+        help="Override source station code.",
+    )
+    parser.add_argument(
+        "--receiver-station",
+        default=None,
+        help="Override receiver station code.",
+    )
     parser.add_argument(
         "--input-template",
         default=None,
@@ -112,12 +130,14 @@ def _register_aftan(
 
 
 def _run_rotate_ccf(args: argparse.Namespace) -> int:
-    from seisforge.ant.ccf import run_rotate_ccf_config
+    from seisforge.ant.ccf_rotate import run_rotate_ccf_config
 
     results = run_rotate_ccf_config(
         args.config_file,
-        input_dir=args.input_dir,
-        output_dir=args.output_dir,
+        root_datadir=args.root_datadir,
+        output_root_datadir=args.output_root_datadir,
+        source_station=args.source_station,
+        receiver_station=args.receiver_station,
         input_template=args.input_template,
         output_template=args.output_template,
         obj_components=args.obj_components,

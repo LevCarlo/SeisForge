@@ -11,7 +11,7 @@ The current implementation supports:
 - Joint Rayleigh phase velocity + Rayleigh H/V inversion.
 - Segment-based Vs parameterization with constant, gradient, and B-spline
   profiles.
-- Hard geophysical prior constraints.
+- Hard geophysical prior constraints and soft model-space priors.
 - A built-in random-walk Metropolis sampler with multiple chains.
 - NetCDF/xarray outputs for MCMC samples, Vs ensembles, and posterior
   predictions.
@@ -45,7 +45,8 @@ seisforge inv disp-hv --inv inv.yaml -o run_prior --prior-only --progress
 ```
 
 Prior-only sampling does not use observation data. It samples the model space
-defined by parameter bounds and hard physical constraints.
+defined by parameter bounds, hard physical constraints, and any configured
+soft model-space priors.
 
 ## Configuration split
 
@@ -57,14 +58,9 @@ SeisForge uses two YAML files for the recommended workflow:
   likelihood weights, and sampler hyperparameters. This file is expected to be
   edited frequently while testing inversion strategies.
 
-The legacy single-file interface is still available:
-
-```bash
-seisforge inv disp-hv -c config.yaml --disp vph_disp.dat --hv hv.dat -o run_disp_hv
-```
-
-In the new split-config interface, `--disp` and `--hv` are optional overrides
-for file paths declared in `obs.yaml`.
+The CLI intentionally uses only the split-config interface. Observation file
+paths should be declared in `obs.yaml`, not passed as ad hoc command-line
+overrides.
 
 ## obs.yaml
 
@@ -162,6 +158,7 @@ Model:
 Inversion:
 Discretization:
 Constraints:
+SoftPriors:
 Likelihood:
 Sampler:
 ```
@@ -394,6 +391,45 @@ Requires Vs, Vp, and density to be finite and positive.
 ```
 
 This is usually harmless and should normally remain enabled.
+
+## SoftPriors
+
+`SoftPriors` are finite model-space log-prior terms. They do not reject a
+model. Instead, they express a quantitative preference among models that have
+already passed all parameter bounds and hard physical constraints. Therefore a
+prior-only run samples the complete configured prior, including `SoftPriors`.
+
+### vs_curvature
+
+`vs_curvature` prefers smooth continuous Vs(z) while still allowing a broad
+low-velocity zone or a sustained velocity gradient. It evaluates each segment
+independently, so a segment boundary is never treated as an artificial smooth
+transition.
+
+```yaml
+SoftPriors:
+  priors:
+    - type: vs_curvature
+      depth_range: [0.0, 10.0]
+      dz: 0.05
+      sigma: 0.20
+```
+
+The contribution is:
+
+```text
+log p_curve = -0.5 * (RMS[d2Vs/dz2] / sigma)^2
+```
+
+Vs is in km/s and depth is in km, so `sigma` is in km/s/km^2. Smaller `sigma`
+means a stronger preference for low curvature; larger `sigma` weakens the
+preference. The RMS normalization keeps the practical strength approximately
+stable when `dz` is changed for numerical evaluation.
+
+This is not a replacement for physical hard constraints. A practical setup is
+to retain `positive_velocity`, `vp_vs_range`, and `vs_range`, use a broad
+`max_vs_gradient` only as a safety limit, and let `vs_curvature` discourage
+short-wavelength B-spline oscillations.
 
 ### vp_gt_vs
 
@@ -656,7 +692,10 @@ resolved_obs.yaml
 Important files:
 
 - `*_mcmc.nc`: parameter samples, log probabilities, acceptance flags, initial
-  and final theta values.
+  and final theta values. It also records `log_parameter_prior`,
+  `log_physical_hard_prior`, `log_soft_prior`, total `log_prior`, and, for a
+  posterior run, `log_likelihood`. `vs_curvature_rms` is written when the
+  curvature soft prior is configured.
 - `*_vs.nc`: Vs(z) ensemble and depth-wise summaries, including mean, standard
   deviation, percentiles, and best model when available.
 - `*_predictive.nc`: posterior predictive dispersion and/or H/V ensembles.

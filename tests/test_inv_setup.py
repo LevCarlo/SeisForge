@@ -1,16 +1,16 @@
 import numpy as np
 
+from seisforge.inv.config import (
+    likelihood_weights_from_config,
+    observations_from_config,
+)
 from seisforge.inv.forward import (
     DispersionRequest,
     RayleighHVRequest,
     predict_dispersion,
     predict_rayleigh_hv,
 )
-from seisforge.inv.workflow import (
-    joint_inversion_setup_from_config,
-    likelihood_weights_from_config,
-    observations_from_config,
-)
+from seisforge.inv.setup import build_inversion_setup
 
 
 def _base_config():
@@ -79,7 +79,7 @@ def _base_config():
 
 
 def _add_self_consistent_observations(config):
-    setup = joint_inversion_setup_from_config(config)
+    setup = build_inversion_setup(config)
     layered = setup.prior.evaluate(setup.parameterization.theta0()).layered_model
     periods = np.array([5.0, 10.0, 20.0])
     dispersion = predict_dispersion(layered, DispersionRequest(periods=periods))
@@ -101,8 +101,8 @@ def _add_self_consistent_observations(config):
     return config
 
 
-def test_joint_inversion_setup_from_config_builds_prior_only_workflow():
-    setup = joint_inversion_setup_from_config(_base_config())
+def test_build_inversion_setup_builds_prior_only_setup():
+    setup = build_inversion_setup(_base_config())
 
     assert setup.target is None
     assert setup.sampler.n_chains == 2
@@ -110,10 +110,32 @@ def test_joint_inversion_setup_from_config_builds_prior_only_workflow():
     assert setup.prior.evaluate(setup.parameterization.theta0()).success
 
 
-def test_joint_inversion_setup_can_run_prior_sampler():
+def test_build_inversion_setup_parses_soft_priors():
+    config = _base_config()
+    config["SoftPriors"] = {
+        "priors": [
+            {
+                "type": "vs_curvature",
+                "depth_range": [0.0, 3.0],
+                "dz": 0.1,
+                "sigma": 0.2,
+            }
+        ]
+    }
+
+    setup = build_inversion_setup(config)
+    detail = setup.prior.evaluate(setup.parameterization.theta0())
+
+    assert len(setup.soft_priors.priors) == 1
+    assert detail.success
+    assert detail.soft_prior_evaluation is not None
+    assert "vs_curvature_rms" in detail.soft_prior_evaluation.diagnostics
+
+
+def test_inversion_setup_can_run_prior_sampler():
     config = _base_config()
     config["Sampler"]["initial_strategy"] = "prior_uniform"
-    setup = joint_inversion_setup_from_config(config)
+    setup = build_inversion_setup(config)
 
     result = setup.run_prior()
 
@@ -121,8 +143,8 @@ def test_joint_inversion_setup_can_run_prior_sampler():
     assert np.all(np.isfinite(result.log_prob))
 
 
-def test_joint_inversion_setup_builds_posterior_target_from_observations():
-    setup = joint_inversion_setup_from_config(_add_self_consistent_observations(_base_config()))
+def test_inversion_setup_builds_posterior_target_from_observations():
+    setup = build_inversion_setup(_add_self_consistent_observations(_base_config()))
     theta0 = setup.parameterization.theta0()
 
     detail = setup.target.evaluate(theta0)
@@ -133,8 +155,8 @@ def test_joint_inversion_setup_builds_posterior_target_from_observations():
     assert setup.target.hv_weight == 2.0
 
 
-def test_joint_inversion_setup_can_run_posterior_sampler():
-    setup = joint_inversion_setup_from_config(_add_self_consistent_observations(_base_config()))
+def test_inversion_setup_can_run_posterior_sampler():
+    setup = build_inversion_setup(_add_self_consistent_observations(_base_config()))
 
     result = setup.run_posterior()
 
@@ -162,7 +184,5 @@ def test_observations_from_config_accepts_aliases():
     np.testing.assert_allclose(hv.hv, [1.2])
 
 
-def test_likelihood_weights_accepts_legacy_joint_inversion_key():
-    weights = likelihood_weights_from_config({"Joint_Inversion": {"weight": [1.0, 10.0]}})
-
-    assert weights == (1.0, 10.0)
+def test_likelihood_weights_from_config_defaults_to_unit_weights():
+    assert likelihood_weights_from_config({}) == (1.0, 1.0)

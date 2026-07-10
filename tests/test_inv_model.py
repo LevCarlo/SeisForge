@@ -4,6 +4,7 @@ from seisforge.inv.io import (
     discretization_from_config,
     layered_vs_model_from_config,
     parameterized_vs_model_from_config,
+    parameterized_vs_model_to_config,
 )
 from seisforge.inv.model import (
     BSplineVs,
@@ -13,6 +14,7 @@ from seisforge.inv.model import (
     LayeredModel,
     LayeredVsModel,
     ParameterizedVsModel,
+    ScalingConfig,
     VsSegment,
     layer_values_from_depth_profile,
     layered_model_from_depth_profiles,
@@ -266,6 +268,46 @@ def test_parameterized_model_from_config_accepts_bspline_profile():
     values = model.evaluate(np.array([0.0, 1.0, 6.0]))
 
     np.testing.assert_allclose(values, np.array([1.0, 2.0, 3.2]))
+
+
+def test_parameterized_model_config_round_trip():
+    model = ParameterizedVsModel(
+        segments=(
+            VsSegment(0.0, 0.5, ConstantVs(1.2)),
+            VsSegment(0.5, 2.0, GradientVs(1.4, 2.3)),
+            VsSegment(
+                2.0,
+                8.0,
+                BSplineVs(
+                    coefficients=[2.4, 2.7, 3.1, 3.4],
+                    degree=3,
+                    knot_spacing="geometric",
+                    knot_alpha=1.5,
+                ),
+            ),
+        ),
+        scaling=ScalingConfig(
+            vp_method="constant_vp_vs",
+            vp_kwargs={"vp_vs": 1.75},
+            rho_method="constant",
+            rho_kwargs={"rho": 2.7},
+        ),
+    )
+    discretization = DiscretizationConfig(dz=0.2, zmax=8.0, force_depths=(1.0,))
+
+    config = parameterized_vs_model_to_config(model, discretization=discretization)
+    restored_model = parameterized_vs_model_from_config(config)
+    restored_disc = discretization_from_config(config["Discretization"])
+
+    np.testing.assert_allclose(
+        restored_model.evaluate(np.linspace(0.0, 8.0, 31)),
+        model.evaluate(np.linspace(0.0, 8.0, 31)),
+    )
+    assert restored_model.scaling.vp_method == "constant_vp_vs"
+    assert restored_model.scaling.vp_kwargs == {"vp_vs": 1.75}
+    assert restored_model.scaling.rho_method == "constant"
+    assert restored_model.scaling.rho_kwargs == {"rho": 2.7}
+    assert restored_disc == discretization
 
 
 def test_layer_stairs_clip_to_zmax():

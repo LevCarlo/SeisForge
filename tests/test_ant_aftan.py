@@ -18,7 +18,10 @@ from seisforge.ant.aftan import (
     _pmf_period_bounds,
     _qc_warnings,
     _snr,
+    automatic_pi_over_4,
     build_station_aftan_config,
+    physical_branch_for_branch,
+    physical_station_pair_for_branch,
     run_aftan_config,
 )
 from seisforge.ant.aftan.core import AFTANMeasurement, _build_period_grid
@@ -108,6 +111,52 @@ def test_build_station_aftan_config_is_station_scoped(tmp_path):
     assert built.aftan.pmf.trig_threshold == 20.0
     assert built.aftan.pmf.jump_points == 5
     assert built.aftan.snr.noise_mode == "complement"
+
+
+def test_build_station_aftan_config_accepts_station_pair_component_list(tmp_path):
+    config = {
+        "source_station": "WT.2001",
+        "receiver_station": "WT.2085",
+        "components": ["ZR", "RZ"],
+        "io": {
+            "input_root_datadir": "CC_ZRT",
+            "output_root_datadir": "FTAN",
+            "input_template": "*_{component}_pws.SAC",
+        },
+        "aftan": {
+            "branch": "negative",
+            "min_period": 2.0,
+            "max_period": 8.0,
+            "period_sampling": {"mode": "uniform", "step": 0.5},
+            "velocity_window": {"min": 2.0, "max": 4.5},
+            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+        },
+    }
+
+    built = build_station_aftan_config(config, base_dir=tmp_path)
+
+    assert built.station == "WT.2001"
+    assert built.source_station == "WT.2001"
+    assert built.receiver_station == "WT.2085"
+    assert built.components == ("ZR", "RZ")
+    assert built.input_dir == tmp_path / "CC_ZRT" / "WT.2001" / "WT.2001_WT.2085"
+    assert built.output_dir == tmp_path / "FTAN" / "WT.2001" / "WT.2001_WT.2085"
+    assert built.sac_pattern == "*_{component}_pws.SAC"
+    assert built.input_template == "*_{component}_pws.SAC"
+    assert built.aftan.pi_over_4_mode == "auto"
+
+
+def test_automatic_pi_over_4_uses_reciprocal_component_for_negative_branch():
+    assert automatic_pi_over_4("ZR", "positive") == ("ZR", 1.0)
+    assert automatic_pi_over_4("RZ", "positive") == ("RZ", -1.0)
+    assert automatic_pi_over_4("ZR", "negative") == ("RZ", -1.0)
+    assert automatic_pi_over_4("RZ", "negative") == ("ZR", 1.0)
+    assert automatic_pi_over_4("ZZ", "negative") == ("ZZ", -1.0)
+    assert physical_branch_for_branch("negative") == "positive"
+    assert physical_station_pair_for_branch("WT.2001", "WT.2085", "negative") == (
+        "WT.2085",
+        "WT.2001",
+    )
 
 
 def test_energy_map_override_preserves_jump_correction_config(tmp_path):
@@ -313,6 +362,73 @@ def test_run_aftan_config_writes_dispersion_outputs(tmp_path):
     assert np.all(np.isfinite(result.phase_velocity))
     assert np.nanmedian(result.group_velocity) > 2.0
     assert np.nanmedian(result.group_velocity) < 4.5
+
+
+def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
+    pair_dir = tmp_path / "CC_ZRT" / "WT.2001" / "WT.2001_WT.2085"
+    pair_dir.mkdir(parents=True)
+    _write_symmetric_wave_packet(pair_dir / "WT.2001_WT.2085_ZR_pws.SAC")
+    _write_symmetric_wave_packet(pair_dir / "WT.2001_WT.2085_RZ_pws.SAC")
+    config_file = tmp_path / "aftan.yml"
+    config_file.write_text(
+        "\n".join(
+            [
+                "source_station: WT.2001",
+                "receiver_station: WT.2085",
+                "components: [ZR, RZ]",
+                "io:",
+                "  input_root_datadir: CC_ZRT",
+                "  output_root_datadir: FTAN",
+                "  input_template: '*_{component}_pws.SAC'",
+                "aftan:",
+                "  branch: negative",
+                "  min_period: 2.0",
+                "  max_period: 8.0",
+                "  period_sampling:",
+                "    mode: uniform",
+                "    step: 0.5",
+                "  reference_velocity: 3.5",
+                "  velocity_window:",
+                "    min: 2.0",
+                "    max: 4.5",
+                "  trig_threshold: 9999.0",
+                "  basic:",
+                *_alpha_config_lines(),
+            ]
+        )
+    )
+
+    results = run_aftan_config(config_file)
+
+    assert len(results) == 2
+    by_component = {result.input_component: result for result in results}
+    assert by_component["ZR"].physical_component == "RZ"
+    assert by_component["ZR"].physical_source_station == "WT.2085"
+    assert by_component["ZR"].physical_receiver_station == "WT.2001"
+    assert by_component["ZR"].physical_branch == "positive"
+    assert by_component["ZR"].pi_over_4 == -1.0
+    assert by_component["RZ"].physical_component == "ZR"
+    assert by_component["RZ"].pi_over_4 == 1.0
+    assert by_component["ZR"].output_dat.name == "WT.2085_WT.2001_RZ_pws.positive.dat"
+    assert by_component["RZ"].output_dat.name == "WT.2085_WT.2001_ZR_pws.positive.dat"
+    log_text = (tmp_path / "FTAN" / "WT.2001" / "WT.2001_WT.2085" / "aftan.log").read_text()
+    assert "components: ZR,RZ" in log_text
+    assert "stored_pair=WT.2001_WT.2085->WT.2085_WT.2001" in log_text
+    assert "branch=negative->positive" in log_text
+    assert "component=ZR->RZ, pi_over_4=-1 (auto)" in log_text
+    assert "component=RZ->ZR, pi_over_4=1 (auto)" in log_text
+    zr_dat_text = by_component["ZR"].output_dat.read_text()
+    assert "# input_file: WT.2001_WT.2085_ZR_pws.SAC" in zr_dat_text
+    assert "# input_component: ZR" in zr_dat_text
+    assert "# stored_source_station: WT.2001" in zr_dat_text
+    assert "# stored_receiver_station: WT.2085" in zr_dat_text
+    assert "# physical_source_station: WT.2085" in zr_dat_text
+    assert "# physical_receiver_station: WT.2001" in zr_dat_text
+    assert "# physical_component: RZ" in zr_dat_text
+    assert "# selected_branch: negative" in zr_dat_text
+    assert "# physical_branch: positive" in zr_dat_text
+    assert "# pi_over_4: -1.0" in zr_dat_text
+    assert "# pi_over_4_mode: auto" in zr_dat_text
 
 
 def test_snr_uses_raw_signal_and_picked_periods(monkeypatch, tmp_path):

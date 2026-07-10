@@ -11,9 +11,9 @@ from seisforge.inv.forward import (
     predict_dispersion,
     predict_rayleigh_hv,
 )
+from seisforge.inv.driver import run_inversion
 from seisforge.inv.io import dump_yaml, read_dispersion_dat, read_hv_dat
-from seisforge.inv.runner import run_dispersion_hv_inversion
-from seisforge.inv.workflow import joint_inversion_setup_from_config
+from seisforge.inv.setup import build_inversion_setup
 
 
 def _config():
@@ -88,7 +88,7 @@ def _config():
 def _write_observations(tmp_path, config):
     prior_config = dict(config)
     prior_config.pop("Observations", None)
-    setup = joint_inversion_setup_from_config(prior_config)
+    setup = build_inversion_setup(prior_config)
     layered = setup.prior.evaluate(setup.parameterization.theta0()).layered_model
     periods = np.array([2.0, 3.0])
     dispersion = predict_dispersion(layered, DispersionRequest(periods=periods))
@@ -138,17 +138,31 @@ def test_read_observation_dat_sorts_periods(tmp_path):
     np.testing.assert_allclose(hv["hv"], [0.9, 0.8])
 
 
-def test_disp_hv_runner_writes_xarray_outputs(tmp_path):
+def test_disp_hv_driver_writes_xarray_outputs(tmp_path):
     config = _config()
-    config_file = tmp_path / "config.yaml"
-    dump_yaml(config, config_file)
-    disp_file, hv_file = _write_observations(tmp_path, config)
+    config["SoftPriors"] = {
+        "priors": [
+            {
+                "type": "vs_curvature",
+                "depth_range": [0.0, 3.0],
+                "dz": 0.1,
+                "sigma": 0.2,
+            }
+        ]
+    }
+    inv_config = dict(config)
+    inv_config.pop("Observations", None)
+    inv_file = tmp_path / "inv.yaml"
+    obs_file = tmp_path / "obs.yaml"
+    dump_yaml(inv_config, inv_file)
+    dump_yaml(_obs_config(), obs_file)
+    _write_observations(tmp_path, config)
     output = tmp_path / "disp_hv_posterior"
 
-    result = run_dispersion_hv_inversion(
-        config_file=config_file,
-        dispersion_file=disp_file,
-        hv_file=hv_file,
+    result = run_inversion(
+        kind="disp_hv",
+        inv_file=inv_file,
+        obs_file=obs_file,
         output=output,
         progress=False,
     )
@@ -160,12 +174,24 @@ def test_disp_hv_runner_writes_xarray_outputs(tmp_path):
     with xr.open_dataset(result.posterior_mcmc) as dataset:
         assert "theta" in dataset
         assert list(dataset.coords["parameter"].values) == ["vs0", "vs1", "vs2"]
+        for name in (
+            "log_prior",
+            "log_parameter_prior",
+            "log_physical_hard_prior",
+            "log_soft_prior",
+            "log_likelihood",
+            "vs_curvature_rms",
+        ):
+            assert name in dataset
+        np.testing.assert_allclose(
+            dataset["log_prob"], dataset["log_prior"] + dataset["log_likelihood"]
+        )
     with xr.open_dataset(result.posterior_predictive) as dataset:
         assert "dispersion_predicted_velocity" in dataset
         assert "hv_predicted_hv" in dataset
 
 
-def test_disp_hv_runner_reads_split_inv_and_obs_configs(tmp_path):
+def test_disp_hv_driver_reads_split_inv_and_obs_configs(tmp_path):
     config = _config()
     inv_config = dict(config)
     inv_config.pop("Observations", None)
@@ -176,7 +202,8 @@ def test_disp_hv_runner_reads_split_inv_and_obs_configs(tmp_path):
     _write_observations(tmp_path, config)
     output = tmp_path / "disp_hv_split"
 
-    result = run_dispersion_hv_inversion(
+    result = run_inversion(
+        kind="disp_hv",
         inv_file=inv_file,
         obs_file=obs_file,
         output=output,

@@ -111,6 +111,7 @@ class AFTANConfig:
     velocity_min: float = 0.5
     velocity_max: float = 5.5
     pi_over_4: float = -1.0
+    pi_over_4_mode: str = "manual"
     branch: str = "positive"
     prediction_file: Path | None = None
     basic: AFTANBasicConfig = field(
@@ -128,12 +129,16 @@ class AFTANConfig:
 
 @dataclass(frozen=True)
 class StationAFTANConfig:
-    station: str
+    station: str | None
     input_dir: Path
     output_dir: Path
     sac_pattern: str = "*.SAC"
     overwrite: bool = False
     aftan: AFTANConfig = field(default_factory=AFTANConfig)
+    source_station: str | None = None
+    receiver_station: str | None = None
+    components: tuple[str, ...] = ()
+    input_template: str | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +159,15 @@ class AFTANResult:
     alpha_mode: str
     qc: dict[str, float | int]
     warnings: tuple[str, ...] = ()
+    input_component: str | None = None
+    physical_component: str | None = None
+    stored_source_station: str | None = None
+    stored_receiver_station: str | None = None
+    physical_source_station: str | None = None
+    physical_receiver_station: str | None = None
+    physical_branch: str | None = None
+    pi_over_4: float | None = None
+    pi_over_4_mode: str | None = None
     output_npz: Path | None = None
     pmf_alpha: float | None = None
     pmf_alpha_mode: str | None = None

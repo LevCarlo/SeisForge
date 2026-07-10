@@ -18,6 +18,7 @@ from .models import (
     AFTANSNRConfig,
     StationAFTANConfig,
 )
+from .phase import normalize_component
 
 
 _BRANCHES = {"positive", "negative", "both", "stack"}
@@ -32,6 +33,7 @@ _PMF_PERIOD_BOUND_MODES = {"raw", "step"}
 _PMF_PERIOD_BOUND_METHODS = {"floor", "ceil", "nearest"}
 _SNR_DEFINITIONS = {"local", "pyftan", "aftan"}
 _SNR_NOISE_MODES = {"tail", "complement"}
+_PI_OVER_4_MODES = {"auto", "manual"}
 
 
 def build_station_aftan_config(
@@ -43,24 +45,82 @@ def build_station_aftan_config(
     io_config = config.get("io", {})
     aftan_config = config.get("aftan", {})
 
-    station = str(config.get("station") or io_config.get("station") or "")
-    if not station:
-        raise ValueError("AFTAN config requires station.")
-    for key in ("input_dir", "output_dir"):
-        if key not in io_config:
-            raise ValueError(f"AFTAN config io.{key} is required.")
+    source_station = _optional_string(
+        config.get("source_station") or io_config.get("source_station")
+    )
+    receiver_station = _optional_string(
+        config.get("receiver_station") or io_config.get("receiver_station")
+    )
+    components = _build_components(
+        config.get(
+            "components",
+            config.get("component", io_config.get("components", io_config.get("component"))),
+        )
+    )
+
+    station = _optional_string(config.get("station") or io_config.get("station"))
+    if source_station is not None and station is None:
+        station = source_station
+
+    if components:
+        if not source_station or not receiver_station:
+            raise ValueError(
+                "AFTAN config with component(s) requires source_station and "
+                "receiver_station."
+            )
+        input_root = io_config.get("input_root_datadir", io_config.get("input_root_dir"))
+        output_root = io_config.get(
+            "output_root_datadir",
+            io_config.get("output_root_dir"),
+        )
+        if input_root is None:
+            raise ValueError("AFTAN config io.input_root_datadir is required.")
+        if output_root is None:
+            raise ValueError("AFTAN config io.output_root_datadir is required.")
+        pair_name = f"{source_station}_{receiver_station}"
+        input_dir = _resolve_path(input_root, base_path) / source_station / pair_name
+        output_dir = _resolve_path(output_root, base_path) / source_station / pair_name
+        input_template = str(
+            io_config.get("input_template", io_config.get("sac_pattern", "*_{component}.SAC"))
+        )
+        sac_pattern = input_template
+    else:
+        if not station:
+            raise ValueError(
+                "AFTAN config requires either station or source_station/receiver_station."
+            )
+        for key in ("input_dir", "output_dir"):
+            if key not in io_config:
+                raise ValueError(f"AFTAN config io.{key} is required.")
+        input_dir = _resolve_path(io_config["input_dir"], base_path)
+        output_dir = _resolve_path(io_config["output_dir"], base_path)
+        input_template = None
+        sac_pattern = str(io_config.get("sac_pattern", "*.SAC"))
 
     return StationAFTANConfig(
         station=station,
-        input_dir=_resolve_path(io_config["input_dir"], base_path),
-        output_dir=_resolve_path(io_config["output_dir"], base_path),
-        sac_pattern=str(io_config.get("sac_pattern", "*.SAC")),
+        input_dir=input_dir,
+        output_dir=output_dir,
+        sac_pattern=sac_pattern,
         overwrite=bool(io_config.get("overwrite", False)),
-        aftan=_build_aftan_config(aftan_config, base_path),
+        aftan=_build_aftan_config(
+            aftan_config,
+            base_path,
+            default_auto_pi_over_4=bool(components),
+        ),
+        source_station=source_station,
+        receiver_station=receiver_station,
+        components=components,
+        input_template=input_template,
     )
 
 
-def _build_aftan_config(config: dict[str, Any], base_path: Path | None) -> AFTANConfig:
+def _build_aftan_config(
+    config: dict[str, Any],
+    base_path: Path | None,
+    *,
+    default_auto_pi_over_4: bool = False,
+) -> AFTANConfig:
     basic = config.get("basic", {})
     pmf = config.get("pmf", {})
     snr = config.get("snr", {})
@@ -71,6 +131,10 @@ def _build_aftan_config(config: dict[str, Any], base_path: Path | None) -> AFTAN
     branch = str(config.get("branch", "")).lower()
     if branch not in _BRANCHES:
         raise ValueError(f"aftan.branch must be one of {sorted(_BRANCHES)}.")
+    pi_over_4, pi_over_4_mode = _build_pi_over_4_config(
+        config,
+        default_auto=default_auto_pi_over_4,
+    )
     aftan = AFTANConfig(
         debug=bool(config.get("debug", False)),
         min_period=float(config.get("min_period", 0.5)),
@@ -82,7 +146,8 @@ def _build_aftan_config(config: dict[str, Any], base_path: Path | None) -> AFTAN
         ),
         velocity_min=float(velocity_window.get("min", config.get("velocity_min", 0.5))),
         velocity_max=float(velocity_window.get("max", config.get("velocity_max", 5.5))),
-        pi_over_4=float(config.get("pi_over_4", -1.0)),
+        pi_over_4=pi_over_4,
+        pi_over_4_mode=pi_over_4_mode,
         branch=branch,
         prediction_file=(
             _resolve_path(prediction_file, base_path) if prediction_file else None
@@ -168,6 +233,52 @@ def _validate_aftan_config(config: AFTANConfig) -> None:
         raise ValueError("aftan.qc.period_rel_warning must be non-negative.")
     if not 0 <= config.qc.min_valid_fraction <= 1:
         raise ValueError("aftan.qc.min_valid_fraction must be between 0 and 1.")
+    if config.pi_over_4_mode not in _PI_OVER_4_MODES:
+        raise ValueError(f"aftan.pi_over_4.mode must be one of {sorted(_PI_OVER_4_MODES)}.")
+
+
+def _build_pi_over_4_config(
+    config: dict[str, Any],
+    *,
+    default_auto: bool,
+) -> tuple[float, str]:
+    value = config.get("pi_over_4")
+    if value is None:
+        return -1.0, "auto" if default_auto else "manual"
+    if isinstance(value, dict):
+        mode = str(value.get("mode", "auto")).lower()
+        if mode not in _PI_OVER_4_MODES:
+            raise ValueError(
+                f"aftan.pi_over_4.mode must be one of {sorted(_PI_OVER_4_MODES)}."
+            )
+        if mode == "manual":
+            if "value" not in value:
+                raise ValueError("aftan.pi_over_4.value is required for manual mode.")
+            return float(value["value"]), mode
+        return -1.0, mode
+    return float(value), "manual"
+
+
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _build_components(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        items = [item.strip() for item in value.split(",")]
+    else:
+        items = [str(item).strip() for item in value]
+    components = tuple(normalize_component(item) for item in items if item)
+    if not components:
+        raise ValueError("AFTAN component(s) cannot be empty.")
+    if len(set(components)) != len(components):
+        raise ValueError("AFTAN component(s) must not contain duplicates.")
+    return components
 
 
 def _build_snr_config(config: dict[str, Any]) -> AFTANSNRConfig:
@@ -270,6 +381,7 @@ def _override_energy_map_config(
         velocity_min=config.aftan.velocity_min,
         velocity_max=config.aftan.velocity_max,
         pi_over_4=config.aftan.pi_over_4,
+        pi_over_4_mode=config.aftan.pi_over_4_mode,
         branch=config.aftan.branch,
         prediction_file=config.aftan.prediction_file,
         basic=config.aftan.basic,
@@ -285,6 +397,10 @@ def _override_energy_map_config(
         sac_pattern=config.sac_pattern,
         overwrite=config.overwrite,
         aftan=new_aftan,
+        source_station=config.source_station,
+        receiver_station=config.receiver_station,
+        components=config.components,
+        input_template=config.input_template,
     )
 
 

@@ -17,6 +17,12 @@ from .models import (
     BranchTrace,
     StationAFTANConfig,
 )
+from .phase import (
+    automatic_pi_over_4,
+    physical_branch_for_branch,
+    physical_component_for_branch,
+    physical_station_pair_for_branch,
+)
 from .qc import _period_qc, _qc_warnings
 from .snr import _aftan_diagram_snr, _snr
 
@@ -37,6 +43,10 @@ __all__ = [
     "run_aftan_config",
     "run_aftan_file",
     "run_station_aftan",
+    "automatic_pi_over_4",
+    "physical_branch_for_branch",
+    "physical_component_for_branch",
+    "physical_station_pair_for_branch",
     "_aftan_diagram_snr",
     "_align_to_period_grid",
     "_override_energy_map_config",

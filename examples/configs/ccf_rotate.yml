@@ -1,11 +1,16 @@
 io:
-  input_dir: /path/to/CCF_ZNE/NET.STA1_NET.STA2
-  output_dir: /path/to/CCF_ZRT/NET.STA1_NET.STA2
+  # SeisForge builds input paths as:
+  #   root_datadir/source_station/source_station_receiver_station
+  root_datadir: /path/to/CCF_ZNE
+  output_root_datadir: /path/to/CCF_ZRT
+  source_station: NET.STA1
+  receiver_station: NET.STA2
+  # Template fields: {name}, {component}.
+  # Put the desired stack product directly in the template, e.g. pws or ls.
   input_template: "*_{component}_pws.SAC"
   # Output names preserve the matched input filename by default, replacing only
   # the component token. For example:
   # NET.STA1_NET.STA2_ZN_pws.SAC -> NET.STA1_NET.STA2_ZR_pws.SAC
-  # output_template: "{source_name}"
 
 rotation:
   obj_components: [ZZ, ZR, ZT, RZ, RR, RT, TZ, TR, TT]
@@ -22,8 +27,7 @@ rotation:
 
 # For multiple station pairs, keep the defaults above and override per job:
 # jobs:
-#   - name: NET.STA1_NET.STA2
-#     input_dir: /path/to/CCF_ZNE/NET.STA1_NET.STA2
-#     output_dir: /path/to/CCF_ZRT/NET.STA1_NET.STA2
+#   - source_station: NET.STA1
+#     receiver_station: NET.STA2
 #     azimuth: 120.0       # optional override
 #     back_azimuth: 300.0  # optional override

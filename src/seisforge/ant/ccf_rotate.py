@@ -1,4 +1,4 @@
-"""Ambient-noise cross-correlation workflows."""
+"""File workflow for rotating ambient-noise cross-correlation functions."""
 
 from __future__ import annotations
 
@@ -18,16 +18,16 @@ from seisforge.ant.rotation import (
     rotate_zne_ccf_to_zrt,
 )
 
-
-_LEGACY_COMPONENT_OUTPUT_TEMPLATE = "{component}.SAC"
-
-
 @dataclass(frozen=True)
 class RotateCCFJob:
     """One ZNE-to-ZRT cross-correlation rotation job."""
 
     input_dir: Path
     output_dir: Path
+    root_datadir: Path
+    output_root_datadir: Path
+    source_station: str
+    receiver_station: str
     azimuth: float | None = None
     back_azimuth: float | None = None
     input_template: str = "{component}.SAC"
@@ -94,18 +94,23 @@ def rotate_ccf_job(job: RotateCCFJob) -> RotateCCFResult:
         input_paths = {}
         ccf = {}
         for component in input_components:
-            pattern = _format_path(job.input_dir, job.input_template, component, job.name)
-            log_lines.append(f"input candidate {component}: {pattern}")
+            attempted = []
             try:
-                path = _resolve_input_file(pattern)
+                path, source_label = _resolve_input_component(
+                    job,
+                    component,
+                    attempted,
+                )
             except Exception as exc:
                 raise FileNotFoundError(
                     "Failed to resolve required input component "
                     f"{component!r}; obj_components={job.obj_components}; "
                     f"required_input_components={input_components}; "
-                    f"attempted pattern/path={pattern}"
+                    f"attempted pattern/path={attempted}"
                 ) from exc
-            log_lines.append(f"read {component}: {path}")
+            for label, pattern in attempted:
+                log_lines.append(f"input candidate {component} [{label}]: {pattern}")
+            log_lines.append(f"read {component} [{source_label}]: {path}")
             try:
                 stream = read(str(path))
             except Exception as exc:
@@ -177,8 +182,10 @@ def _collect_defaults(config: dict[str, Any]) -> dict[str, Any]:
         if section:
             params.update(section)
     for key in (
-        "input_dir",
-        "output_dir",
+        "root_datadir",
+        "output_root_datadir",
+        "source_station",
+        "receiver_station",
         "input_template",
         "output_template",
         "azimuth",
@@ -195,19 +202,43 @@ def _collect_defaults(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _make_job(params: dict[str, Any], base_dir: Path | None) -> RotateCCFJob:
-    missing = [key for key in ("input_dir", "output_dir") if key not in params]
-    if missing:
-        raise ValueError(f"Missing required rotate-ccf configuration keys: {missing}")
-
     obj_components = _parse_components(
         params.get("obj_components", params.get("components", ZRT_COMPONENTS))
     )
     input_template = params.get("input_template", "{component}.SAC")
-    output_template = _normalize_output_template(params.get("output_template"))
-
+    output_template = (
+        str(params["output_template"]) if params.get("output_template") is not None else None
+    )
+    source_station = _optional_string(params.get("source_station"))
+    receiver_station = _optional_string(params.get("receiver_station"))
+    if source_station is None or receiver_station is None:
+        raise ValueError(
+            "rotate-ccf requires source_station and receiver_station."
+        )
+    pair_name = _pair_name(source_station, receiver_station)
+    root_datadir = (
+        _resolve_path(params["root_datadir"], base_dir)
+        if params.get("root_datadir") is not None
+        else None
+    )
+    if root_datadir is None:
+        raise ValueError("rotate-ccf requires root_datadir.")
+    output_root_datadir = (
+        _resolve_path(params["output_root_datadir"], base_dir)
+        if params.get("output_root_datadir") is not None
+        else None
+    )
+    if output_root_datadir is None:
+        raise ValueError("rotate-ccf requires output_root_datadir.")
+    input_dir = _station_pair_dir(root_datadir, source_station, receiver_station)
+    output_dir = _station_pair_dir(output_root_datadir, source_station, receiver_station)
     return RotateCCFJob(
-        input_dir=_resolve_path(params["input_dir"], base_dir),
-        output_dir=_resolve_path(params["output_dir"], base_dir),
+        input_dir=input_dir,
+        output_dir=output_dir,
+        root_datadir=root_datadir,
+        output_root_datadir=output_root_datadir,
+        source_station=source_station,
+        receiver_station=receiver_station,
         azimuth=_optional_float(params.get("azimuth")),
         back_azimuth=_optional_float(params.get("back_azimuth")),
         input_template=str(input_template),
@@ -215,7 +246,7 @@ def _make_job(params: dict[str, Any], base_dir: Path | None) -> RotateCCFJob:
         obj_components=obj_components,
         degrees=bool(params.get("degrees", True)),
         overwrite=bool(params.get("overwrite", False)),
-        name=params.get("name"),
+        name=params.get("name", pair_name),
     )
 
 
@@ -334,6 +365,13 @@ def _optional_float(value) -> float | None:
     return float(value)
 
 
+def _optional_string(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _parse_components(value) -> tuple[str, ...]:
     if isinstance(value, str):
         components = tuple(comp.strip().upper() for comp in value.split(","))
@@ -344,15 +382,57 @@ def _parse_components(value) -> tuple[str, ...]:
     return components
 
 
-def _format_path(root: Path, template: str, component: str, name: str | None) -> Path:
+def _format_path(
+    root: Path,
+    template: str,
+    component: str,
+    name: str | None,
+) -> Path:
     fields = {"component": component, "name": name or ""}
     try:
         path = template.format(**fields)
     except KeyError as exc:
         raise KeyError(
-            f"Unknown template field {exc!s}; supported fields are component and name."
+            f"Unknown template field {exc!s}; supported fields are component "
+            "and name."
         ) from exc
     return root / path
+
+
+def _resolve_input_component(
+    job: RotateCCFJob,
+    component: str,
+    attempted: list[tuple[str, Path]],
+) -> tuple[Path, str]:
+    last_error: Exception | None = None
+    for label, pattern in _input_component_candidates(job, component):
+        attempted.append((label, pattern))
+        try:
+            path = _resolve_input_file(pattern)
+        except FileNotFoundError as exc:
+            last_error = exc
+            continue
+        return path, label
+    if last_error is not None:
+        raise last_error
+    raise FileNotFoundError(f"No input candidates were built for {component}.")
+
+
+def _input_component_candidates(
+    job: RotateCCFJob,
+    component: str,
+) -> list[tuple[str, Path]]:
+    return [
+        (
+            "primary",
+            _format_path(
+                job.input_dir,
+                job.input_template,
+                component,
+                job.name,
+            ),
+        )
+    ]
 
 
 def _resolve_input_file(path: Path) -> Path:
@@ -414,13 +494,18 @@ def _replace_component_token(name: str, source_component: str, component: str) -
     )
 
 
-def _normalize_output_template(value) -> str | None:
-    if value is None:
+def _station_pair_dir(
+    root_datadir: Path,
+    source_station: str,
+    receiver_station: str,
+) -> Path:
+    return root_datadir / source_station / _pair_name(source_station, receiver_station)
+
+
+def _pair_name(source_station: str | None, receiver_station: str | None) -> str | None:
+    if source_station is None or receiver_station is None:
         return None
-    template = str(value)
-    if template == _LEGACY_COMPONENT_OUTPUT_TEMPLATE:
-        return None
-    return template
+    return f"{source_station}_{receiver_station}"
 
 
 def _resolve_path(path, base_dir: Path | None) -> Path:
@@ -444,6 +529,8 @@ def _start_log(job: RotateCCFJob) -> list[str]:
         f"name: {job.name or '-'}",
         f"input_dir: {job.input_dir}",
         f"output_dir: {job.output_dir}",
+        f"source_station: {job.source_station or '-'}",
+        f"receiver_station: {job.receiver_station or '-'}",
         f"input_template: {job.input_template}",
         f"output_template: {job.output_template or '<preserve input naming>'}",
         f"obj_components: {','.join(job.obj_components)}",

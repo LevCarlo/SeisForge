@@ -1,23 +1,43 @@
 # AFTAN Dispersion Measurement
 
-Use one station-level config per run:
+Use one station-pair config per run:
 
 ```bash
 seisforge ant aftan -c examples/configs/aftan_station.yml
 ```
 
-The config is intentionally local and explicit: one station name, one input
-directory, one SAC glob pattern, one output directory, and a compact set of
-AFTAN parameters. Each matched SAC file writes:
+The config is intentionally local and explicit: one source station, one receiver
+station, one or more ZRT components, input/output root directories, and a compact
+set of AFTAN parameters. SeisForge expands this into:
 
-- `<input_stem>.npz` with arrays `period`, `group_velocity`, `phase_velocity`,
-  `amplitude`, `snr`, and metadata.
+```text
+<input_root_datadir>/<source_station>/<source_station>_<receiver_station>
+<output_root_datadir>/<source_station>/<source_station>_<receiver_station>
+```
+
+For each requested component and branch, SeisForge writes:
+
 - `<input_stem>.dat` with columns `target_period_s instant_period_s
   group_velocity_km_s phase_velocity_km_s amplitude snr`. Amplitude is written
   in scientific notation to avoid losing very small values.
-- When `pmf.enabled: true`, `<input_stem>.pmf.npz` and `<input_stem>.pmf.dat`
-  are also written for the phase-matched second FTAN pass.
+- When `pmf.enabled: true`, `<input_stem>.pmf.dat` is also written for the
+  phase-matched second FTAN pass.
 - `aftan.log` in the output directory.
+
+The top-level station-pair and component fields are:
+
+```yaml
+source_station: WT.2001
+receiver_station: WT.2085
+components: [ZZ, ZR, RZ, RR]
+
+io:
+  input_root_datadir: /path/to/CCF_ZRT
+  output_root_datadir: /path/to/FTAN
+  input_template: "*_{component}_pws.SAC"
+```
+
+`component` may be used instead of `components` for a single component.
 
 The current config uses explicit branch and alpha choices:
 
@@ -25,6 +45,8 @@ The current config uses explicit branch and alpha choices:
 aftan:
   debug: false
   branch: positive  # positive, negative, both, stack
+  pi_over_4:
+    mode: auto
   period_sampling:
     mode: uniform
     step: 0.1
@@ -48,10 +70,19 @@ aftan:
       max_method: ceil
 ```
 
-`branch: both` writes one result for each positive and negative lag. `branch:
-stack` averages the positive lag and the time-reversed negative lag. If a
-two-sided branch is requested for a one-sided trace, SeisForge falls back to the
-positive branch and records a warning in `aftan.log`.
+`branch: both` writes one result for each positive and negative lag. For a
+negative branch, SeisForge interprets the time-reversed CCF as the reciprocal
+station pair and component: for example stored input `A_B ZR` on the negative
+branch is measured as physical `B_A RZ` on the positive branch. Output filenames
+use this physical station pair and component when the config provides both
+`source_station` and `receiver_station`; the `.dat` header records both stored
+and physical provenance. With `pi_over_4.mode: auto`, the Rayleigh-wave phase
+correction is derived from this physical component and written to `aftan.log`.
+`branch: stack` averages the positive lag and the time-reversed negative lag and
+is only well-defined for self-reciprocal components such as `ZZ`, `RR`, or `TT`;
+asymmetric components should be measured with `positive` or `negative` instead.
+If a two-sided branch is requested for a one-sided trace, SeisForge falls back to
+the positive branch and records a warning in `aftan.log`.
 
 `period_sampling` defines the target filter periods. `uniform` uses a fixed
 period step or a fixed count; `list` uses the periods supplied in the config;
@@ -60,7 +91,7 @@ period step or a fixed count; `list` uses the periods supplied in the config;
 `geomspace(min_period, max_period, count)`. Despite the historical `dfreq` name,
 this is a logarithmic period/frequency sampling density, not a linear Hz step.
 
-When `aftan.debug: true`, the `.dat`, `.npz`, and optional xarray energy map
+When `aftan.debug: true`, the `.dat` and optional xarray energy map
 include phase-diagnostic outputs. The debug `.dat` appends
 `phase_derivative_rad_s hilbert_phase_derivative_rad_s
 hilbert_instant_period_s instant_period_delta_s` before `snr`. The `hilbert_*`

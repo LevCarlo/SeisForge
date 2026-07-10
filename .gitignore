@@ -7,3 +7,4 @@ tests/**/*.nc
 tests/**/*.log
 */**/__pycache__/
 *.vscode/
+examples/STA001/*

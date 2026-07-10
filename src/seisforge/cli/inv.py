@@ -24,14 +24,8 @@ def register(
 
 def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "-c",
-        "--config",
-        default=None,
-        help="Legacy single-file YAML configuration.",
-    )
-    parser.add_argument(
         "--inv",
-        default=None,
+        required=True,
         help="Inversion YAML: model, priors, likelihood, and sampler settings.",
     )
     parser.add_argument(
@@ -95,11 +89,6 @@ def _register_disp(
         description="Invert dispersion observations.",
     )
     _add_common_arguments(parser)
-    parser.add_argument(
-        "--disp",
-        default=None,
-        help="Override three-column dispersion file: period, velocity, sigma.",
-    )
     parser.set_defaults(func=_run_disp)
 
 
@@ -112,11 +101,6 @@ def _register_hv(
         description="Invert Rayleigh H/V observations.",
     )
     _add_common_arguments(parser)
-    parser.add_argument(
-        "--hv",
-        default=None,
-        help="Override three-column H/V file: period, hv, sigma.",
-    )
     parser.set_defaults(func=_run_hv)
 
 
@@ -129,27 +113,16 @@ def _register_disp_hv(
         description="Jointly invert dispersion and Rayleigh H/V observations.",
     )
     _add_common_arguments(parser)
-    parser.add_argument(
-        "--disp",
-        default=None,
-        help="Override three-column dispersion file: period, velocity, sigma.",
-    )
-    parser.add_argument(
-        "--hv",
-        default=None,
-        help="Override three-column H/V file: period, hv, sigma.",
-    )
     parser.set_defaults(func=_run_disp_hv)
 
 
 def _run_disp(args: argparse.Namespace) -> int:
-    from seisforge.inv.runner import run_dispersion_inversion
+    from seisforge.inv.driver import run_inversion
 
-    run_dispersion_inversion(
+    run_inversion(
+        kind="disp",
         inv_file=args.inv,
         obs_file=args.obs,
-        config_file=args.config,
-        dispersion_file=args.disp,
         output=args.output,
         prior_only=args.prior_only,
         with_prior=args.with_prior,
@@ -162,13 +135,12 @@ def _run_disp(args: argparse.Namespace) -> int:
 
 
 def _run_hv(args: argparse.Namespace) -> int:
-    from seisforge.inv.runner import run_hv_inversion
+    from seisforge.inv.driver import run_inversion
 
-    run_hv_inversion(
+    run_inversion(
+        kind="hv",
         inv_file=args.inv,
         obs_file=args.obs,
-        config_file=args.config,
-        hv_file=args.hv,
         output=args.output,
         prior_only=args.prior_only,
         with_prior=args.with_prior,
@@ -181,14 +153,12 @@ def _run_hv(args: argparse.Namespace) -> int:
 
 
 def _run_disp_hv(args: argparse.Namespace) -> int:
-    from seisforge.inv.runner import run_dispersion_hv_inversion
+    from seisforge.inv.driver import run_inversion
 
-    run_dispersion_hv_inversion(
+    run_inversion(
+        kind="disp_hv",
         inv_file=args.inv,
         obs_file=args.obs,
-        config_file=args.config,
-        dispersion_file=args.disp,
-        hv_file=args.hv,
         output=args.output,
         prior_only=args.prior_only,
         with_prior=args.with_prior,

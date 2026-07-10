@@ -1,4 +1,4 @@
-"""High-level assembly helpers for joint inversion workflows."""
+"""Assembled inversion setup for prior and posterior sampling."""
 
 from __future__ import annotations
 
@@ -6,12 +6,13 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from seisforge.inv.config import likelihood_weights_from_config, observations_from_config
 from seisforge.inv.constraints import ConstraintSuite, constraints_from_config
 from seisforge.inv.io import discretization_from_config
-from seisforge.inv.likelihood import DispersionObservation, RayleighHVObservation
 from seisforge.inv.parameterization import ModelParameterization, parameterization_from_config
 from seisforge.inv.posterior import JointInversionTarget
 from seisforge.inv.prior import GeophysicalPrior
+from seisforge.inv.soft_priors import SoftPriorSuite, soft_priors_from_config
 from seisforge.inv.samplers import (
     ExecutorKind,
     MCMCResult,
@@ -51,11 +52,12 @@ class SamplerSettings:
 
 
 @dataclass(frozen=True)
-class JointInversionSetup:
-    """Assembled objects for prior-only and posterior MCMC."""
+class InversionSetup:
+    """Scientific objects needed to sample one inversion target."""
 
     parameterization: ModelParameterization
     constraints: ConstraintSuite
+    soft_priors: SoftPriorSuite
     prior: GeophysicalPrior
     sampler: SamplerSettings
     target: JointInversionTarget | None = None
@@ -103,6 +105,16 @@ class JointInversionSetup:
             progress_every=progress_every,
         )
 
+    def depth_grid(self) -> np.ndarray:
+        discretization = self.prior.discretization
+        dz = 0.5 if discretization is None else discretization.dz
+        zmax = None if discretization is None else discretization.zmax
+        if zmax is None:
+            zmax = self.parameterization.vector_to_model(
+                self.parameterization.theta0()
+            ).zmax
+        return np.arange(0.0, float(zmax) + 0.5 * dz, dz)
+
     def _run(
         self,
         target: str,
@@ -131,15 +143,17 @@ class JointInversionSetup:
         raise ValueError("target must be 'prior' or 'posterior'.")
 
 
-def joint_inversion_setup_from_config(config: dict) -> JointInversionSetup:
-    """Assemble a joint inversion workflow from a YAML-like dictionary."""
+def build_inversion_setup(config: dict) -> InversionSetup:
+    """Assemble an inversion setup from a validated run configuration."""
 
     parameterization = parameterization_from_config(config)
     discretization = discretization_from_config(config.get("Discretization"))
     constraints = constraints_from_config(config)
+    soft_priors = soft_priors_from_config(config)
     prior = GeophysicalPrior(
         parameterization=parameterization,
         constraints=constraints,
+        soft_priors=soft_priors,
         discretization=discretization,
     )
     sampler = sampler_settings_from_config(config, parameterization)
@@ -154,9 +168,10 @@ def joint_inversion_setup_from_config(config: dict) -> JointInversionSetup:
             dispersion_weight=dispersion_weight,
             hv_weight=hv_weight,
         )
-    return JointInversionSetup(
+    return InversionSetup(
         parameterization=parameterization,
         constraints=constraints,
+        soft_priors=soft_priors,
         prior=prior,
         target=target,
         sampler=sampler,
@@ -167,7 +182,7 @@ def sampler_settings_from_config(
     config: dict,
     parameterization: ModelParameterization,
 ) -> SamplerSettings:
-    sampler_cfg = config.get("Sampler", config.get("MCMC", {}))
+    sampler_cfg = config.get("Sampler", {})
     proposal_sigma = sampler_cfg.get("proposal_sigma")
     if proposal_sigma is None or proposal_sigma == "from_parameters":
         proposal_sigma = parameterization.proposal_sigmas()
@@ -176,17 +191,17 @@ def sampler_settings_from_config(
         bounds = parameterization.bounds()
 
     metropolis = MetropolisConfig(
-        n_steps=int(sampler_cfg.get("n_steps", sampler_cfg.get("draws", 1000))),
+        n_steps=int(sampler_cfg.get("n_steps", 1000)),
         proposal_sigma=proposal_sigma,
-        burn_in=int(sampler_cfg.get("burn_in", sampler_cfg.get("nburn", 0))),
+        burn_in=int(sampler_cfg.get("burn_in", 0)),
         thin=int(sampler_cfg.get("thin", 1)),
         bounds=bounds,
         global_jump_interval=sampler_cfg.get("global_jump_interval"),
     )
-    initial_thetas = sampler_cfg.get("initial_thetas", sampler_cfg.get("initial_theta"))
+    initial_thetas = sampler_cfg.get("initial_thetas")
     return SamplerSettings(
         config=metropolis,
-        n_chains=int(sampler_cfg.get("n_chains", sampler_cfg.get("chains", 1))),
+        n_chains=int(sampler_cfg.get("n_chains", 1)),
         executor=sampler_cfg.get("executor", "serial"),
         max_workers=sampler_cfg.get("max_workers"),
         seed=sampler_cfg.get("seed"),
@@ -194,64 +209,6 @@ def sampler_settings_from_config(
         initial_thetas=initial_thetas,
         max_initial_attempts=int(sampler_cfg.get("max_initial_attempts", 10000)),
     )
-
-
-def observations_from_config(
-    config: dict | None,
-) -> tuple[DispersionObservation | None, RayleighHVObservation | None]:
-    config = config or {}
-    dispersion_cfg = config.get("dispersion")
-    hv_cfg = config.get("hv", config.get("rayleigh_hv"))
-    dispersion = (
-        dispersion_observation_from_config(dispersion_cfg)
-        if dispersion_cfg is not None
-        else None
-    )
-    hv = rayleigh_hv_observation_from_config(hv_cfg) if hv_cfg is not None else None
-    return dispersion, hv
-
-
-def dispersion_observation_from_config(config: dict) -> DispersionObservation:
-    return DispersionObservation(
-        periods=config["periods"],
-        velocity=config.get("velocity", config.get("values")),
-        sigma=config["sigma"],
-        mode=config.get("mode", 0),
-        wave=config.get("wave", "rayleigh"),
-        kind=config.get("kind", "phase"),
-        algorithm=config.get("algorithm", "dunkin"),
-        dc=config.get("dc", 0.005),
-        dt=config.get("dt", 0.025),
-    )
-
-
-def rayleigh_hv_observation_from_config(config: dict) -> RayleighHVObservation:
-    return RayleighHVObservation(
-        periods=config["periods"],
-        hv=config.get("hv", config.get("values")),
-        sigma=config["sigma"],
-        mode=config.get("mode", 0),
-        wave=config.get("wave", "rayleigh"),
-        algorithm=config.get("algorithm", "dunkin"),
-        dc=config.get("dc", 0.005),
-    )
-
-
-def likelihood_weights_from_config(config: dict) -> tuple[float, float]:
-    likelihood_cfg = config.get("Likelihood", {})
-    if likelihood_cfg:
-        return (
-            float(likelihood_cfg.get("dispersion_weight", 1.0)),
-            float(likelihood_cfg.get("hv_weight", 1.0)),
-        )
-
-    joint_cfg = config.get("Joint_Inversion", {})
-    if "weight" in joint_cfg:
-        weights = joint_cfg["weight"]
-        if len(weights) != 2:
-            raise ValueError("Joint_Inversion.weight must contain two values.")
-        return float(weights[0]), float(weights[1])
-    return 1.0, 1.0
 
 
 def _normalize_initial_thetas(initial_thetas, *, n_chains: int) -> np.ndarray:

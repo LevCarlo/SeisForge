@@ -1,9 +1,11 @@
-station: NAN
+source_station: M07A
+receiver_station: M15A
+component: ZZ
 
 io:
-  input_dir: .
-  output_dir: FTAN_seisforge
-  sac_pattern: "*.SAC"
+  input_root_datadir: .
+  output_root_datadir: FTAN_seisforge
+  input_template: "*_{component}.SAC"
   overwrite: true
 
 aftan:
@@ -33,7 +35,8 @@ aftan:
   # Increase toward 1-2 for stricter short-path QC; decrease to relax.
   reference_velocity: 4.0
   max_period_nwl: 1.0
-  pi_over_4: -1.0
+  pi_over_4:
+    mode: auto
   velocity_window:
     min: 0.5
     max: 5.5

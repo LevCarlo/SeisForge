@@ -1,9 +1,11 @@
-station: WT.2001
+source_station: WT.2001
+receiver_station: WT.2085
+components: [ZZ, ZR, RZ, RR]
 
 io:
-  input_dir: /path/to/CCF_ZRT/WT.2001
-  output_dir: /path/to/FTAN/WT.2001
-  sac_pattern: "*/*_ZR_pws.SAC"
+  input_root_datadir: /path/to/CCF_ZRT
+  output_root_datadir: /path/to/FTAN
+  input_template: "*_{component}_pws.SAC"
   overwrite: false
 
 aftan:
@@ -31,7 +33,13 @@ aftan:
   # Increase toward 1-2 for stricter short-path QC; decrease to relax.
   reference_velocity: 4.0
   max_period_nwl: 0.5
-  pi_over_4: -1.0
+  # By default, SeisForge derives the Rayleigh-wave pi/4 phase correction from
+  # component and branch. Negative branches are interpreted as reciprocal CCFs:
+  # e.g. stored A_B ZR on the negative branch is measured as physical B_A RZ.
+  # Output filenames follow the physical station pair/component when the config
+  # provides source_station and receiver_station.
+  pi_over_4:
+    mode: auto
   velocity_window:
     min: 0.5
     max: 5.5
