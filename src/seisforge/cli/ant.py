@@ -18,6 +18,7 @@ def register(
     ant_subparsers = parser.add_subparsers(dest="ant_command", metavar="<command>")
     _register_rotate_ccf(ant_subparsers)
     _register_aftan(ant_subparsers)
+    _register_eikonal(ant_subparsers)
     return parser
 
 
@@ -129,6 +130,34 @@ def _register_aftan(
     parser.set_defaults(func=_run_aftan)
 
 
+def _register_eikonal(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "eikonal",
+        help=(
+            "Image surface-wave phase velocity with Eikonal/Helmholtz fields."
+        ),
+        description=(
+            "Build single-source Eikonal/Helmholtz fields and an "
+            "azimuth-balanced isotropic phase-velocity stack."
+        ),
+    )
+    parser.add_argument(
+        "-c",
+        "--config-file",
+        required=True,
+        help="Path to an Eikonal/Helmholtz YAML configuration file.",
+    )
+    parser.add_argument(
+        "--stage",
+        choices=("all", "fields", "stack"),
+        default="all",
+        help="Run the full workflow, event fields only, or stacking only.",
+    )
+    parser.set_defaults(func=_run_eikonal)
+
+
 def _run_rotate_ccf(args: argparse.Namespace) -> int:
     from seisforge.ant.ccf_rotate import run_rotate_ccf_config
 
@@ -161,6 +190,15 @@ def _run_aftan(args: argparse.Namespace) -> int:
         plot_energy_map=args.plot_energy_map,
     )
     print(f"measured {len(results)} AFTAN traces")
+    return 0
+
+
+def _run_eikonal(args: argparse.Namespace) -> int:
+    from seisforge.ant.eikonal import run_eikonal_config
+
+    outputs = run_eikonal_config(args.config_file, stage=args.stage)
+    for output in outputs:
+        print(f"wrote {output}")
     return 0
 
 

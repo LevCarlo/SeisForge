@@ -22,7 +22,7 @@ from .io import _trace_distance_km, _trace_times
 from .models import (
     AFTANAlphaConfig,
     AFTANConfig,
-    AFTANPMFPeriodBoundsConfig,
+    AFTANPhaseCycleConfig,
     AFTANPeriodSamplingConfig,
     AFTANSNRConfig,
 )
@@ -57,10 +57,7 @@ class AFTANMeasurement:
         self.alpha = self.basic_alpha
         self.alpha_mode = self.basic_alpha_mode
         self.min_period = config.min_period
-        self.max_period = min(
-            config.max_period,
-            self.distance_km / (config.reference_velocity * config.max_period_nwl),
-        )
+        self.max_period = _effective_max_period(config, self.distance_km)
         if self.max_period <= self.min_period:
             raise ValueError(
                 f"{self.path.name}: max_period {self.max_period:.3f} <= "
@@ -102,7 +99,6 @@ class AFTANMeasurement:
             basic["period"],
             self.config.min_period,
             self.config.max_period,
-            self.config.pmf.period_bounds,
         )
         target_periods = _build_period_grid(
             self.config.period_sampling,
@@ -156,7 +152,7 @@ class AFTANMeasurement:
         )
         period = corrected["period"]
         group_velocity = corrected["group_velocity"]
-        phase_velocity = self._phase_velocity(
+        phase_velocity, phase_cycle_diagnostics = self._phase_velocity(
             period,
             group_velocity,
             corrected["phase"],
@@ -170,7 +166,7 @@ class AFTANMeasurement:
             target_periods,
             snr_signal_data=snr_signal_data,
         )
-        return {
+        measured = {
             "target_period": corrected["center_period"],
             "initial_target_period_count": np.asarray(target_periods.size),
             "ftan_alpha": np.asarray(alpha),
@@ -185,6 +181,8 @@ class AFTANMeasurement:
             "hilbert_period": corrected["hilbert_period"],
             "snr": snr,
         }
+        measured.update(phase_cycle_diagnostics)
+        return measured
 
     def _raw_ftan(
         self,
@@ -405,6 +403,51 @@ class AFTANMeasurement:
                 "picked_phase_velocity": (
                     ("target_period",),
                     measured["phase_velocity"],
+                    {
+                        "long_name": "cycle-corrected phase velocity",
+                        "units": "km/s",
+                    },
+                ),
+                "picked_phase_velocity_uncorrected": (
+                    ("target_period",),
+                    measured["phase_velocity_uncorrected"],
+                    {
+                        "long_name": (
+                            "phase velocity before global cycle correction"
+                        ),
+                        "units": "km/s",
+                    },
+                ),
+                "reference_phase_velocity": (
+                    ("target_period",),
+                    measured["phase_reference_velocity"],
+                    {
+                        "long_name": (
+                            "reference phase velocity evaluated at picked "
+                            "instant period"
+                        ),
+                        "units": "km/s",
+                    },
+                ),
+                "phase_cycle_residual_cycles_before": (
+                    ("target_period",),
+                    measured["phase_cycle_residual_cycles_before"],
+                    {
+                        "long_name": (
+                            "reference travel-time residual before correction"
+                        ),
+                        "units": "cycles",
+                    },
+                ),
+                "phase_cycle_residual_cycles_after": (
+                    ("target_period",),
+                    measured["phase_cycle_residual_cycles_after"],
+                    {
+                        "long_name": (
+                            "reference travel-time residual after correction"
+                        ),
+                        "units": "cycles",
+                    },
                 ),
                 "picked_group_velocity": (
                     ("target_period",),
@@ -417,6 +460,70 @@ class AFTANMeasurement:
                 "picked_amplitude": (
                     ("target_period",),
                     measured["amplitude"],
+                ),
+                "phase_cycle_shift": (
+                    (),
+                    measured["phase_cycle_shift"],
+                    {
+                        "long_name": (
+                            "global integer cycle shift applied to phase slowness"
+                        )
+                    },
+                ),
+                "phase_cycle_reference_score_cycles": (
+                    (),
+                    measured["phase_cycle_reference_score_cycles"],
+                    {
+                        "long_name": (
+                            "median absolute reference residual after correction"
+                        ),
+                        "units": "cycles",
+                    },
+                ),
+                "phase_cycle_candidate_score_gap_cycles": (
+                    (),
+                    measured["phase_cycle_candidate_score_gap_cycles"],
+                    {
+                        "long_name": (
+                            "score gap between best and second-best cycle shifts"
+                        ),
+                        "units": "cycles",
+                    },
+                ),
+                "phase_cycle_reference_rmse_km_s_before": (
+                    (),
+                    measured["phase_cycle_reference_rmse_km_s_before"],
+                    {
+                        "long_name": (
+                            "phase-velocity RMSE to reference before correction"
+                        ),
+                        "units": "km/s",
+                    },
+                ),
+                "phase_cycle_reference_rmse_km_s_after": (
+                    (),
+                    measured["phase_cycle_reference_rmse_km_s_after"],
+                    {
+                        "long_name": (
+                            "phase-velocity RMSE to reference after correction"
+                        ),
+                        "units": "km/s",
+                    },
+                ),
+                "phase_cycle_valid_count": (
+                    (),
+                    measured["phase_cycle_valid_count"],
+                    {"long_name": "period count used for global cycle selection"},
+                ),
+                "phase_cycle_qc_pass": (
+                    (),
+                    measured["phase_cycle_qc_pass"],
+                    {"long_name": "one when global phase-cycle diagnostics pass"},
+                ),
+                "phase_cycle_search_limit_reached": (
+                    (),
+                    measured["phase_cycle_search_limit_reached"],
+                    {"long_name": "one when the selected shift reaches max_shift"},
                 ),
             },
             coords={
@@ -436,6 +543,18 @@ class AFTANMeasurement:
                 "period_max": float(np.nanmax(measured["target_period"])),
                 "period_sampling_mode": self.config.period_sampling.mode,
                 "phase_cycle_count": int(cycle_count),
+                "phase_cycle_selection_method": (
+                    "global minimum median absolute reference travel-time residual"
+                ),
+                "phase_cycle_status": str(measured["phase_cycle_status"].item()),
+                "phase_cycle_enabled": bool(self.config.phase_cycle.enabled),
+                "phase_cycle_max_shift": int(self.config.phase_cycle.max_shift),
+                "phase_cycle_max_reference_residual_cycles": float(
+                    self.config.phase_cycle.max_reference_residual_cycles
+                ),
+                "phase_cycle_min_candidate_score_gap_cycles": float(
+                    self.config.phase_cycle.min_candidate_score_gap_cycles
+                ),
                 "description": "phase-velocity cycle-candidate diagnostic map",
             },
         )
@@ -617,7 +736,7 @@ class AFTANMeasurement:
         period: np.ndarray,
         group_velocity: np.ndarray,
         phase: np.ndarray,
-    ) -> np.ndarray:
+    ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
         distance = self.distance_km
         omega = tau / period
         time = distance / group_velocity
@@ -640,7 +759,22 @@ class AFTANMeasurement:
             phase_velocity[idx] = omega[idx] * distance / (
                 omega[idx] * time[idx] - phase[idx] + cycle * tau
             )
-        return phase_velocity
+        reference_phase_velocity = np.asarray(
+            interpolate.interp1d(
+                self.pred_period,
+                self.pred_velocity,
+                fill_value="extrapolate",
+                assume_sorted=True,
+            )(period),
+            dtype=float,
+        )
+        return _select_phase_cycle(
+            period,
+            phase_velocity,
+            reference_phase_velocity,
+            distance,
+            self.config.phase_cycle,
+        )
 
     def _predicted_phase_velocity(self, period: float) -> float:
         return float(
@@ -736,6 +870,147 @@ class AFTANMeasurement:
         return snr
 
 
+def _select_phase_cycle(
+    period: np.ndarray,
+    phase_velocity: np.ndarray,
+    reference_phase_velocity: np.ndarray,
+    distance_km: float,
+    config: AFTANPhaseCycleConfig,
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Select one global integer-cycle branch against a reference curve."""
+    period = np.asarray(period, dtype=float)
+    uncorrected = np.asarray(phase_velocity, dtype=float)
+    reference = np.asarray(reference_phase_velocity, dtype=float)
+    corrected = uncorrected.copy()
+    residual_before = np.full(period.shape, np.nan, dtype=float)
+    residual_after = np.full(period.shape, np.nan, dtype=float)
+
+    valid = (
+        np.isfinite(period)
+        & np.isfinite(uncorrected)
+        & np.isfinite(reference)
+        & (period > 0)
+        & (uncorrected > 0)
+        & (reference > 0)
+    )
+    valid_count = int(np.count_nonzero(valid))
+    if valid_count:
+        residual_before[valid] = (
+            distance_km / uncorrected[valid]
+            - distance_km / reference[valid]
+        ) / period[valid]
+
+    offsets = np.array([0], dtype=int)
+    if config.enabled:
+        offsets = np.arange(-config.max_shift, config.max_shift + 1, dtype=int)
+
+    candidates: list[tuple[float, int]] = []
+    for offset in offsets:
+        candidate_slowness = (
+            1.0 / uncorrected[valid] + offset * period[valid] / distance_km
+        )
+        if valid_count and np.all(candidate_slowness > 0):
+            score = float(np.median(np.abs(residual_before[valid] + offset)))
+            candidates.append((score, int(offset)))
+
+    candidates.sort(key=lambda item: (item[0], abs(item[1]), item[1]))
+    if candidates:
+        best_score, cycle_shift = candidates[0]
+        score_gap = (
+            float(candidates[1][0] - best_score)
+            if len(candidates) > 1
+            else np.nan
+        )
+    else:
+        best_score = np.nan
+        cycle_shift = 0
+        score_gap = np.nan
+
+    if valid_count and cycle_shift:
+        corrected_slowness = 1.0 / uncorrected + cycle_shift * period / distance_km
+        if np.all(corrected_slowness[valid] > 0):
+            corrected[valid] = 1.0 / corrected_slowness[valid]
+        else:
+            cycle_shift = 0
+
+    if valid_count:
+        residual_after[valid] = (
+            distance_km / corrected[valid] - distance_km / reference[valid]
+        ) / period[valid]
+        rmse_before = float(
+            np.sqrt(np.mean((uncorrected[valid] - reference[valid]) ** 2))
+        )
+        rmse_after = float(
+            np.sqrt(np.mean((corrected[valid] - reference[valid]) ** 2))
+        )
+    else:
+        rmse_before = np.nan
+        rmse_after = np.nan
+
+    search_limit_reached = bool(
+        config.enabled
+        and config.max_shift > 0
+        and abs(cycle_shift) == config.max_shift
+    )
+    score_ok = bool(
+        np.isfinite(best_score)
+        and best_score <= config.max_reference_residual_cycles
+    )
+    gap_ok = bool(
+        not config.enabled
+        or config.max_shift == 0
+        or (
+            np.isfinite(score_gap)
+            and score_gap >= config.min_candidate_score_gap_cycles
+        )
+    )
+    qc_pass = bool(
+        config.enabled
+        and valid_count >= 2
+        and score_ok
+        and gap_ok
+        and not search_limit_reached
+    )
+
+    if not config.enabled:
+        status = "disabled"
+    elif valid_count < 2:
+        status = "insufficient_reference"
+    elif search_limit_reached:
+        status = "search_limit_reached"
+    elif not score_ok:
+        status = "reference_misfit"
+    elif not gap_ok:
+        status = "ambiguous"
+    elif cycle_shift:
+        status = "corrected"
+    else:
+        status = "unchanged"
+
+    diagnostics = {
+        "phase_velocity_uncorrected": uncorrected,
+        "phase_reference_velocity": reference,
+        "phase_cycle_residual_cycles_before": residual_before,
+        "phase_cycle_residual_cycles_after": residual_after,
+        "phase_cycle_shift": np.asarray(cycle_shift, dtype=np.int32),
+        "phase_cycle_reference_score_cycles": np.asarray(best_score, dtype=float),
+        "phase_cycle_candidate_score_gap_cycles": np.asarray(score_gap, dtype=float),
+        "phase_cycle_reference_rmse_km_s_before": np.asarray(
+            rmse_before, dtype=float
+        ),
+        "phase_cycle_reference_rmse_km_s_after": np.asarray(
+            rmse_after, dtype=float
+        ),
+        "phase_cycle_valid_count": np.asarray(valid_count, dtype=np.int32),
+        "phase_cycle_qc_pass": np.asarray(qc_pass, dtype=np.int8),
+        "phase_cycle_search_limit_reached": np.asarray(
+            search_limit_reached, dtype=np.int8
+        ),
+        "phase_cycle_status": np.asarray(status),
+    }
+    return corrected, diagnostics
+
+
 def _build_period_grid(
     config: AFTANPeriodSamplingConfig,
     min_period: float,
@@ -813,52 +1088,19 @@ def _pmf_period_bounds(
     apparent_period: np.ndarray,
     config_min_period: float,
     config_max_period: float,
-    bounds_config: AFTANPMFPeriodBoundsConfig,
 ) -> tuple[float, float, float, float]:
     valid = np.asarray(apparent_period, dtype=float)
     valid = valid[np.isfinite(valid) & (valid > 0)]
     if valid.size < 2:
         raise ValueError("PMF requires at least two valid apparent periods.")
-    raw_period_min = max(float(config_min_period), float(np.min(valid)))
-    raw_period_max = min(float(config_max_period), float(np.max(valid)))
-    period_min = raw_period_min
-    period_max = raw_period_max
-
-    if bounds_config.mode == "step":
-        if bounds_config.step is None:
-            raise ValueError("PMF step period bounds require a positive step.")
-        period_min = _snap_period_bound(
-            raw_period_min,
-            bounds_config.step,
-            bounds_config.min_method,
-        )
-        period_max = _snap_period_bound(
-            raw_period_max,
-            bounds_config.step,
-            bounds_config.max_method,
-        )
-        period_min = max(float(config_min_period), period_min)
-        period_max = min(float(config_max_period), period_max)
-
+    period_min = max(float(config_min_period), float(np.min(valid)))
+    period_max = min(float(config_max_period), float(np.max(valid)))
     if period_max <= period_min:
         raise ValueError(
             f"PMF period range is empty after first-pass bounds: "
             f"{period_min:.6g}-{period_max:.6g} s."
         )
-    return period_min, period_max, raw_period_min, raw_period_max
-
-
-def _snap_period_bound(value: float, step: float, method: str) -> float:
-    scaled = value / step
-    if method == "floor":
-        snapped = np.floor(scaled)
-    elif method == "ceil":
-        snapped = np.ceil(scaled)
-    elif method == "nearest":
-        snapped = np.rint(scaled)
-    else:
-        raise ValueError(f"Unsupported PMF period bound method: {method}")
-    return float(np.round(snapped * step, 12))
+    return period_min, period_max, period_min, period_max
 
 
 def _phase_velocity_candidate_map(
@@ -927,13 +1169,22 @@ def _resolve_alpha(config: AFTANAlphaConfig, distance_km: float) -> float:
     raise ValueError(f"Unsupported alpha mode: {config.mode}")
 
 
+def _effective_max_period(config: AFTANConfig, distance_km: float) -> float:
+    if not config.short_distance_guard.enabled:
+        return config.max_period
+    guard = config.short_distance_guard
+    guard_max_period = distance_km / (guard.reference_velocity * guard.max_period_nwl)
+    return min(config.max_period, guard_max_period)
+
+
 def _load_prediction(config: AFTANConfig) -> tuple[np.ndarray, np.ndarray]:
     if config.prediction_file is not None:
         period, velocity = np.loadtxt(config.prediction_file, unpack=True)
         return np.asarray(period), np.asarray(velocity)
+    reference_velocity = config.short_distance_guard.reference_velocity
     return (
         np.array([config.min_period, config.max_period], dtype=float),
-        np.array([config.reference_velocity, config.reference_velocity], dtype=float),
+        np.array([reference_velocity, reference_velocity], dtype=float),
     )
 
 

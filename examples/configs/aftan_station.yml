@@ -5,7 +5,7 @@ components: [ZZ, ZR, RZ, RR]
 io:
   input_root_datadir: /path/to/CCF_ZRT
   output_root_datadir: /path/to/FTAN
-  input_template: "*_{component}_pws.SAC"
+  input_template: "{source_station}_{receiver_station}_{component}_pws.SAC"
   overwrite: false
 
 aftan:
@@ -22,22 +22,14 @@ aftan:
     #   geomspace: PyAFTAN-style logarithmic grid; use dfreq/min_count or count.
     #   list: explicit periods, useful for hand-picked test grids.
     mode: uniform
-    step: 0.1
-    # count: 60
-    # mode: list
-    # periods: [1.0, 1.2, 1.5, 2.0, 3.0, 5.0]
-  # SeisForge short-distance guard, not an original AFTAN parameter.
-  # Effective max period is min(max_period, distance_km /
-  # (reference_velocity * max_period_nwl)). The default 0.5 is permissive:
-  # it only requires the reference travel time to contain at least half a period.
-  # Increase toward 1-2 for stricter short-path QC; decrease to relax.
-  reference_velocity: 4.0
-  max_period_nwl: 0.5
-  # By default, SeisForge derives the Rayleigh-wave pi/4 phase correction from
-  # component and branch. Negative branches are interpreted as reciprocal CCFs:
-  # e.g. stored A_B ZR on the negative branch is measured as physical B_A RZ.
-  # Output filenames follow the physical station pair/component when the config
-  # provides source_station and receiver_station.
+    uniform:
+      step: 0.1
+    geomspace:
+      dfreq: 0.05
+      min_count: 3
+    list:
+      periods: [1.0, 1.2, 1.5, 2.0, 3.0, 5.0]
+  # Auto mode derives the Rayleigh-wave pi/4 correction from component and branch.
   pi_over_4:
     mode: auto
   velocity_window:
@@ -54,8 +46,8 @@ aftan:
       #   aftan_distance_scaling: alpha = factor * 20 * sqrt(distance_km / 1000).
       #   pyftan_constant: PyAFTAN-style constant multiplied by factor.
       mode: constant
-      value: 20.0
-      # factor: 1.0
+      constant:
+        value: 20.0
     trig_threshold: 50.0
     jump_points: 3
   pmf:
@@ -65,21 +57,14 @@ aftan:
     # second-pass FTAN on the PMF-clean waveform.
     alpha:
       mode: constant
-      value: 20.0
+      constant:
+        value: 20.0
     trig_threshold: 20.0
     jump_points: 3
     nalpha: 2.0
     min_half_length: 5.0
     amplitude_ratio: 0.2
     window_factor: 1.0
-    # raw follows the exact first-pass apparent-period bounds.
-    # step snaps the PMF second-pass range, e.g. 0.794-7.414 -> 0.7-7.5.
-    period_bounds:
-      mode: raw
-      # mode: step
-      # step: 0.1
-      min_method: floor
-      max_method: ceil
   energy_map:
     enabled: false
     plot: false
@@ -108,16 +93,23 @@ aftan:
     definition: local
     # false writes linear SNR; true writes dB.
     output_db: false
-    # local only: tail uses a trailing noise window; complement uses everything
-    # outside the picked signal window plus guard on the selected branch trace.
-    noise_mode: tail
-    # local only: signal window is [t_pick - factor*T, t_pick + factor*T].
-    signal_half_width_factor: 1.0
-    noise_guard_factor: 1.0
-    # pyftan only: Bensen/PyAFTAN-style signal and tail-noise windows.
-    bfact: 1.0
-    efact: 0.0
-    dsn: 500.0
-    nlen: 500.0
-    vmax: 4.5
-    vmin: 1.0
+    local:
+      noise_mode: tail
+      signal_half_width_factor: 1.0
+      noise_guard_factor: 1.0
+      tail:
+        dsn: 500.0
+        nlen: 500.0
+    pyftan:
+      bfact: 1.0
+      efact: 0.0
+      dsn: 500.0
+      nlen: 500.0
+      vmax: 4.5
+      vmin: 1.0
+
+# SeisForge short-distance period guard, not an original AFTAN parameter.
+short_distance_period_guard:
+  enabled: true
+  reference_velocity: 4.0
+  max_period_nwl: 0.5

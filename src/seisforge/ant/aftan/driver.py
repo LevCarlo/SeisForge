@@ -114,50 +114,73 @@ def _find_component_inputs(config: StationAFTANConfig) -> list[tuple[Path, str |
     inputs: list[tuple[Path, str | None]] = []
     missing: list[str] = []
     for component in config.components:
-        pattern = _component_sac_pattern(config, component)
-        matches = _find_sac_files(config.input_dir, pattern)
-        if not matches:
-            missing.append(f"{component}: {config.input_dir / pattern}")
-            continue
-        if len(matches) > 1:
-            raise FileExistsError(
-                f"AFTAN component {component} matched multiple SAC files: "
-                + ", ".join(str(item) for item in matches)
-            )
-        inputs.append((matches[0], component))
+        attempted: list[str] = []
+        for label, input_dir, pattern in _component_input_candidates(config, component):
+            attempted.append(f"{label}={input_dir / pattern}")
+            matches = _find_sac_files(input_dir, pattern)
+            if not matches:
+                continue
+            if len(matches) > 1:
+                raise FileExistsError(
+                    f"AFTAN component {component} matched multiple SAC files "
+                    f"for {label}: " + ", ".join(str(item) for item in matches)
+                )
+            inputs.append((matches[0], component))
+            break
+        else:
+            missing.append(f"{component}: " + "; ".join(attempted))
     if missing:
         raise FileNotFoundError("Missing AFTAN component input(s): " + "; ".join(missing))
     return inputs
 
 
+def _component_input_candidates(
+    config: StationAFTANConfig,
+    component: str,
+) -> list[tuple[str, Path, str]]:
+    pattern = _component_sac_pattern(config, component)
+    candidates = [("primary", config.input_dir, pattern)]
+    root_dir = _component_input_root_dir(config)
+    if root_dir is not None and root_dir != config.input_dir:
+        candidates.append(("input_root", root_dir, pattern))
+    return candidates
+
+
+def _component_input_root_dir(config: StationAFTANConfig) -> Path | None:
+    pair_name = _station_pair_name(config.source_station, config.receiver_station)
+    if pair_name is None or config.input_dir.name != pair_name:
+        return None
+    source_dir = config.input_dir.parent
+    if source_dir.name != config.source_station:
+        return None
+    return source_dir.parent
+
+
 def _component_sac_pattern(config: StationAFTANConfig, component: str) -> str:
     template = config.input_template or config.sac_pattern
+    source_station = config.source_station or ""
+    receiver_station = config.receiver_station or ""
     pair_name = (
-        f"{config.source_station}_{config.receiver_station}"
-        if config.source_station and config.receiver_station
+        f"{source_station}_{receiver_station}"
+        if source_station and receiver_station
         else ""
     )
-    return template.format(component=component, name=pair_name)
+    try:
+        return template.format(
+            component=component,
+            name=pair_name,
+            source_station=source_station,
+            receiver_station=receiver_station,
+        )
+    except KeyError as exc:
+        raise ValueError(
+            "AFTAN io.input_template supports only {component}, {name}, "
+            "{source_station}, and {receiver_station}."
+        ) from exc
 
 
-def _physical_output_stem(
-    path: Path,
-    config: StationAFTANConfig,
-    branch: str,
-    input_component: str | None,
-    physical_component: str | None,
-) -> str:
-    stem = path.stem
-    stored_source = config.source_station or config.station
-    stored_receiver = config.receiver_station
-    physical_source, physical_receiver = _physical_station_pair(config, branch)
-    stored_pair = _station_pair_name(stored_source, stored_receiver)
-    physical_pair = _station_pair_name(physical_source, physical_receiver)
-    if stored_pair is not None and physical_pair is not None:
-        stem = stem.replace(stored_pair, physical_pair, 1)
-    stem = _replace_component_token(stem, input_component, physical_component)
-    branch_label = physical_branch_for_branch(branch) if physical_pair is not None else branch
-    return f"{stem}.{branch_label}"
+def _output_stem(path: Path, branch: str) -> str:
+    return f"{path.stem}.{branch}"
 
 
 def _physical_station_pair(
@@ -180,24 +203,6 @@ def _station_pair_name(
     return f"{source_station}_{receiver_station}"
 
 
-def _replace_component_token(
-    stem: str,
-    input_component: str | None,
-    physical_component: str | None,
-) -> str:
-    if input_component is None or physical_component is None:
-        return stem
-    if input_component == physical_component:
-        return stem
-
-    parts = stem.split("_")
-    for index, part in enumerate(parts):
-        if part == input_component:
-            parts[index] = physical_component
-            return "_".join(parts)
-    return stem.replace(input_component, physical_component, 1)
-
-
 def _run_aftan_branch(
     path: Path,
     branch_trace: BranchTrace,
@@ -215,21 +220,15 @@ def _run_aftan_branch(
         branch_trace.name,
     )
     physical_branch = physical_branch_for_branch(branch_trace.name)
-    output_stem = _physical_output_stem(
-        path,
-        config,
-        branch_trace.name,
-        input_component,
-        physical_component,
-    )
+    output_stem = _output_stem(path, branch_trace.name)
     output_dat = config.output_dir / f"{output_stem}.dat"
     output_energy_map = config.output_dir / f"{output_stem}.basic_ftan.nc"
     output_energy_plot = config.output_dir / f"{output_stem}.basic_ftan.png"
-    output_phase_map = config.output_dir / f"{output_stem}.phase_velocity.nc"
+    output_phase_map = config.output_dir / f"{output_stem}.vph.nc"
     output_pmf_dat = config.output_dir / f"{output_stem}.pmf.dat"
     output_pmf_energy_map = config.output_dir / f"{output_stem}.pmf_ftan.nc"
     output_pmf_energy_plot = config.output_dir / f"{output_stem}.pmf_ftan.png"
-    output_pmf_phase_map = config.output_dir / f"{output_stem}.pmf_phase_velocity.nc"
+    output_pmf_phase_map = config.output_dir / f"{output_stem}.pmf.vph.nc"
     output_paths = [output_dat]
     if config.aftan.pmf.enabled:
         output_paths.append(output_pmf_dat)
@@ -263,11 +262,8 @@ def _run_aftan_branch(
         debug=branch_config.debug,
         snr_label=_snr_column_name(branch_config.snr),
         metadata=_dat_metadata(
-            config,
             path,
             branch_trace.name,
-            input_component,
-            physical_component,
             branch_config,
             stage="basic",
         ),
@@ -333,11 +329,8 @@ def _run_aftan_branch(
             debug=branch_config.debug,
             snr_label=_snr_column_name(branch_config.snr),
             metadata=_dat_metadata(
-                config,
                 path,
                 branch_trace.name,
-                input_component,
-                physical_component,
                 branch_config,
                 stage="pmf",
             ),
@@ -462,29 +455,16 @@ def _aftan_config_for_branch(
 
 
 def _dat_metadata(
-    config: StationAFTANConfig,
     path: Path,
     branch: str,
-    input_component: str | None,
-    physical_component: str | None,
     branch_config,
     *,
     stage: str,
 ) -> dict[str, object]:
-    stored_source = config.source_station or config.station
-    stored_receiver = config.receiver_station
-    physical_source, physical_receiver = _physical_station_pair(config, branch)
     return {
         "stage": stage,
-        "stored_source_station": stored_source,
-        "stored_receiver_station": stored_receiver,
-        "physical_source_station": physical_source,
-        "physical_receiver_station": physical_receiver,
         "input_file": path.name,
-        "input_component": input_component,
-        "physical_component": physical_component,
         "selected_branch": branch,
-        "physical_branch": physical_branch_for_branch(branch),
         "pi_over_4": branch_config.pi_over_4,
         "pi_over_4_mode": branch_config.pi_over_4_mode,
     }
@@ -502,6 +482,7 @@ def _start_log(config: StationAFTANConfig) -> list[str]:
         f"sac_pattern: {config.sac_pattern}",
         f"output_dir: {config.output_dir}",
         f"requested_branch: {config.aftan.branch}",
+        "output_naming: preserve_input_station_pair_component",
         f"debug: {config.aftan.debug}",
         f"snr_output: {_snr_column_name(config.aftan.snr)}",
     ]

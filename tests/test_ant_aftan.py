@@ -8,14 +8,13 @@ import xarray as xr
 from seisforge.ant.aftan import (
     AFTANSNRConfig,
     AFTANConfig,
+    AFTANPhaseCycleConfig,
     AFTANQCConfig,
     AFTANPeriodSamplingConfig,
-    AFTANPMFPeriodBoundsConfig,
     _align_to_period_grid,
     _aftan_diagram_snr,
     _override_energy_map_config,
     _period_qc,
-    _pmf_period_bounds,
     _qc_warnings,
     _snr,
     automatic_pi_over_4,
@@ -24,7 +23,11 @@ from seisforge.ant.aftan import (
     physical_station_pair_for_branch,
     run_aftan_config,
 )
-from seisforge.ant.aftan.core import AFTANMeasurement, _build_period_grid
+from seisforge.ant.aftan.core import (
+    AFTANMeasurement,
+    _build_period_grid,
+    _select_phase_cycle,
+)
 
 
 def _write_wave_packet(path, distance_km=100.0, velocity_km_s=3.0):
@@ -121,7 +124,7 @@ def test_build_station_aftan_config_accepts_station_pair_component_list(tmp_path
         "io": {
             "input_root_datadir": "CC_ZRT",
             "output_root_datadir": "FTAN",
-            "input_template": "*_{component}_pws.SAC",
+            "input_template": "{source_station}_{receiver_station}_{component}_pws.SAC",
         },
         "aftan": {
             "branch": "negative",
@@ -141,8 +144,8 @@ def test_build_station_aftan_config_accepts_station_pair_component_list(tmp_path
     assert built.components == ("ZR", "RZ")
     assert built.input_dir == tmp_path / "CC_ZRT" / "WT.2001" / "WT.2001_WT.2085"
     assert built.output_dir == tmp_path / "FTAN" / "WT.2001" / "WT.2001_WT.2085"
-    assert built.sac_pattern == "*_{component}_pws.SAC"
-    assert built.input_template == "*_{component}_pws.SAC"
+    assert built.sac_pattern == "{source_station}_{receiver_station}_{component}_pws.SAC"
+    assert built.input_template == "{source_station}_{receiver_station}_{component}_pws.SAC"
     assert built.aftan.pi_over_4_mode == "auto"
 
 
@@ -211,11 +214,11 @@ def test_build_station_aftan_config_rejects_invalid_numeric_parameters(tmp_path)
             "branch": "positive",
             "min_period": 2.0,
             "max_period": 8.0,
-            "max_period_nwl": 0.0,
             "period_sampling": {"mode": "uniform", "step": 0.5},
             "velocity_window": {"min": 2.0, "max": 4.5},
             "basic": {"alpha": {"mode": "constant", "value": 18.0}},
         },
+        "short_distance_period_guard": {"max_period_nwl": 0.0},
     }
 
     with pytest.raises(ValueError, match="max_period_nwl"):
@@ -379,7 +382,7 @@ def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
                 "io:",
                 "  input_root_datadir: CC_ZRT",
                 "  output_root_datadir: FTAN",
-                "  input_template: '*_{component}_pws.SAC'",
+                "  input_template: '{source_station}_{receiver_station}_{component}_pws.SAC'",
                 "aftan:",
                 "  branch: negative",
                 "  min_period: 2.0",
@@ -409,8 +412,8 @@ def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
     assert by_component["ZR"].pi_over_4 == -1.0
     assert by_component["RZ"].physical_component == "ZR"
     assert by_component["RZ"].pi_over_4 == 1.0
-    assert by_component["ZR"].output_dat.name == "WT.2085_WT.2001_RZ_pws.positive.dat"
-    assert by_component["RZ"].output_dat.name == "WT.2085_WT.2001_ZR_pws.positive.dat"
+    assert by_component["ZR"].output_dat.name == "WT.2001_WT.2085_ZR_pws.negative.dat"
+    assert by_component["RZ"].output_dat.name == "WT.2001_WT.2085_RZ_pws.negative.dat"
     log_text = (tmp_path / "FTAN" / "WT.2001" / "WT.2001_WT.2085" / "aftan.log").read_text()
     assert "components: ZR,RZ" in log_text
     assert "stored_pair=WT.2001_WT.2085->WT.2085_WT.2001" in log_text
@@ -419,16 +422,57 @@ def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
     assert "component=RZ->ZR, pi_over_4=1 (auto)" in log_text
     zr_dat_text = by_component["ZR"].output_dat.read_text()
     assert "# input_file: WT.2001_WT.2085_ZR_pws.SAC" in zr_dat_text
-    assert "# input_component: ZR" in zr_dat_text
-    assert "# stored_source_station: WT.2001" in zr_dat_text
-    assert "# stored_receiver_station: WT.2085" in zr_dat_text
-    assert "# physical_source_station: WT.2085" in zr_dat_text
-    assert "# physical_receiver_station: WT.2001" in zr_dat_text
-    assert "# physical_component: RZ" in zr_dat_text
+    assert "# input_component:" not in zr_dat_text
     assert "# selected_branch: negative" in zr_dat_text
-    assert "# physical_branch: positive" in zr_dat_text
+    assert "# stored_source_station:" not in zr_dat_text
+    assert "# physical_source_station:" not in zr_dat_text
+    assert "# physical_component:" not in zr_dat_text
     assert "# pi_over_4: -1.0" in zr_dat_text
     assert "# pi_over_4_mode: auto" in zr_dat_text
+
+
+def test_run_aftan_config_falls_back_to_flat_input_root(tmp_path):
+    _write_symmetric_wave_packet(tmp_path / "WT.2001_WT.2085_ZR_pws.SAC")
+    config_file = tmp_path / "aftan.yml"
+    config_file.write_text(
+        "\n".join(
+            [
+                "source_station: 2001",
+                "receiver_station: 2085",
+                "component: ZR",
+                "io:",
+                "  input_root_datadir: .",
+                "  output_root_datadir: FTAN",
+                "  input_template: '*_{component}_pws.SAC'",
+                "aftan:",
+                "  branch: negative",
+                "  min_period: 2.0",
+                "  max_period: 8.0",
+                "  period_sampling:",
+                "    mode: uniform",
+                "    step: 0.5",
+                "  reference_velocity: 3.5",
+                "  velocity_window:",
+                "    min: 2.0",
+                "    max: 4.5",
+                "  trig_threshold: 9999.0",
+                "  basic:",
+                *_alpha_config_lines(),
+            ]
+        )
+    )
+
+    results = run_aftan_config(config_file)
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.input_file.name == "WT.2001_WT.2085_ZR_pws.SAC"
+    assert result.input_component == "ZR"
+    assert result.physical_component == "RZ"
+    assert result.output_dat.name == "WT.2001_WT.2085_ZR_pws.negative.dat"
+    log_text = (tmp_path / "FTAN" / "2001" / "2001_2085" / "aftan.log").read_text()
+    assert "input ZR:" in log_text
+    assert "WT.2001_WT.2085_ZR_pws.SAC" in log_text
 
 
 def test_snr_uses_raw_signal_and_picked_periods(monkeypatch, tmp_path):
@@ -648,6 +692,32 @@ def test_run_aftan_config_writes_debug_phase_outputs_when_requested(tmp_path):
         dataset.close()
 
 
+def test_global_phase_cycle_selection_recovers_reference_branch():
+    period = np.array([2.0, 3.0, 4.0, 5.0])
+    reference = np.array([2.8, 3.0, 3.1, 3.2])
+    distance_km = 100.0
+    uncorrected = 1.0 / (1.0 / reference - period / distance_km)
+
+    corrected, diagnostics = _select_phase_cycle(
+        period,
+        uncorrected,
+        reference,
+        distance_km,
+        AFTANPhaseCycleConfig(max_shift=2),
+    )
+
+    np.testing.assert_allclose(corrected, reference)
+    assert diagnostics["phase_cycle_shift"].item() == 1
+    assert diagnostics["phase_cycle_qc_pass"].item() == 1
+    assert diagnostics["phase_cycle_status"].item() == "corrected"
+    assert diagnostics["phase_cycle_reference_score_cycles"].item() == pytest.approx(
+        0.0
+    )
+    assert diagnostics["phase_cycle_reference_rmse_km_s_after"].item() == pytest.approx(
+        0.0
+    )
+
+
 def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
     input_dir = tmp_path / "ccf"
     input_dir.mkdir()
@@ -679,6 +749,11 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
                 "    phase_velocity: true",
                 "    phase_cycle_count: 3",
                 "    velocity_count: 64",
+                "  phase_cycle:",
+                "    enabled: true",
+                "    max_shift: 2",
+                "    max_reference_residual_cycles: 0.4",
+                "    min_candidate_score_gap_cycles: 0.15",
                 "  trig_threshold: 9999.0",
                 "  basic:",
                 *_alpha_config_lines(),
@@ -692,6 +767,7 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
     result = run_aftan_config(config_file)[0]
 
     assert result.output_phase_map is not None
+    assert result.output_phase_map.name == "WT.2001_WT.2100_ZR_pws.positive.vph.nc"
     assert result.output_phase_map.exists()
     assert result.output_phase_plot is None
     assert result.output_energy_plot is not None
@@ -710,6 +786,25 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
             "phase_velocity",
         )
         assert dataset["picked_phase_velocity"].dims == ("target_period",)
+        assert dataset["picked_phase_velocity_uncorrected"].dims == (
+            "target_period",
+        )
+        assert dataset["reference_phase_velocity"].dims == ("target_period",)
+        assert dataset["phase_cycle_residual_cycles_before"].dims == (
+            "target_period",
+        )
+        assert dataset["phase_cycle_residual_cycles_after"].dims == (
+            "target_period",
+        )
+        assert dataset["phase_cycle_shift"].dims == ()
+        assert dataset["phase_cycle_reference_score_cycles"].dims == ()
+        assert dataset["phase_cycle_candidate_score_gap_cycles"].dims == ()
+        assert dataset["phase_cycle_qc_pass"].dims == ()
+        assert dataset.attrs["phase_cycle_selection_method"]
+        assert dataset.attrs["phase_cycle_status"]
+        assert dataset.attrs["phase_cycle_max_shift"] == 2
+        assert dataset.attrs["phase_cycle_max_reference_residual_cycles"] == 0.4
+        assert dataset.attrs["phase_cycle_min_candidate_score_gap_cycles"] == 0.15
     finally:
         dataset.close()
 
@@ -749,11 +844,6 @@ def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path):
                 "      value: 24.0",
                 "    trig_threshold: 25.0",
                 "    jump_points: 5",
-                "    period_bounds:",
-                "      mode: step",
-                "      step: 0.1",
-                "      min_method: floor",
-                "      max_method: ceil",
                 "  snr:",
                 "    dsn: 20.0",
                 "    nlen: 40.0",
@@ -774,31 +864,10 @@ def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path):
     assert pmf_lines
     assert {len(line.split()) for line in pmf_lines} == {6}
     assert result.pmf_alpha == 24.0
-    assert result.pmf_raw_period_min >= result.period.min()
-    assert result.pmf_raw_period_max <= result.period.max()
-    assert result.pmf_period_min <= result.pmf_raw_period_min
-    assert result.pmf_period_max >= result.pmf_raw_period_max
-
-
-def test_pmf_period_bounds_can_snap_to_decimal_step():
-    bounds = AFTANPMFPeriodBoundsConfig(
-        mode="step",
-        step=0.1,
-        min_method="floor",
-        max_method="ceil",
-    )
-
-    period_min, period_max, raw_period_min, raw_period_max = _pmf_period_bounds(
-        np.array([0.7947, 1.2, 7.414]),
-        0.5,
-        10.0,
-        bounds,
-    )
-
-    assert raw_period_min == 0.7947
-    assert raw_period_max == 7.414
-    assert period_min == 0.7
-    assert period_max == 7.5
+    assert result.pmf_period_min >= result.period.min()
+    assert result.pmf_period_max <= result.period.max()
+    assert result.pmf_raw_period_min == result.pmf_period_min
+    assert result.pmf_raw_period_max == result.pmf_period_max
 
 
 def test_run_aftan_config_can_measure_both_symmetric_branches(tmp_path):

@@ -11,11 +11,12 @@ from .models import (
     AFTANBasicConfig,
     AFTANConfig,
     AFTANEnergyMapConfig,
+    AFTANPhaseCycleConfig,
     AFTANPMFConfig,
-    AFTANPMFPeriodBoundsConfig,
     AFTANPeriodSamplingConfig,
     AFTANQCConfig,
     AFTANSNRConfig,
+    AFTANShortDistanceGuardConfig,
     StationAFTANConfig,
 )
 from .phase import normalize_component
@@ -29,8 +30,6 @@ _ALPHA_MODES = {
     "pyftan_constant",
 }
 _PERIOD_SAMPLING_MODES = {"geomspace", "uniform", "list"}
-_PMF_PERIOD_BOUND_MODES = {"raw", "step"}
-_PMF_PERIOD_BOUND_METHODS = {"floor", "ceil", "nearest"}
 _SNR_DEFINITIONS = {"local", "pyftan", "aftan"}
 _SNR_NOISE_MODES = {"tail", "complement"}
 _PI_OVER_4_MODES = {"auto", "manual"}
@@ -106,6 +105,10 @@ def build_station_aftan_config(
         aftan=_build_aftan_config(
             aftan_config,
             base_path,
+            short_distance_guard=_build_short_distance_guard_config(
+                config.get("short_distance_period_guard"),
+                aftan_config,
+            ),
             default_auto_pi_over_4=bool(components),
         ),
         source_station=source_station,
@@ -119,12 +122,14 @@ def _build_aftan_config(
     config: dict[str, Any],
     base_path: Path | None,
     *,
+    short_distance_guard: AFTANShortDistanceGuardConfig | None = None,
     default_auto_pi_over_4: bool = False,
 ) -> AFTANConfig:
     basic = config.get("basic", {})
     pmf = config.get("pmf", {})
     snr = config.get("snr", {})
     energy_map = config.get("energy_map", {})
+    phase_cycle = _nested_option_config(config, "phase_cycle")
     qc_config = config.get("qc", {})
     velocity_window = config.get("velocity_window", {})
     prediction_file = config.get("prediction_file")
@@ -139,8 +144,6 @@ def _build_aftan_config(
         debug=bool(config.get("debug", False)),
         min_period=float(config.get("min_period", 0.5)),
         max_period=float(config.get("max_period", 10.0)),
-        max_period_nwl=float(config.get("max_period_nwl", 0.5)),
-        reference_velocity=float(config.get("reference_velocity", 4.0)),
         period_sampling=_build_period_sampling_config(
             config.get("period_sampling", {})
         ),
@@ -173,9 +176,6 @@ def _build_aftan_config(
             min_half_length=float(pmf.get("min_half_length", 5.0)),
             amplitude_ratio=float(pmf.get("amplitude_ratio", 0.2)),
             window_factor=float(pmf.get("window_factor", 1.0)),
-            period_bounds=_build_pmf_period_bounds_config(
-                pmf.get("period_bounds", {})
-            ),
         ),
         snr=_build_snr_config(snr),
         energy_map=AFTANEnergyMapConfig(
@@ -191,6 +191,21 @@ def _build_aftan_config(
             min_valid_fraction=float(qc_config.get("min_valid_fraction", 0.0)),
             fail_on_short_branch=bool(qc_config.get("fail_on_short_branch", False)),
         ),
+        phase_cycle=AFTANPhaseCycleConfig(
+            enabled=bool(phase_cycle.get("enabled", True)),
+            max_shift=int(phase_cycle.get("max_shift", 2)),
+            max_reference_residual_cycles=float(
+                phase_cycle.get("max_reference_residual_cycles", 0.35)
+            ),
+            min_candidate_score_gap_cycles=float(
+                phase_cycle.get("min_candidate_score_gap_cycles", 0.10)
+            ),
+        ),
+        short_distance_guard=(
+            short_distance_guard
+            if short_distance_guard is not None
+            else AFTANShortDistanceGuardConfig()
+        ),
     )
     _validate_aftan_config(aftan)
     return aftan
@@ -201,10 +216,12 @@ def _validate_aftan_config(config: AFTANConfig) -> None:
         raise ValueError("aftan.min_period must be positive.")
     if config.max_period <= config.min_period:
         raise ValueError("aftan.max_period must be greater than aftan.min_period.")
-    if config.max_period_nwl <= 0:
-        raise ValueError("aftan.max_period_nwl must be positive.")
-    if config.reference_velocity <= 0:
-        raise ValueError("aftan.reference_velocity must be positive.")
+    if config.short_distance_guard.reference_velocity <= 0:
+        raise ValueError(
+            "short_distance_period_guard.reference_velocity must be positive."
+        )
+    if config.short_distance_guard.max_period_nwl <= 0:
+        raise ValueError("short_distance_period_guard.max_period_nwl must be positive.")
     if config.velocity_min <= 0 or config.velocity_max <= 0:
         raise ValueError("aftan.velocity_window min/max must be positive.")
     if config.velocity_max <= config.velocity_min:
@@ -229,12 +246,52 @@ def _validate_aftan_config(config: AFTANConfig) -> None:
         raise ValueError("aftan.energy_map.velocity_count must be at least 2.")
     if config.energy_map.phase_cycle_count < 0:
         raise ValueError("aftan.energy_map.phase_cycle_count must be non-negative.")
+    if config.phase_cycle.max_shift < 0:
+        raise ValueError("aftan.phase_cycle.max_shift must be non-negative.")
+    if config.phase_cycle.max_reference_residual_cycles < 0:
+        raise ValueError(
+            "aftan.phase_cycle.max_reference_residual_cycles must be non-negative."
+        )
+    if config.phase_cycle.min_candidate_score_gap_cycles < 0:
+        raise ValueError(
+            "aftan.phase_cycle.min_candidate_score_gap_cycles must be non-negative."
+        )
     if config.qc.period_rel_warning < 0:
         raise ValueError("aftan.qc.period_rel_warning must be non-negative.")
     if not 0 <= config.qc.min_valid_fraction <= 1:
         raise ValueError("aftan.qc.min_valid_fraction must be between 0 and 1.")
     if config.pi_over_4_mode not in _PI_OVER_4_MODES:
         raise ValueError(f"aftan.pi_over_4.mode must be one of {sorted(_PI_OVER_4_MODES)}.")
+
+
+def _build_short_distance_guard_config(
+    config: Any,
+    legacy_aftan_config: dict[str, Any],
+) -> AFTANShortDistanceGuardConfig:
+    if config is None:
+        config = {}
+    if not isinstance(config, dict):
+        raise ValueError("short_distance_period_guard must be a mapping.")
+
+    reference_velocity = config.get(
+        "reference_velocity",
+        config.get(
+            "reference_velocity_km_s",
+            legacy_aftan_config.get("reference_velocity", 4.0),
+        ),
+    )
+    max_period_nwl = config.get(
+        "max_period_nwl",
+        config.get(
+            "min_wavelengths",
+            legacy_aftan_config.get("max_period_nwl", 0.5),
+        ),
+    )
+    return AFTANShortDistanceGuardConfig(
+        enabled=bool(config.get("enabled", True)),
+        reference_velocity=float(reference_velocity),
+        max_period_nwl=float(max_period_nwl),
+    )
 
 
 def _build_pi_over_4_config(
@@ -281,33 +338,61 @@ def _build_components(value: Any) -> tuple[str, ...]:
     return components
 
 
+def _nested_option_config(config: dict[str, Any], key: str) -> dict[str, Any]:
+    value = config.get(key, {})
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"Config option {key} must be a mapping.")
+    return value
+
+
+def _option_value(
+    legacy_config: dict[str, Any],
+    option_config: dict[str, Any],
+    key: str,
+    default: Any,
+) -> Any:
+    if key in option_config:
+        return option_config[key]
+    return legacy_config.get(key, default)
+
+
 def _build_snr_config(config: dict[str, Any]) -> AFTANSNRConfig:
     if not isinstance(config, dict):
         raise ValueError("aftan.snr must be a mapping.")
     definition = str(config.get("definition", "local")).lower()
     if definition not in _SNR_DEFINITIONS:
         raise ValueError(f"aftan.snr.definition must be one of {sorted(_SNR_DEFINITIONS)}.")
-    noise_mode = str(config.get("noise_mode", "tail")).lower()
+    local_config = _nested_option_config(config, "local")
+    pyftan_config = _nested_option_config(config, "pyftan")
+    local_tail_config = _nested_option_config(local_config, "tail")
+    noise_mode = str(_option_value(config, local_config, "noise_mode", "tail")).lower()
     if definition == "local" and noise_mode not in _SNR_NOISE_MODES:
         raise ValueError(f"aftan.snr.noise_mode must be one of {sorted(_SNR_NOISE_MODES)}.")
     signal_half_width_factor = float(
-        config.get(
+        _option_value(
+            config,
+            local_config,
             "signal_half_width_factor",
-            config.get("signal_half_width_periods", 1.0),
+            _option_value(config, local_config, "signal_half_width_periods", 1.0),
         )
     )
+    signal_before_value = _option_value(config, local_config, "signal_before_periods", None)
+    signal_after_value = _option_value(config, local_config, "signal_after_periods", None)
     signal_before_periods = (
-        float(config["signal_before_periods"])
-        if "signal_before_periods" in config
-        else None
+        float(signal_before_value) if signal_before_value is not None else None
     )
     signal_after_periods = (
-        float(config["signal_after_periods"])
-        if "signal_after_periods" in config
-        else None
+        float(signal_after_value) if signal_after_value is not None else None
     )
     noise_guard_factor = float(
-        config.get("noise_guard_factor", config.get("noise_guard_periods", 1.0))
+        _option_value(
+            config,
+            local_config,
+            "noise_guard_factor",
+            _option_value(config, local_config, "noise_guard_periods", 1.0),
+        )
     )
     if definition == "local" and signal_half_width_factor < 0:
         raise ValueError("aftan.snr.signal_half_width_factor must be non-negative.")
@@ -317,13 +402,17 @@ def _build_snr_config(config: dict[str, Any]) -> AFTANSNRConfig:
         raise ValueError("aftan.snr.signal_after_periods must be non-negative.")
     if definition == "local" and noise_guard_factor < 0:
         raise ValueError("aftan.snr.noise_guard_factor must be non-negative.")
-    bfact = float(config.get("bfact", 1.0))
-    efact = float(config.get("efact", 0.0))
-    dsn = float(config.get("dsn", 500.0))
-    nlen = float(config.get("nlen", 500.0))
-    vmax = float(config.get("vmax", 4.5))
-    vmin = float(config.get("vmin", 1.0))
-    fill = float(config.get("fill", 3.0))
+    bfact = float(_option_value(config, pyftan_config, "bfact", 1.0))
+    efact = float(_option_value(config, pyftan_config, "efact", 0.0))
+    dsn = float(
+        _option_value(config, pyftan_config, "dsn", _option_value(config, local_tail_config, "dsn", 500.0))
+    )
+    nlen = float(
+        _option_value(config, pyftan_config, "nlen", _option_value(config, local_tail_config, "nlen", 500.0))
+    )
+    vmax = float(_option_value(config, pyftan_config, "vmax", 4.5))
+    vmin = float(_option_value(config, pyftan_config, "vmin", 1.0))
+    fill = float(_option_value(config, pyftan_config, "fill", 3.0))
     if fill <= 0:
         raise ValueError("aftan.snr.fill must be positive.")
     uses_tail_window = definition == "pyftan" or (
@@ -375,8 +464,6 @@ def _override_energy_map_config(
         debug=config.aftan.debug,
         min_period=config.aftan.min_period,
         max_period=config.aftan.max_period,
-        max_period_nwl=config.aftan.max_period_nwl,
-        reference_velocity=config.aftan.reference_velocity,
         period_sampling=config.aftan.period_sampling,
         velocity_min=config.aftan.velocity_min,
         velocity_max=config.aftan.velocity_max,
@@ -389,6 +476,8 @@ def _override_energy_map_config(
         snr=config.aftan.snr,
         energy_map=new_energy_map,
         qc=config.aftan.qc,
+        phase_cycle=config.aftan.phase_cycle,
+        short_distance_guard=config.aftan.short_distance_guard,
     )
     return StationAFTANConfig(
         station=config.station,
@@ -412,11 +501,17 @@ def _build_period_sampling_config(config: dict[str, Any]) -> AFTANPeriodSampling
         raise ValueError(
             f"aftan.period_sampling.mode must be one of {sorted(_PERIOD_SAMPLING_MODES)}."
         )
-    count = config.get("count")
-    step = config.get("step")
-    dfreq = config.get("dfreq")
-    min_count = config.get("min_count", config.get("min_nfreq"))
-    periods = config.get("periods")
+    mode_config = _nested_option_config(config, mode)
+    count = _option_value(config, mode_config, "count", None)
+    step = _option_value(config, mode_config, "step", None)
+    dfreq = _option_value(config, mode_config, "dfreq", None)
+    min_count = _option_value(
+        config,
+        mode_config,
+        "min_count",
+        _option_value(config, mode_config, "min_nfreq", None),
+    )
+    periods = _option_value(config, mode_config, "periods", None)
     if mode == "geomspace" and count is None and dfreq is None:
         raise ValueError(
             "aftan.period_sampling.count or dfreq is required "
@@ -444,41 +539,6 @@ def _build_period_sampling_config(config: dict[str, Any]) -> AFTANPeriodSampling
     )
 
 
-def _build_pmf_period_bounds_config(config: dict[str, Any]) -> AFTANPMFPeriodBoundsConfig:
-    if not isinstance(config, dict):
-        raise ValueError("aftan.pmf.period_bounds must be a mapping.")
-    mode = str(config.get("mode", "raw")).lower()
-    if mode not in _PMF_PERIOD_BOUND_MODES:
-        raise ValueError(
-            f"aftan.pmf.period_bounds.mode must be one of "
-            f"{sorted(_PMF_PERIOD_BOUND_MODES)}."
-        )
-    min_method = str(config.get("min_method", "floor")).lower()
-    max_method = str(config.get("max_method", "ceil")).lower()
-    if min_method not in _PMF_PERIOD_BOUND_METHODS:
-        raise ValueError(
-            f"aftan.pmf.period_bounds.min_method must be one of "
-            f"{sorted(_PMF_PERIOD_BOUND_METHODS)}."
-        )
-    if max_method not in _PMF_PERIOD_BOUND_METHODS:
-        raise ValueError(
-            f"aftan.pmf.period_bounds.max_method must be one of "
-            f"{sorted(_PMF_PERIOD_BOUND_METHODS)}."
-        )
-    step = config.get("step")
-    if mode == "step" and step is None:
-        step = 0.1
-    step = float(step) if step is not None else None
-    if step is not None and step <= 0:
-        raise ValueError("aftan.pmf.period_bounds.step must be positive.")
-    return AFTANPMFPeriodBoundsConfig(
-        mode=mode,
-        step=step,
-        min_method=min_method,
-        max_method=max_method,
-    )
-
-
 def _build_alpha_config(
     config: dict[str, Any],
     *,
@@ -489,10 +549,11 @@ def _build_alpha_config(
     mode = str(config.get("mode", "")).lower()
     if mode not in _ALPHA_MODES:
         raise ValueError(f"{label}.mode must be one of {sorted(_ALPHA_MODES)}.")
-    value = config.get("value")
-    factor = float(config.get("factor", 1.0))
-    distance_nodes = config.get("distance_nodes")
-    alpha_nodes = config.get("alpha_nodes")
+    mode_config = _nested_option_config(config, mode)
+    value = _option_value(config, mode_config, "value", None)
+    factor = float(_option_value(config, mode_config, "factor", 1.0))
+    distance_nodes = _option_value(config, mode_config, "distance_nodes", None)
+    alpha_nodes = _option_value(config, mode_config, "alpha_nodes", None)
     if mode == "constant" and value is None:
         raise ValueError(f"{label}.value is required when mode is constant.")
     if value is not None and float(value) <= 0:

@@ -24,6 +24,7 @@ def test_ant_help(capsys):
     output = capsys.readouterr().out
     assert "rotate-ccf" in output
     assert "aftan" in output
+    assert "eikonal" in output
 
 
 def test_ant_rotate_ccf_help_uses_obj_components(capsys):
@@ -76,3 +77,26 @@ def test_ant_aftan_help_includes_energy_map_options(capsys):
     output = capsys.readouterr().out
     assert "--write-energy-map" in output
     assert "--plot-energy-map" in output
+
+
+def test_ant_eikonal_parser_requires_config():
+    try:
+        main(["ant", "eikonal"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("ant eikonal should require a config file")
+
+
+def test_ant_eikonal_help_includes_stages(capsys):
+    try:
+        main(["ant", "eikonal", "-h"])
+    except SystemExit as exc:
+        assert exc.code == 0
+    else:
+        raise AssertionError("eikonal help should exit")
+
+    output = capsys.readouterr().out
+    assert "--stage" in output
+    assert "fields" in output
+    assert "stack" in output

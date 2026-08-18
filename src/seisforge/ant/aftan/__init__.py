@@ -1,19 +1,20 @@
 """AFTAN dispersion measurement for ambient-noise CCFs."""
 
 from .config import build_station_aftan_config, _override_energy_map_config
-from .core import _align_to_period_grid, _pmf_period_bounds
+from .core import _align_to_period_grid
 from .driver import run_aftan_config, run_aftan_file, run_station_aftan
 from .models import (
     AFTANAlphaConfig,
     AFTANBasicConfig,
     AFTANConfig,
     AFTANEnergyMapConfig,
+    AFTANPhaseCycleConfig,
     AFTANPMFConfig,
-    AFTANPMFPeriodBoundsConfig,
     AFTANPeriodSamplingConfig,
     AFTANQCConfig,
     AFTANResult,
     AFTANSNRConfig,
+    AFTANShortDistanceGuardConfig,
     BranchTrace,
     StationAFTANConfig,
 )
@@ -31,12 +32,13 @@ __all__ = [
     "AFTANBasicConfig",
     "AFTANConfig",
     "AFTANEnergyMapConfig",
+    "AFTANPhaseCycleConfig",
     "AFTANPMFConfig",
-    "AFTANPMFPeriodBoundsConfig",
     "AFTANPeriodSamplingConfig",
     "AFTANQCConfig",
     "AFTANResult",
     "AFTANSNRConfig",
+    "AFTANShortDistanceGuardConfig",
     "BranchTrace",
     "StationAFTANConfig",
     "build_station_aftan_config",
@@ -51,7 +53,6 @@ __all__ = [
     "_align_to_period_grid",
     "_override_energy_map_config",
     "_period_qc",
-    "_pmf_period_bounds",
     "_qc_warnings",
     "_snr",
 ]

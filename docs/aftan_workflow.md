@@ -34,10 +34,12 @@ components: [ZZ, ZR, RZ, RR]
 io:
   input_root_datadir: /path/to/CCF_ZRT
   output_root_datadir: /path/to/FTAN
-  input_template: "*_{component}_pws.SAC"
+  input_template: "{source_station}_{receiver_station}_{component}_pws.SAC"
 ```
 
 `component` may be used instead of `components` for a single component.
+
+`input_template` is formatted for each requested component. Supported fields are `{source_station}`, `{receiver_station}`, `{name}` (`source_station_receiver_station`), and `{component}`. SeisForge first looks under `<input_root>/<source_station>/<name>/`; if nothing matches, it also tries `<input_root>/` for flat demo-style inputs.
 
 The current config uses explicit branch and alpha choices:
 
@@ -49,40 +51,35 @@ aftan:
     mode: auto
   period_sampling:
     mode: uniform
-    step: 0.1
+    uniform:
+      step: 0.1
   basic:
     alpha:
       mode: constant
-      value: 20.0
+      constant:
+        value: 20.0
     trig_threshold: 50.0
     jump_points: 3
   pmf:
     enabled: false
     alpha:
       mode: constant
-      value: 20.0
+      constant:
+        value: 20.0
     trig_threshold: 20.0
     jump_points: 3
-    period_bounds:
-      mode: raw  # raw or step
-      # step: 0.1
-      min_method: floor
-      max_method: ceil
 ```
 
-`branch: both` writes one result for each positive and negative lag. For a
-negative branch, SeisForge interprets the time-reversed CCF as the reciprocal
-station pair and component: for example stored input `A_B ZR` on the negative
-branch is measured as physical `B_A RZ` on the positive branch. Output filenames
-use this physical station pair and component when the config provides both
-`source_station` and `receiver_station`; the `.dat` header records both stored
-and physical provenance. With `pi_over_4.mode: auto`, the Rayleigh-wave phase
-correction is derived from this physical component and written to `aftan.log`.
-`branch: stack` averages the positive lag and the time-reversed negative lag and
-is only well-defined for self-reciprocal components such as `ZZ`, `RR`, or `TT`;
-asymmetric components should be measured with `positive` or `negative` instead.
-If a two-sided branch is requested for a one-sided trace, SeisForge falls back to
-the positive branch and records a warning in `aftan.log`.
+`branch: both` writes one result for each positive and negative lag. Output
+filenames preserve the input station pair/component and append the selected
+branch, for example `<input_stem>.negative.dat`. With `pi_over_4.mode: auto`,
+SeisForge still uses the reciprocal physical component for the negative branch
+when choosing the Rayleigh-wave phase correction, and records that interpretation
+in `aftan.log`. `branch: stack` averages the positive lag and the time-reversed
+negative lag and is only well-defined for self-reciprocal components such as
+`ZZ`, `RR`, or `TT`; asymmetric components should be measured with `positive` or
+`negative` instead. If a two-sided branch is requested for a one-sided trace,
+SeisForge falls back to the positive branch and records a warning in `aftan.log`.
 
 `period_sampling` defines the target filter periods. `uniform` uses a fixed
 period step or a fixed count; `list` uses the periods supplied in the config;
@@ -118,7 +115,7 @@ phase-matched cleanup. Its `amplitude` variable is computed from the PMF-clean
 waveform, and the dataset attribute `signal_source` is `pmf_clean_waveform`.
 
 Set `energy_map.phase_velocity: true` to also write
-`<input_stem>.phase_velocity.nc`. This is a diagnostic phase-cycle candidate map
+`<input_stem>.vph.nc`. This is a diagnostic phase-cycle candidate map
 rather than an independent phase-energy measurement: for each picked group
 arrival, SeisForge expands nearby `2*pi` phase-cycle aliases into candidate
 phase velocities. When plotting is enabled, this phase panel is included in the
@@ -145,18 +142,28 @@ The alpha helpers keep the three common choices explicit:
 At runtime the log records the requested branch, effective branch, alpha mode,
 resolved alpha value, and basic QC metrics including valid period count,
 instant/target period mismatch, group-velocity range, and maximum picked
-amplitude.
+amplitude. The `.dat` header is intentionally compact and does not duplicate
+station/component interpretation details from the log.
 
 ### Short-Distance Period Guard
 
-`max_period_nwl` is a SeisForge engineering guard, not an original AFTAN or
-PyAFTAN parameter. It prevents very long periods from entering the FTAN grid
+`short_distance_period_guard.max_period_nwl` is a SeisForge engineering guard,
+not an original AFTAN or PyAFTAN parameter. It prevents very long periods from entering the FTAN grid
 when the interstation distance is too short for the reference travel time to
 contain enough wave cycles. The effective maximum period is
 
 ```text
 effective_max_period =
     min(max_period, distance_km / (reference_velocity * max_period_nwl))
+```
+
+Configured as a top-level block, outside the main `aftan` section:
+
+```yaml
+short_distance_period_guard:
+  enabled: true
+  reference_velocity: 4.0
+  max_period_nwl: 0.5
 ```
 
 Equivalently, a period is allowed only when
@@ -261,25 +268,11 @@ not from the nominal target periods. The cleaned second FTAN pass reuses the
 configured sampling style, but its period range is clipped to the first-pass
 apparent-period branch.
 
-By default, `pmf.period_bounds.mode: raw` uses the exact apparent-period bounds
-from the first pass. For short-period work this may produce non-round PMF target
-grids such as `0.7947, 0.8947, ...`. Set `mode: step` to snap the PMF range to a
-more readable decimal grid:
-
-```yaml
-pmf:
-  enabled: true
-  period_bounds:
-    mode: step
-    step: 0.1
-    min_method: floor
-    max_method: ceil
-```
-
-With this setting, a first-pass apparent-period range of `0.794-7.414 s` becomes
-`0.7-7.5 s` before the configured `period_sampling` grid is generated. The raw
-and snapped bounds are both stored in the PMF `.npz` output as
-`pmf_raw_period_min/max` and `pmf_period_min/max`.
+PMF does not expose a separate period-bound option. It follows the retained
+first-pass apparent-period range directly, then rebuilds the second-pass target
+grid with the configured `period_sampling` style inside that range. The `.npz`
+output records this inherited range as both `pmf_period_min/max` and
+`pmf_raw_period_min/max` for compatibility with older outputs.
 
 ### Alpha Choices
 

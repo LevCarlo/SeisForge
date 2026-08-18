@@ -36,14 +36,6 @@ class AFTANBasicConfig:
 
 
 @dataclass(frozen=True)
-class AFTANPMFPeriodBoundsConfig:
-    mode: str = "raw"
-    step: float | None = None
-    min_method: str = "floor"
-    max_method: str = "ceil"
-
-
-@dataclass(frozen=True)
 class AFTANPMFConfig:
     enabled: bool = False
     alpha: AFTANAlphaConfig = field(
@@ -55,9 +47,6 @@ class AFTANPMFConfig:
     min_half_length: float = 5.0
     amplitude_ratio: float = 0.2
     window_factor: float = 1.0
-    period_bounds: AFTANPMFPeriodBoundsConfig = field(
-        default_factory=AFTANPMFPeriodBoundsConfig
-    )
 
 
 @dataclass(frozen=True)
@@ -96,12 +85,25 @@ class AFTANQCConfig:
 
 
 @dataclass(frozen=True)
+class AFTANPhaseCycleConfig:
+    enabled: bool = True
+    max_shift: int = 2
+    max_reference_residual_cycles: float = 0.35
+    min_candidate_score_gap_cycles: float = 0.10
+
+
+@dataclass(frozen=True)
+class AFTANShortDistanceGuardConfig:
+    enabled: bool = True
+    reference_velocity: float = 4.0
+    max_period_nwl: float = 0.5
+
+
+@dataclass(frozen=True)
 class AFTANConfig:
     debug: bool = False
     min_period: float = 0.5
     max_period: float = 10.0
-    max_period_nwl: float = 0.5
-    reference_velocity: float = 4.0
     period_sampling: AFTANPeriodSamplingConfig = field(
         default_factory=lambda: AFTANPeriodSamplingConfig(
             mode="uniform",
@@ -125,6 +127,12 @@ class AFTANConfig:
     snr: AFTANSNRConfig = field(default_factory=AFTANSNRConfig)
     energy_map: AFTANEnergyMapConfig = field(default_factory=AFTANEnergyMapConfig)
     qc: AFTANQCConfig = field(default_factory=AFTANQCConfig)
+    phase_cycle: AFTANPhaseCycleConfig = field(
+        default_factory=AFTANPhaseCycleConfig
+    )
+    short_distance_guard: AFTANShortDistanceGuardConfig = field(
+        default_factory=AFTANShortDistanceGuardConfig
+    )
 
 
 @dataclass(frozen=True)

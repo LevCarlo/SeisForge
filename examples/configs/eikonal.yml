@@ -1,0 +1,102 @@
+schema_version: 1
+project: example_zz_eikonal
+
+input:
+  # Xarray/NetCDF dataset with dimensions (path, period). See the workflow doc.
+  dataset: /path/to/ZZ_measurements.nc
+  periods_s: [5, 8, 10, 15, 20, 25, 30]
+  # Set to null when SNR quality control was already applied upstream.
+  min_snr: 15.0
+
+grid:
+  longitude_convention: "-180_180"
+  min_longitude_deg: -170.0
+  max_longitude_deg: -130.0
+  min_latitude_deg: 50.0
+  max_latitude_deg: 72.0
+  longitude_step_deg: 0.2
+  latitude_step_deg: 0.2
+
+cycle_skip:
+  enabled: true
+  min_period_s: 20.0
+  max_residual_s: 10.0
+  trial_count: 5
+  seed_station_stride: 2
+
+interpolation:
+  # Pure-Python backend available in the default SeisForge installation.
+  method: scipy_rbf
+  kernel: thin_plate_spline
+  smoothing: 0.0
+  # Set to null to use all observations in each RBF solve.
+  neighbors: null
+  stability_check:
+    enabled: true
+    # This is an RBF regularization value, not GMT surface tension.
+    comparison_smoothing: 0.2
+    max_travel_time_difference_s: 2.0
+
+  # Optional surfpy-compatible interpolation backend. Install PyGMT plus the
+  # GMT shared library, then replace the active scipy_rbf keys above with:
+  # method: gmt_surface
+  # block_reduce: median
+  # tension: 0.0
+  # stability_check:
+  #   enabled: true
+  #   comparison_tension: 0.2
+  #   max_travel_time_difference_s: 2.0
+
+eikonal:
+  gradient_scheme: second_order
+  min_apparent_velocity_km_s: 2.0
+  max_apparent_velocity_km_s: 5.0
+  boundary_cells_to_mask: 1
+
+helmholtz:
+  # Requires amplitude(path, period) in the input Dataset.
+  enabled: false
+  min_period_s: 0.0
+  min_amplitude: 0.0
+  # Reject cells where the two interpolated amplitudes differ by >1%.
+  max_relative_interpolation_difference: 0.01
+  # Equivalent to surfpy's |laplacian(A)/(A*omega^2)| <= 1/(4 km/s)^2.
+  curvature_reference_velocity_km_s: 4.0
+
+qc:
+  max_abs_travel_time_laplacian_s_per_km2: 0.005
+  station_coverage:
+    # nearby, quadrants, or nearby_or_quadrants
+    mode: nearby_or_quadrants
+    nearby_radius_km: 150.0
+    quadrant_radius_km: 250.0
+    min_quadrants: 4
+  far_field:
+    min_wavelengths: 3.0
+    reference_phase_velocity_km_s: 3.5
+  source_field:
+    min_valid_fraction: 0.05
+    min_valid_grid_cells: 0
+
+stacking:
+  min_raw_measurements_per_cell: 50
+  azimuth_weighting:
+    enabled: true
+    neighbor_width_deg: 20.0
+    require_peer: true
+    max_weight_standard_deviations: 3.0
+  outlier_rejection:
+    enabled: true
+    max_standard_deviations: 2.0
+    iterations: 1
+
+output:
+  directory: /path/to/EIKONAL
+  event_fields_directory: event_fields
+  stack_file: eikonal_stack.nc
+  overwrite: false
+  compression_level: 4
+
+compute:
+  workers: 8
+  source_chunk_size: 50

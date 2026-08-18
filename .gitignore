@@ -1,4 +1,6 @@
 *.egg-info/
+src/seisforge/hvsr/_hvsr_fortran*.so
+src/seisforge/hvsr/_hvsr_fortran*.pyd
 notebook/
 */**/*.ipynb
 !examples/AFTAN/compare.ipynb

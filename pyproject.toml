@@ -16,7 +16,10 @@ dependencies = [
     "pandas",
     "obspy",
     "xarray",
+    "h5netcdf",
+    "h5py",
     "joblib",
+    "pyproj",
     "pyyaml"
 ]
 
@@ -29,6 +32,17 @@ dev = [
 inv = [
     "disba",
 ]
+hvsr = [
+    "disba",
+]
+hvsr-fortran = [
+    "disba",
+    "meson>=1.3",
+    "ninja",
+]
+gmt = [
+    "pygmt",
+]
 
 [project.scripts]
 seisforge = "seisforge.cli.main:main"
@@ -37,6 +51,12 @@ hkseq = "seisforge.rf.hk:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"seisforge.hvsr" = [
+    "_fortran_src/*.f90",
+    "_fortran_src/.f2py_f2cmap",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
