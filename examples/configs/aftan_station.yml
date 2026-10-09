@@ -118,6 +118,8 @@ aftan:
       vmin: 1.0
 
 # SeisForge phase-cycle selection extension, not an original AFTAN parameter.
+# Picks one global 2*pi*k branch by the mean relative phase-slowness misfit to
+# aftan.prediction_file. Skipped (shift 0) when no prediction_file is given.
 phase_cycle_selection:
   enabled: true
   max_shift: 2

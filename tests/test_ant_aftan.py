@@ -34,6 +34,7 @@ from seisforge.ant.aftan.core import (
     AFTANMeasurement,
     _build_period_grid,
     _select_phase_cycle,
+    phase_cycle_reference_misfit,
 )
 
 
@@ -744,11 +745,11 @@ def test_global_phase_cycle_selection_recovers_reference_branch():
 
     np.testing.assert_allclose(corrected, reference)
     assert diagnostics["phase_cycle_shift"].item() == 1
-    assert diagnostics["phase_cycle_reference_score_cycles"].item() == pytest.approx(
+    assert diagnostics["phase_cycle_reference_misfit"].item() == pytest.approx(
         0.0
     )
-    assert diagnostics["phase_cycle_reference_score_gap_cycles"].item() > 0
-    assert diagnostics["phase_cycle_candidate_reference_score_cycles"].shape == (
+    assert diagnostics["phase_cycle_reference_misfit_gap"].item() > 0
+    assert diagnostics["phase_cycle_candidate_reference_misfit"].shape == (
         5,
     )
 
@@ -768,7 +769,7 @@ def test_global_phase_cycle_selection_tie_prefers_zero_shift():
     )
     np.testing.assert_allclose(corrected, uncorrected)
     assert diagnostics["phase_cycle_shift"].item() == 0
-    assert diagnostics["phase_cycle_reference_score_gap_cycles"].item() == pytest.approx(
+    assert diagnostics["phase_cycle_reference_misfit_gap"].item() == pytest.approx(
         0.0
     )
 
@@ -789,9 +790,9 @@ def test_global_phase_cycle_selection_requires_two_reference_points():
     np.testing.assert_allclose(corrected, uncorrected)
     assert diagnostics["phase_cycle_shift"].item() == 0
     assert diagnostics["phase_cycle_valid_count"].item() == 1
-    assert np.isnan(diagnostics["phase_cycle_reference_score_cycles"].item())
+    assert np.isnan(diagnostics["phase_cycle_reference_misfit"].item())
     assert np.all(
-        np.isnan(diagnostics["phase_cycle_candidate_reference_score_cycles"])
+        np.isnan(diagnostics["phase_cycle_candidate_reference_misfit"])
     )
 
 
@@ -812,8 +813,8 @@ def test_manual_phase_cycle_override_previews_then_updates_nc_and_dat(tmp_path):
             "reference_phase_velocity": (("target_period",), reference),
             "picked_instant_period": (("target_period",), period),
             "phase_cycle_shift": np.asarray(0, dtype=np.int32),
-            "phase_cycle_reference_score_cycles": np.asarray(0.5),
-            "phase_cycle_reference_score_gap_cycles": np.asarray(0.1),
+            "phase_cycle_reference_misfit": np.asarray(0.5),
+            "phase_cycle_reference_misfit_gap": np.asarray(0.1),
             "phase_cycle_search_limit_reached": np.asarray(0, dtype=np.int8),
         },
         coords={"target_period": period},
@@ -927,9 +928,9 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
         )
         assert dataset["reference_phase_velocity"].dims == ("target_period",)
         assert dataset["phase_cycle_shift"].dims == ()
-        assert dataset["phase_cycle_reference_score_cycles"].dims == ()
-        assert dataset["phase_cycle_reference_score_gap_cycles"].dims == ()
-        assert dataset["phase_cycle_candidate_reference_score_cycles"].dims == (
+        assert dataset["phase_cycle_reference_misfit"].dims == ()
+        assert dataset["phase_cycle_reference_misfit_gap"].dims == ()
+        assert dataset["phase_cycle_candidate_reference_misfit"].dims == (
             "cycle_shift_candidate",
         )
         assert dataset["phase_cycle_valid_count"].dims == ()
@@ -937,8 +938,16 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
         assert dataset.attrs["phase_cycle_selection_method"]
         assert dataset.attrs["phase_cycle_implementation"] == "seisforge_extension"
         assert dataset.attrs["phase_cycle_max_shift"] == 2
+        # No prediction_file: the flat reference only anchors the curve.
+        assert dataset.attrs["phase_cycle_selection_source"] == (
+            "skipped_no_prediction_file"
+        )
+        assert dataset["phase_cycle_shift"].item() == 0
     finally:
         dataset.close()
+    header = result.output_dat.read_text()
+    assert "# phase_cycle_selection_source: skipped_no_prediction_file" in header
+    assert "# phase_cycle_shift: 0" in header
 
 
 def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path):
@@ -1251,3 +1260,50 @@ def test_time_taper_config_parsing_and_validation(tmp_path):
         build({"mode": "hann"})
     with pytest.raises(ValueError, match="ramp_s"):
         build({"velocity_window": {"ramp_s": -1}})
+
+
+def test_cycle_selection_skips_flat_fallback_reference():
+    period = np.array([2.0, 3.0, 4.0, 5.0])
+    reference = np.array([2.8, 3.0, 3.1, 3.2])
+    uncorrected = 1.0 / (1.0 / reference - period / 100.0)
+    corrected, diagnostics = _select_phase_cycle(
+        period,
+        uncorrected,
+        reference,
+        100.0,
+        AFTANPhaseCycleConfig(max_shift=2),
+        reference_from_prediction=False,
+    )
+    np.testing.assert_allclose(corrected, uncorrected)
+    assert diagnostics["phase_cycle_shift"].item() == 0
+    assert diagnostics["phase_cycle_selection_source"] == "skipped_no_prediction_file"
+
+
+@pytest.mark.parametrize("anchor_error", [-2, -1, 1, 2])
+@pytest.mark.parametrize("reference_scale", [0.95, 1.0, 1.05])
+def test_cycle_selection_recovers_anchor_error_with_imperfect_prediction(
+    anchor_error, reference_scale
+):
+    # Long path with many short periods: a 5% reference error is several
+    # cycles at 1 s, which defeated the former median-cycle score.
+    distance_km = 560.0
+    period = np.geomspace(1.0, 50.0, 60)
+    true_velocity = np.interp(period, [1.0, 10.0, 30.0, 50.0], [2.7, 3.1, 3.65, 3.8])
+    measured = apply_phase_cycle_shift(period, true_velocity, distance_km, anchor_error)
+    corrected, diagnostics = _select_phase_cycle(
+        period,
+        measured,
+        true_velocity * reference_scale,
+        distance_km,
+        AFTANPhaseCycleConfig(max_shift=3),
+    )
+    assert diagnostics["phase_cycle_shift"].item() == -anchor_error
+    np.testing.assert_allclose(corrected, true_velocity, rtol=1e-12)
+
+
+def test_phase_cycle_reference_misfit_is_relative_slowness_error():
+    period = np.array([1.0, 10.0])
+    reference = np.array([3.0, 3.5])
+    measured = reference * 1.02
+    misfit = phase_cycle_reference_misfit(period, measured, reference, 300.0, 0)
+    assert misfit == pytest.approx(np.mean(np.abs(1 / 1.02 - 1)))

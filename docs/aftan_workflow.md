@@ -124,8 +124,12 @@ separate PNG.
 
 ### Phase-cycle selection
 
-The cycle score is the median absolute travel-time residual to the configured
-phase-velocity reference, in cycles:
+Phase velocity follows Fortran AFTAN (`phtovel.f`). The curve is anchored at
+the longest picked period to the reference velocity (the nearest
+`2 pi`-branch), then continued toward shorter periods by integrating the
+group slowness. An anchor error of `k` cycles therefore shifts phase slowness by
+`k T / D` at **every** period. SeisForge can then correct that with one global
+integer shift:
 
 ```yaml
 phase_cycle_selection:
@@ -135,21 +139,42 @@ phase_cycle_selection:
 
 `phase_cycle_selection` is a top-level SeisForge extension, parallel to
 `short_distance_period_guard`; it is not part of the classical AFTAN parameter
-set. It accepts only `enabled` and `max_shift`.
-
-For each integer shift `k`, SeisForge evaluates
+set. It accepts only `enabled` and `max_shift`. It runs only when
+`aftan.prediction_file` provides a reference curve. For each integer shift `k`,
+the score is the mean relative phase-slowness misfit
 
 ```text
-median(abs((D / c_uncorrected - D / c_reference) / T + k)).
+s_k    = 1 / c_uncorrected + k T / D
+misfit = mean(|c_reference * s_k - 1|)
 ```
 
-The candidate with the lowest score is applied to the complete picked phase
-curve. Exact ties prefer the smaller absolute shift. With fewer than two valid
-periods shared by the measurement and reference, the curve remains at shift
-zero. The phase-map NetCDF records every candidate reference score, the selected
-shift and score, the gap to the second-best score, the valid-period count, and
-whether the selected shift reached the configured search limit. These values
-are diagnostics only; the FTAN step does not perform later curve-shape QC.
+and the lowest misfit wins. Exact ties prefer the smaller absolute shift.
+
+Two rules keep the selection from inventing a branch:
+
+- **No `prediction_file`**: the reference is the flat
+  `short_distance_period_guard.reference_velocity` fallback. It only anchors the
+  longest period (where one cycle is a large velocity change). It is never used
+  to shift the curve; the source is recorded as `skipped_no_prediction_file`.
+- **Fewer than two usable reference periods**: shift zero, recorded as
+  `skipped_insufficient_reference`.
+
+!!! note "Why a relative misfit"
+    Earlier versions scored the median residual in cycles,
+    `median(|(D/c - D/c_ref)/T + k|)`. A path holds `D/(c T)` wavelengths, so a
+    reference that is a few percent off is several cycles off at short periods.
+    Those periods dominate the median, and the score cannot tell branches
+    apart. On the bundled 562 km `M07A_M15A` pair, a flat 4 km/s reference
+    pushed the curve to the search limit (`k = -2`), giving 9–16 km/s at
+    45–60 s while Fortran AFTAN gives 3.8 km/s. The uncorrected SeisForge curve
+    matches Fortran within 0.01 cycle at every period. In synthetic tests the
+    relative misfit recovers anchor errors of ±1 and ±2 cycles with a
+    reference that is 5% too fast or too slow; the cycle median fails there.
+
+The phase-map NetCDF records the selection source, the candidate misfits, the
+selected shift and misfit, the gap to the second-best misfit, the valid-period
+count, and whether the shift reached `max_shift`. The `.dat` header records
+`phase_cycle_selection_source` and `phase_cycle_shift`.
 
 If visual inspection still identifies the wrong branch, preview an absolute
 manual shift relative to `picked_phase_velocity_uncorrected`:
@@ -555,9 +580,9 @@ Current differences and simplifications:
 - The Python PMF is a compact implementation. It uses cubic-spline group-delay
   integration, a four-corner spectral taper, and local-minimum time cleanup, but
   it is not a line-by-line port of `tgauss`/Fortran PMF internals.
-- Phase velocity is prediction-sensitive. Without a reliable `prediction_file`,
-  the cycle choice falls back to `reference_velocity`; this should be treated as
-  diagnostic for now.
+- Phase velocity is prediction-sensitive. Without a `prediction_file`, the
+  longest-period anchor uses the flat `reference_velocity` (as Fortran AFTAN
+  uses its prediction), and no global cycle shift is applied.
 - The phase-velocity xarray map is a cycle-candidate diagnostic map, not an
   independent phase-energy transform.
 - SNR is configurable. `definition: aftan` is closest to the FTAN diagram

@@ -254,7 +254,7 @@ def _run_aftan_cycle_set(args: argparse.Namespace) -> int:
     print(
         f"{action}: shift {result.previous_shift:+d} -> "
         f"{result.requested_shift:+d}; "
-        f"reference score={result.reference_score_cycles:.4f} cycles; "
+        f"reference misfit={result.reference_misfit:.4f}; "
         f"vph={result.phase_velocity_min_km_s:.4f}-"
         f"{result.phase_velocity_max_km_s:.4f} km/s"
     )

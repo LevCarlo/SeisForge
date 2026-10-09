@@ -267,6 +267,7 @@ def _run_aftan_branch(
             branch_config,
             stage="basic",
             taper_attrs=measurement.time_taper_attrs(),
+            cycle_attrs=_phase_cycle_metadata(measured),
         ),
     )
 
@@ -335,6 +336,7 @@ def _run_aftan_branch(
                 branch_config,
                 stage="pmf",
                 taper_attrs=measurement.time_taper_attrs(),
+                cycle_attrs=_phase_cycle_metadata(pmf_measured),
             ),
         )
         written_pmf_dat = output_pmf_dat
@@ -463,6 +465,7 @@ def _dat_metadata(
     *,
     stage: str,
     taper_attrs: dict[str, object] | None = None,
+    cycle_attrs: dict[str, object] | None = None,
 ) -> dict[str, object]:
     metadata: dict[str, object] = {
         "stage": stage,
@@ -479,7 +482,16 @@ def _dat_metadata(
                 if not (isinstance(value, float) and np.isnan(value))
             }
         )
+    if cycle_attrs:
+        metadata.update(cycle_attrs)
     return metadata
+
+
+def _phase_cycle_metadata(measured: dict[str, np.ndarray]) -> dict[str, object]:
+    return {
+        "phase_cycle_selection_source": str(measured["phase_cycle_selection_source"]),
+        "phase_cycle_shift": int(measured["phase_cycle_shift"]),
+    }
 
 
 def _start_log(config: StationAFTANConfig) -> list[str]:

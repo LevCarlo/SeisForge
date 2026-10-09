@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
-from .core import apply_phase_cycle_shift
+from .core import apply_phase_cycle_shift, phase_cycle_reference_misfit
 from .io import (
     _AFTAN_DAT_DEBUG_FORMATS,
     _AFTAN_DAT_DELIMITER,
@@ -25,7 +25,7 @@ class PhaseCycleOverrideResult:
     dat_file: Path | None
     previous_shift: int
     requested_shift: int
-    reference_score_cycles: float
+    reference_misfit: float
     phase_velocity_min_km_s: float
     phase_velocity_max_km_s: float
     written: bool
@@ -98,7 +98,7 @@ def override_phase_cycle(
         dat_file=dat_path,
         previous_shift=summary["previous_shift"],
         requested_shift=int(cycle_shift),
-        reference_score_cycles=summary["reference_score_cycles"],
+        reference_misfit=summary["reference_misfit"],
         phase_velocity_min_km_s=summary["phase_velocity_min_km_s"],
         phase_velocity_max_km_s=summary["phase_velocity_max_km_s"],
         written=bool(write),
@@ -140,28 +140,8 @@ def _manual_cycle_dataset(
 
     previous_shift = int(updated["phase_cycle_shift"].item())
     _preserve_automatic_diagnostics(updated)
-    valid = (
-        np.isfinite(period)
-        & np.isfinite(corrected)
-        & np.isfinite(reference)
-        & (period > 0)
-        & (corrected > 0)
-        & (reference > 0)
-    )
-    reference_score = (
-        float(
-            np.median(
-                np.abs(
-                    (
-                        distance_km / corrected[valid]
-                        - distance_km / reference[valid]
-                    )
-                    / period[valid]
-                )
-            )
-        )
-        if np.any(valid)
-        else np.nan
+    reference_misfit = phase_cycle_reference_misfit(
+        period, uncorrected, reference, distance_km, cycle_shift
     )
 
     updated["picked_phase_velocity"] = (
@@ -170,12 +150,12 @@ def _manual_cycle_dataset(
         updated["picked_phase_velocity"].attrs,
     )
     updated["phase_cycle_shift"] = np.asarray(cycle_shift, dtype=np.int32)
-    updated["phase_cycle_reference_score_cycles"] = np.asarray(
-        reference_score, dtype=float
+    updated["phase_cycle_reference_misfit"] = np.asarray(
+        reference_misfit, dtype=float
     )
     updated["phase_cycle_manual_override"] = np.asarray(1, dtype=np.int8)
-    if "phase_cycle_reference_score_gap_cycles" in updated:
-        updated["phase_cycle_reference_score_gap_cycles"] = np.asarray(
+    if "phase_cycle_reference_misfit_gap" in updated:
+        updated["phase_cycle_reference_misfit_gap"] = np.asarray(
             np.nan, dtype=float
         )
     if "phase_cycle_search_limit_reached" in updated:
@@ -193,7 +173,7 @@ def _manual_cycle_dataset(
     finite = corrected[np.isfinite(corrected)]
     return updated, {
         "previous_shift": previous_shift,
-        "reference_score_cycles": reference_score,
+        "reference_misfit": reference_misfit,
         "phase_velocity_min_km_s": (
             float(np.min(finite)) if finite.size else np.nan
         ),
@@ -207,8 +187,8 @@ def _preserve_automatic_diagnostics(dataset: xr.Dataset) -> None:
     names = (
         "picked_phase_velocity",
         "phase_cycle_shift",
-        "phase_cycle_reference_score_cycles",
-        "phase_cycle_reference_score_gap_cycles",
+        "phase_cycle_reference_misfit",
+        "phase_cycle_reference_misfit_gap",
         "phase_cycle_search_limit_reached",
     )
     for name in names:
@@ -244,6 +224,7 @@ def _rewrite_dispersion_dat(
     )
     metadata_prefixes = (
         "# phase_cycle_selection_source:",
+        "# phase_cycle_shift:",
         "# phase_cycle_manual_shift:",
         "# phase_cycle_manual_override_utc:",
         "# phase_cycle_manual_reason:",
@@ -255,6 +236,7 @@ def _rewrite_dispersion_dat(
     ]
     new_metadata = [
         "# phase_cycle_selection_source: manual_override",
+        f"# phase_cycle_shift: {int(cycle_shift)}",
         f"# phase_cycle_manual_shift: {int(cycle_shift)}",
         "# phase_cycle_manual_override_utc: "
         + datetime.now(timezone.utc).isoformat(),

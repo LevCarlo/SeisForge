@@ -434,9 +434,17 @@ class AFTANMeasurement:
                 ),
                 "phase_cycle_count": int(cycle_count),
                 "phase_cycle_selection_method": (
-                    "global minimum median absolute reference travel-time residual"
+                    "global integer shift minimising the mean relative "
+                    "phase-slowness misfit to prediction_file"
                 ),
-                "phase_cycle_selection_source": "automatic",
+                "phase_cycle_selection_source": str(
+                    measured["phase_cycle_selection_source"]
+                ),
+                "phase_cycle_reference": (
+                    str(self.config.prediction_file)
+                    if self.config.prediction_file is not None
+                    else "constant reference_velocity (anchor only)"
+                ),
                 "phase_cycle_implementation": "seisforge_extension",
                 "phase_cycle_enabled": bool(self.config.phase_cycle.enabled),
                 "phase_cycle_max_shift": int(self.config.phase_cycle.max_shift),
@@ -648,6 +656,7 @@ class AFTANMeasurement:
             reference_phase_velocity,
             distance,
             self.config.phase_cycle,
+            reference_from_prediction=self.config.prediction_file is not None,
         )
 
     def _predicted_phase_velocity(self, period: float) -> float:
@@ -692,14 +701,61 @@ class AFTANMeasurement:
         )
 
 
+def phase_cycle_reference_misfit(
+    period: np.ndarray,
+    phase_velocity_uncorrected: np.ndarray,
+    reference_phase_velocity: np.ndarray,
+    distance_km: float,
+    cycle_shift: int,
+) -> float:
+    """Mean relative phase-slowness misfit of one cycle branch to a reference.
+
+    A global ``2 pi k`` phase ambiguity shifts phase slowness by
+    ``k * T / D`` at every period, so branch ``k`` has
+    ``s_k = 1 / c_uncorrected + k * T / D`` and the misfit is
+    ``mean(|c_reference * s_k - 1|)`` over periods with finite values.
+
+    The misfit is relative, not in cycles: a reference that is a few percent
+    off is many cycles off at short periods (``D / (c T)`` wavelengths), which
+    would swamp the long periods where ``k`` is actually resolved. Returns
+    ``inf`` when the shift makes any slowness non-positive and NaN when no
+    period is usable.
+    """
+    period = np.asarray(period, dtype=float)
+    uncorrected = np.asarray(phase_velocity_uncorrected, dtype=float)
+    reference = np.asarray(reference_phase_velocity, dtype=float)
+    valid = (
+        np.isfinite(period)
+        & np.isfinite(uncorrected)
+        & np.isfinite(reference)
+        & (period > 0)
+        & (uncorrected > 0)
+        & (reference > 0)
+    )
+    if not np.any(valid):
+        return np.nan
+    slowness = 1.0 / uncorrected[valid] + int(cycle_shift) * period[valid] / distance_km
+    if np.any(slowness <= 0):
+        return np.inf
+    return float(np.mean(np.abs(reference[valid] * slowness - 1.0)))
+
+
 def _select_phase_cycle(
     period: np.ndarray,
     phase_velocity: np.ndarray,
     reference_phase_velocity: np.ndarray,
     distance_km: float,
     config: AFTANPhaseCycleConfig,
+    *,
+    reference_from_prediction: bool = True,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Select one global integer-cycle shift against the reference curve."""
+    """Select one global integer-cycle shift against the prediction curve.
+
+    The shift minimises :func:`phase_cycle_reference_misfit`. Without a
+    ``prediction_file`` the reference is the flat ``reference_velocity``
+    fallback, which cannot resolve the branch, so the curve keeps the
+    Fortran-AFTAN anchor (shift zero).
+    """
     period = np.asarray(period, dtype=float)
     uncorrected = np.asarray(phase_velocity, dtype=float)
     reference = np.asarray(reference_phase_velocity, dtype=float)
@@ -719,37 +775,40 @@ def _select_phase_cycle(
         & (reference > 0)
     )
     valid_count = int(np.count_nonzero(valid))
+    search = config.enabled and reference_from_prediction
     candidate_shifts = (
         np.arange(-config.max_shift, config.max_shift + 1, dtype=np.int32)
-        if config.enabled
+        if search
         else np.asarray([0], dtype=np.int32)
     )
-    candidate_scores = np.full(candidate_shifts.shape, np.nan, dtype=float)
+    candidate_misfits = np.full(candidate_shifts.shape, np.nan, dtype=float)
     cycle_shift = 0
-    reference_score = np.nan
-    score_gap = np.nan
+    best_misfit = np.nan
+    misfit_gap = np.nan
+    if not config.enabled:
+        source = "disabled"
+    elif not reference_from_prediction:
+        source = "skipped_no_prediction_file"
+    elif valid_count < 2:
+        # A single reference sample cannot distinguish a stable global branch.
+        source = "skipped_insufficient_reference"
+    else:
+        source = "automatic"
 
-    # A single reference sample cannot distinguish a stable global branch.
-    if valid_count >= 2:
-        residual_zero = (
-            distance_km / uncorrected[valid]
-            - distance_km / reference[valid]
-        ) / period[valid]
+    if source == "automatic":
         ranked: list[tuple[float, int]] = []
         for index, shift in enumerate(candidate_shifts):
-            candidate_slowness = (
-                1.0 / uncorrected[valid]
-                + int(shift) * period[valid] / distance_km
+            misfit = phase_cycle_reference_misfit(
+                period, uncorrected, reference, distance_km, int(shift)
             )
-            if np.all(candidate_slowness > 0):
-                score = float(np.median(np.abs(residual_zero + int(shift))))
-                candidate_scores[index] = score
-                ranked.append((score, int(shift)))
+            if np.isfinite(misfit):
+                candidate_misfits[index] = misfit
+                ranked.append((misfit, int(shift)))
         ranked.sort(key=lambda item: (item[0], abs(item[1]), item[1]))
         if ranked:
-            reference_score, cycle_shift = ranked[0]
+            best_misfit, cycle_shift = ranked[0]
             if len(ranked) > 1:
-                score_gap = float(ranked[1][0] - reference_score)
+                misfit_gap = float(ranked[1][0] - best_misfit)
 
     corrected = apply_phase_cycle_shift(
         period,
@@ -759,22 +818,17 @@ def _select_phase_cycle(
     )
 
     search_limit_reached = bool(
-        config.enabled
-        and config.max_shift > 0
-        and abs(cycle_shift) == config.max_shift
+        search and config.max_shift > 0 and abs(cycle_shift) == config.max_shift
     )
     diagnostics = {
         "phase_velocity_uncorrected": uncorrected,
         "phase_reference_velocity": reference,
         "phase_cycle_shift": np.asarray(cycle_shift, dtype=np.int32),
-        "phase_cycle_reference_score_cycles": np.asarray(
-            reference_score, dtype=float
-        ),
-        "phase_cycle_reference_score_gap_cycles": np.asarray(
-            score_gap, dtype=float
-        ),
+        "phase_cycle_selection_source": source,
+        "phase_cycle_reference_misfit": np.asarray(best_misfit, dtype=float),
+        "phase_cycle_reference_misfit_gap": np.asarray(misfit_gap, dtype=float),
         "phase_cycle_candidate_shift": candidate_shifts.astype(np.int32),
-        "phase_cycle_candidate_reference_score_cycles": candidate_scores,
+        "phase_cycle_candidate_reference_misfit": candidate_misfits,
         "phase_cycle_valid_count": np.asarray(valid_count, dtype=np.int32),
         "phase_cycle_search_limit_reached": np.asarray(
             search_limit_reached, dtype=np.int8

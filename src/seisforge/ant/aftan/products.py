@@ -207,28 +207,29 @@ def phase_velocity_map_dataset(
                 measured["phase_cycle_shift"],
                 {"long_name": "global integer cycle shift applied to phase slowness"},
             ),
-            "phase_cycle_reference_score_cycles": (
+            "phase_cycle_reference_misfit": (
                 (),
-                measured["phase_cycle_reference_score_cycles"],
-                {
-                    "long_name": "median absolute reference residual after correction",
-                    "units": "cycles",
-                },
-            ),
-            "phase_cycle_reference_score_gap_cycles": (
-                (),
-                measured["phase_cycle_reference_score_gap_cycles"],
+                measured["phase_cycle_reference_misfit"],
                 {
                     "long_name": (
-                        "reference-score gap between best and second-best shifts"
+                        "mean relative phase-slowness misfit of the selected "
+                        "branch to the prediction"
                     ),
-                    "units": "cycles",
+                    "units": "1",
                 },
             ),
-            "phase_cycle_candidate_reference_score_cycles": (
+            "phase_cycle_reference_misfit_gap": (
+                (),
+                measured["phase_cycle_reference_misfit_gap"],
+                {
+                    "long_name": "misfit gap between best and second-best shifts",
+                    "units": "1",
+                },
+            ),
+            "phase_cycle_candidate_reference_misfit": (
                 ("cycle_shift_candidate",),
-                measured["phase_cycle_candidate_reference_score_cycles"],
-                {"units": "cycles"},
+                measured["phase_cycle_candidate_reference_misfit"],
+                {"units": "1"},
             ),
             "phase_cycle_valid_count": (
                 (),
