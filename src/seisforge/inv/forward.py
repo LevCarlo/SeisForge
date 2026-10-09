@@ -83,6 +83,36 @@ class RayleighHVRequest:
 
 
 @dataclass(frozen=True)
+class ReceiverFunctionRequest:
+    """Request for a synthetic P receiver function (see `seisforge.rf.synthetic`).
+
+    ``gauss_a`` is the Gaussian parameter of ``exp(-w^2 / (4 a^2))``; the time
+    axis is ``n * dt_s - time_shift_s`` (direct P at 0 s).
+    """
+
+    ray_parameter_s_per_km: float
+    dt_s: float
+    n_samples: int
+    gauss_a: float
+    time_shift_s: float = 5.0
+    amplitude: str = "impulse"
+
+    def __post_init__(self):
+        if not 0 <= self.ray_parameter_s_per_km < 0.2:
+            raise ValueError("ray_parameter_s_per_km must be in [0, 0.2) s/km.")
+        if self.dt_s <= 0 or self.gauss_a <= 0 or self.n_samples < 2:
+            raise ValueError("dt_s and gauss_a must be positive and n_samples >= 2.")
+
+
+@dataclass(frozen=True)
+class ReceiverFunctionPrediction:
+    time_s: np.ndarray
+    rf: np.ndarray
+    ray_parameter_s_per_km: float
+    gauss_a: float
+
+
+@dataclass(frozen=True)
 class DispersionPrediction:
     periods: np.ndarray
     velocity: np.ndarray
@@ -163,6 +193,36 @@ def predict_rayleigh_hv(
         periods=np.asarray(result.period, dtype=float),
         hv=_check_finite(result.ellipticity, name="rayleigh ellipticity"),
         mode=result.mode,
+    )
+
+
+def predict_receiver_function(
+    model: LayeredModel,
+    request: ReceiverFunctionRequest,
+) -> ReceiverFunctionPrediction:
+    """Synthetic P receiver function using every layer's Vp, Vs, and density."""
+    from seisforge.rf.synthetic import receiver_function
+
+    try:
+        time, rf = receiver_function(
+            model.thickness,
+            model.vp,
+            model.vs,
+            model.rho,
+            request.ray_parameter_s_per_km,
+            dt_s=request.dt_s,
+            n_samples=request.n_samples,
+            gauss_a=request.gauss_a,
+            time_shift_s=request.time_shift_s,
+            amplitude=request.amplitude,
+        )
+    except (ValueError, np.linalg.LinAlgError) as exc:
+        raise ForwardError(f"Receiver function prediction failed: {exc}") from exc
+    return ReceiverFunctionPrediction(
+        time_s=time,
+        rf=_check_finite(rf, name="receiver function"),
+        ray_parameter_s_per_km=float(request.ray_parameter_s_per_km),
+        gauss_a=float(request.gauss_a),
     )
 
 

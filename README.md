@@ -2,8 +2,10 @@
 
 A Python toolkit for seismic processing and analysis, including:
 - Ambient Noise
-- Receiver Functions
+- Receiver Functions (QC, H-k stacking, synthetic P receiver functions)
 - Seafloor Compliance
+
+Released under the MIT License (see `LICENSE`).
 
 ## Installation
 

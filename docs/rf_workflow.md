@@ -119,12 +119,85 @@ the same values as before.
 The sample lookup now uses O(`n_H * n_k`) memory. The previous
 implementation built an `npts x n_H x n_k` distance matrix for each phase.
 
+## Synthetic P Receiver Functions
+
+`seisforge.rf.synthetic` computes P receiver functions for isotropic flat-layered
+models, and `seisforge.inv.predict_receiver_function` applies it to a
+`LayeredModel` for inversion. The code is a SeisForge implementation (MIT)
+written from the published formulas; no external RF package is needed.
+
+**Method.** A plane P wave with horizontal slowness `p` arrives from the
+half-space. The Thomson-Haskell propagator for motion-stress vectors
+(Haskell 1962; Aki & Richards 2002, ch. 7; Kennett 1983) gives the free-surface
+radial and vertical displacements; the receiver function is their spectral
+ratio after a Gaussian low-pass filter:
+
+```text
+RF(w) = R(w) / Z(w) * exp(-w^2 / (4 a^2))
+```
+
+The result includes every reverberation in the stack. Each layer uses its own
+Vp, Vs, **and density**, so densities from per-segment scaling (Gardner,
+constant mantle density, ...) affect the conversion amplitudes. Packages that
+take only Vp/Vs fix density internally and cannot do this.
+
+```python
+from seisforge.inv import ReceiverFunctionRequest, predict_receiver_function
+
+request = ReceiverFunctionRequest(
+    ray_parameter_s_per_km=0.06,
+    dt_s=0.05,
+    n_samples=1200,        # 60 s
+    gauss_a=2.5,           # exp(-w^2 / (4 a^2))
+    time_shift_s=5.0,      # time axis starts at -5 s, direct P at 0 s
+    amplitude="impulse",   # or "gaussian_peak"
+)
+prediction = predict_receiver_function(layered_model, request)
+prediction.time_s, prediction.rf
+```
+
+**Conventions.**
+
+- Radial is positive away from the source and vertical positive up, so the
+  direct P pulse is positive; Ps and PpPs are positive and PsPs negative for a
+  velocity increase with depth.
+- `gauss_a` is the `a` of `exp(-w^2 / (4 a^2))`, as in iterative time-domain
+  deconvolution (Ligorria & Ammon 1999) and seispy.
+- `amplitude="impulse"` is the continuous inverse transform (the Gaussian has
+  unit area; a spike `A` peaks at `A a / sqrt(pi)`), the convention of Zhu's
+  `hk` synthetics. `amplitude="gaussian_peak"` divides by `a / sqrt(pi)` so a
+  spike `A` peaks at `A`. Use the convention that matches how the observed RFs
+  were normalized.
+- The spectrum is computed on an FFT twice the window length (next power of
+  two) so late reverberations do not wrap into the window, and only where the
+  Gaussian exceeds 1e-12.
+- Every layer and the half-space must have `p < 1/Vp` (no evanescent P), which
+  holds for teleseismic P; otherwise a `ForwardError` is raised.
+- Not yet supported: S receiver functions, fluid (water) layers, attenuation.
+
+**Validation** (`tests/test_rf_synthetic.py` and an offline comparison):
+
+| check | result |
+|---|---|
+| half-space `R/Z` vs the analytic `2 p q_s / (1/Vs^2 - 2 p^2)` | equal to 1e-12 |
+| Ps, PpPs, PsPs times vs `hk_core` delays, polarities | within one sample, correct signs |
+| identical layers vs a half-space; vanishing layer | equal; converges |
+| PyGRT 0.17.2 (`grt rcvfn`, independent generalized R/T code), 6 models incl. arbitrary density, 12 layers, a 0.9 km/s sediment, p = 0.04 and 0.075 | waveforms agree to 3-8e-4 of the peak after a constant 2.8 ms delay inside PyGRT; Ps/P, PpPs/P, PsPs/P agree to 1e-3 (regression test) |
+| pyhk 0.1.0 with its own density law `0.77 + 0.32 Vp` | direct P equal, converted phases 5-13 % smaller than both SeisForge and PyGRT |
+
+The pyhk difference is not a density effect (no density law reproduces it),
+so pyhk is not used as a reference.
+
+**Cost.** About 4-9 ms for a 67-layer model and 30-60 s windows
+(`dt = 0.05-0.1 s`, `a = 1-2.5`), comparable to one disba dispersion curve.
+
 ## Code Layout
 
 - `seisforge.rf.traces`: `RFtrace`, `RFstream`, and RF selection methods.
 - `seisforge.rf.plotting`: RF plotting helpers.
 - `seisforge.rf.qc`: YAML-driven RF QC workflow and `rfqc` entry point.
 - `seisforge.rf.hk`: public H-k stacking API.
+- `seisforge.rf.synthetic`: synthetic P receiver functions (Thomson-Haskell).
 - `seisforge.rf.hk_core`: pure H-k formulas (phase delays, sampling,
   amplitude correction, weighted stack).
 - `seisforge.rf.hk_workflow`: `HkStack` classes, H-k QC, and the sequential

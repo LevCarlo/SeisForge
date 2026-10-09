@@ -44,9 +44,12 @@ from seisforge.inv.forward import (
     JointPrediction,
     RayleighHVPrediction,
     RayleighHVRequest,
+    ReceiverFunctionPrediction,
+    ReceiverFunctionRequest,
     predict_dispersion,
     predict_joint,
     predict_rayleigh_hv,
+    predict_receiver_function,
 )
 from seisforge.inv.io import (
     discretization_from_config,
@@ -154,6 +157,9 @@ from seisforge.inv.setup import (
 )
 
 __all__ = [
+    "ReceiverFunctionPrediction",
+    "ReceiverFunctionRequest",
+    "predict_receiver_function",
     "HalfNormalPrior",
     "Interface",
     "LayerGeometry",
