@@ -3,9 +3,13 @@ IO:
   ROOT: /path/to/RFs_SEISPY/NET.STA
   HighFreq_RF: Gauss_5.0_CLEAN
   LowFreq_RF: Gauss_2.5_CLEAN
+  # Output directory under ROOT; must not overlap ROOT itself or the RF inputs.
   SAVE: hkSeq
   FIGURE: figures
   LOG: logs
+  # Existing outputs of the requested stage(s) stop the run unless true
+  # (or --overwrite). Other stages' outputs are never removed.
+  OVERWRITE: false
 
 Meta:
   station: STA

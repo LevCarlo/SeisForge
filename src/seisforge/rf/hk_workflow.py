@@ -1,5 +1,12 @@
 import os
-import shutil
+from pathlib import Path
+from seisforge.rf.hk_core import (
+    hk_phase_delays_s,
+    hk_stack_amplitude,
+    sample_at_times,
+    seispy_amplitude_correction,
+    velocities_from_vpvs_ratio,
+)
 from seisforge.rf.traces import RFtrace
 import numpy as np
 import xarray as xr
@@ -13,7 +20,7 @@ import matplotlib.pyplot as plt
 import logging
 
 
-radius=6371.0 # Earth radius in km
+logger = logging.getLogger(__name__)
 
 
 def _default_weights(weight):
@@ -27,14 +34,41 @@ def _safe_normalize_abs(values):
     return values / max_abs
 
 
-def _reset_output_dir(path, rootdir):
-    path_abs = os.path.abspath(path)
-    root_abs = os.path.abspath(rootdir)
-    if path_abs in {root_abs, os.path.dirname(root_abs), os.path.abspath(os.sep)}:
-        raise ValueError(f"Refusing to reset unsafe output directory: {path_abs}")
-    if os.path.exists(path_abs):
-        shutil.rmtree(path_abs)
-    os.makedirs(path_abs, exist_ok=True)
+def _check_output_dir(savedir, rootdir, input_dirs):
+    """Refuse output directories that overlap the station root or RF inputs."""
+    save = Path(savedir).resolve()
+    root = Path(rootdir).resolve()
+    if save == root or root.is_relative_to(save):
+        raise ValueError(
+            f"IO.SAVE must be a subdirectory of IO.ROOT, not {save}."
+        )
+    for input_dir in input_dirs:
+        source = Path(input_dir).resolve()
+        if save.is_relative_to(source) or source.is_relative_to(save):
+            raise ValueError(
+                f"IO.SAVE {save} overlaps the RF input directory {source}."
+            )
+
+
+def _hk_output_files(savedir, figdir, net, sta, stage, figure_name, plot):
+    """Files written by one H-k stage (``HFreq`` or ``LFreq``)."""
+    files = [
+        os.path.join(savedir, f"{net}.{sta}_{stage}_Hk_results.joblib"),
+        os.path.join(savedir, f"{net}.{sta}_{stage}_Hk_results_QC.joblib"),
+        os.path.join(savedir, f"{net}.{sta}_{stage}_Hk_QC.dat"),
+    ]
+    if plot:
+        files.append(os.path.join(figdir, figure_name))
+    return files
+
+
+def _check_existing_outputs(paths, overwrite):
+    existing = [path for path in paths if os.path.exists(path)]
+    if existing and not overwrite:
+        raise FileExistsError(
+            "H-k outputs already exist (use --overwrite or IO.OVERWRITE: true): "
+            + ", ".join(existing)
+        )
 
 
 def _estimate_hk_summary(hk_results, mask):
@@ -69,6 +103,52 @@ def _write_qc_table(path, hk_results, mask):
                 f"{res.attrs['k_best']:.4f} "
                 f"{res.attrs['amp_max']:.4f}\n"
             )
+
+
+def _phase_delays(rf, H, k, Vp, Vs, **upper):
+    """Ps/PpPs/PsPs delay grids for an RF trace and H-k parameter grids."""
+    if rf.slowness is None:
+        raise ValueError("RFtrace slowness is required for H-k stacking.")
+    vp, vs = velocities_from_vpvs_ratio(k.values, vp_km_s=Vp, vs_km_s=Vs)
+    return hk_phase_delays_s(H.values, vp, vs, rf.slowness, **upper)
+
+
+def _rf_time_axis(rf):
+    sac = rf.trace.stats.sac
+    return sac.b, sac.delta
+
+
+def _sample_rf(rf, data, delays, return_valid=False):
+    begin_s, delta_s = _rf_time_axis(rf)
+    amplitude, valid = sample_at_times(data, delays, begin_s, delta_s)
+    return (amplitude, valid) if return_valid else amplitude
+
+
+def _amplitude_corrected_rf(rf, method="seispy", P_wins=None):
+    """Return RF data scaled for H-k stacking.
+
+    - ``seispy``: multiply by :func:`seispy_amplitude_correction` of the ray
+      parameter.
+    - ``max_amp``: divide by the maximum absolute amplitude inside ``P_wins``
+      (default ``[-2, 2]`` s around direct P).
+    """
+    data = rf.trace.data
+    if method == "seispy":
+        return seispy_amplitude_correction(rf.slowness) * data
+    if method == "max_amp":
+        P_wins = [-2, 2] if P_wins is None else P_wins
+        begin_s, delta_s = _rf_time_axis(rf)
+        t_axis = begin_s + delta_s * np.arange(rf.trace.stats.sac.npts)
+        P_idx = (t_axis >= P_wins[0]) & (t_axis <= P_wins[1])
+        if not np.any(P_idx):
+            raise ValueError(f"P_wins {P_wins} does not overlap the RF trace.")
+        max_amp = np.max(np.abs(data[P_idx]))
+        if max_amp == 0:
+            return data.copy()
+        return data / max_amp
+    raise ValueError(
+        f"Unknown method: {method}. Supported methods are 'seispy' and 'max_amp'."
+    )
 
 
 class HkParam:
@@ -106,40 +186,13 @@ class HkStack_classic:
         self.weight = _default_weights(weight)
 
     def stack(self):
-        p = self.RFtrace.slowness 
-        if p is None:
-            raise ValueError("RFtrace slowness is required for H-k stacking.")
-
-        H_grid = self.H.values
-        k_grid = self.k.values
-
-        if self.Vs is None:
-            vs = self.Vp / k_grid
-            vp = np.full_like(k_grid, self.Vp)
-        else:
-            vs = np.full_like(k_grid, self.Vs)
-            vp = self.Vs * k_grid
-        
-        t_Ps = np.outer(np.sqrt(1 / vs**2 - p**2) - np.sqrt(1 / vp**2 - p**2), H_grid)
-        t_PpPs = np.outer(np.sqrt(1 / vs**2 - p**2) + np.sqrt(1 / vp**2 - p**2), H_grid)
-        t_PsPs = np.outer(2 * np.sqrt(1 / vs**2 - p**2), H_grid)
-
-        tr = self.RFtrace.trace
-        b = tr.stats.sac.b
-        dt = tr.stats.sac.delta
-        npts = tr.stats.sac.npts
-        t_axis = b + dt * np.arange(npts)
-
-        t_Ps_idx = self._times2idx(t_axis, t_Ps)
-        t_PpPs_idx = self._times2idx(t_axis, t_PpPs)
-        t_PsPs_idx = self._times2idx(t_axis, t_PsPs)
-
+        t_Ps, t_PpPs, t_PsPs = _phase_delays(self.RFtrace, self.H, self.k, self.Vp, self.Vs)
         data_norm = self._amp_correct(method="seispy")
-        amp_Ps = data_norm[t_Ps_idx]
-        amp_PpPs = data_norm[t_PpPs_idx]
-        amp_PsPs = data_norm[t_PsPs_idx]
-
-        amp_stack = self.weight[0] * amp_Ps + self.weight[1] * amp_PpPs - self.weight[2] * amp_PsPs
+        amp_Ps, amp_PpPs, amp_PsPs = (
+            _sample_rf(self.RFtrace, data_norm, delays)
+            for delays in (t_Ps, t_PpPs, t_PsPs)
+        )
+        amp_stack = hk_stack_amplitude(amp_Ps, amp_PpPs, amp_PsPs, self.weight)
         return amp_stack, (t_Ps, t_PpPs, t_PsPs), (amp_Ps, amp_PpPs, amp_PsPs)
 
     def estimate_best_Hk(self, smooth=False):
@@ -157,53 +210,13 @@ class HkStack_classic:
 
         return (H_best, k_best, amp_stack[i_k, j_H])
 
-    def _times2idx(self, t_axis, t_grid):
-        t_grid_flat = t_grid.ravel()
-        idx_flat = np.abs(t_axis[:, None] - t_grid_flat[None, :]).argmin(axis=0)
-        return idx_flat.reshape(t_grid.shape)
-
     def _amp_correct(self, method="seispy", P_wins=None):
-        """
-        Apply amplitude correction to the RF trace before H-k stacking.
-
-        Parameters:
-        - method: str, default "seispy".
-        "seispy": empirical correction based on slowness to unify energy scaling.
-        "max_amp": normalize the trace by its maximum amplitude within the P-wave window.
-        - P_wins: list, default [-2, 2]. Time window for P
-
-        Returns:
-        - Corrected RF data (np.ndarray).
-     
-        """
-        if method == "seispy":
-            p = self.RFtrace.slowness 
-            amp_corr = 151.5478 * p**2 + 3.2896 * p + 0.2618
-            data = self.RFtrace.trace.data
-            return amp_corr * data
-        elif method == "max_amp":
-            P_wins = [-2, 2] if P_wins is None else P_wins
-            tr = self.RFtrace.trace
-            b = tr.stats.sac.b
-            dt = tr.stats.sac.delta
-            npts = tr.stats.sac.npts
-            t_axis = b + dt * np.arange(npts)
-            P_idx = (t_axis >= P_wins[0]) & (t_axis <= P_wins[1])
-            data = self.RFtrace.trace.data
-            if not np.any(P_idx):
-                raise ValueError(f"P_wins {P_wins} does not overlap the RF trace.")
-            max_amp = np.max(np.abs(data[P_idx]))
-            if max_amp == 0:
-                return data.copy()
-            return data / max_amp
-        else:
-            raise ValueError(f"Unknown method: {method}. Supported methods are 'seispy' and 'max_amp'.")
-
+        return _amplitude_corrected_rf(self.RFtrace, method=method, P_wins=P_wins)
 
     def plot(self):
         amp_stack, _, amp = self.stack()
         H_best, k_best, _ = self.estimate_best_Hk()
-        print(f"Best H: {H_best:.2f} km, Best k: {k_best:.2f} Vp/Vs")
+        logger.info("Best H: %.2f km, Best k: %.2f Vp/Vs", H_best, k_best)
         H_grid = self.H.values
         k_grid = self.k.values
         fig, ax = plt.subplots(2, 2, figsize=(8, 7), sharex=True, sharey=True)
@@ -258,62 +271,33 @@ class HkStack:
         self.k0 = k0
     
     def _calc_phase_times(self):
-        p = self.RFtrace.slowness 
-        if p is None:
-            raise ValueError("RFtrace slowness is required for H-k stacking.")
-
-        H_grid = self.H.values
-        k_grid = self.k.values
-        
-        if self.Vs is None:
-            vs = self.Vp / k_grid
-            vp = np.full_like(k_grid, self.Vp)
-        else:
-            vs = np.full_like(k_grid, self.Vs)
-            vp = self.Vs * k_grid
-        
         if self.mode == 1:
-            t_Ps = np.outer(np.sqrt(1 / vs**2 - p**2) - np.sqrt(1 / vp**2 - p**2), H_grid)
-            t_PpPs = np.outer(np.sqrt(1 / vs**2 - p**2) + np.sqrt(1 / vp**2 - p**2), H_grid)
-            t_PsPs = np.outer(2 * np.sqrt(1 / vs**2 - p**2), H_grid)
-        elif self.mode == 2:
-            h0 = self.h0
-            if self.vs0 is None:
-                vs0 = np.full_like(k_grid, self.vp0 / self.k0)
-                vp0 = np.full_like(k_grid, self.vp0)
-            else:
-                vs0 = np.full_like(k_grid, self.vs0)
-                vp0 = vs0 * self.k0
-            
-            t_Ps = np.outer(np.sqrt(1 / vs**2 - p**2) - np.sqrt(1 / vp**2 - p**2), H_grid - h0) + \
-                           np.outer(np.sqrt(1 / vs0**2 - p**2) - np.sqrt(1 / vp0**2 - p**2), h0)
-            t_PpPs = np.outer(np.sqrt(1 / vs**2 - p**2) + np.sqrt(1 / vp**2 - p**2), H_grid - h0) + \
-                             np.outer(np.sqrt(1 / vs0**2 - p**2) + np.sqrt(1 / vp0**2 - p**2), h0)
-            t_PsPs = np.outer(2 * np.sqrt(1 / vs**2 - p**2), H_grid - h0) + \
-                             np.outer(2 * np.sqrt(1 / vs0**2 - p**2), h0)
-        else:
-            raise ValueError("Invalid mode. Supported modes are 1 and 2.")
-        return t_Ps, t_PpPs, t_PsPs
+            return _phase_delays(self.RFtrace, self.H, self.k, self.Vp, self.Vs)
+        if self.mode == 2:
+            k0 = np.full_like(self.k.values, self.k0, dtype=float)
+            upper_vp, upper_vs = velocities_from_vpvs_ratio(
+                k0, vp_km_s=self.vp0, vs_km_s=self.vs0
+            )
+            return _phase_delays(
+                self.RFtrace,
+                self.H,
+                self.k,
+                self.Vp,
+                self.Vs,
+                upper_thickness_km=self.h0,
+                upper_vp_km_s=upper_vp,
+                upper_vs_km_s=upper_vs,
+            )
+        raise ValueError("Invalid mode. Supported modes are 1 and 2.")
 
     def stack(self, smooth=False):
         t_Ps, t_PpPs, t_PsPs = self._calc_phase_times()
-
-        tr = self.RFtrace.trace
-        b = tr.stats.sac.b
-        dt = tr.stats.sac.delta
-        npts = tr.stats.sac.npts
-        t_axis = b + dt * np.arange(npts)
-
-        t_Ps_idx = self._times2idx(t_axis, t_Ps)
-        t_PpPs_idx = self._times2idx(t_axis, t_PpPs)
-        t_PsPs_idx = self._times2idx(t_axis, t_PsPs)
-
         data_norm = self._amp_correct(method="seispy")
-        amp_Ps = data_norm[t_Ps_idx]
-        amp_PpPs = data_norm[t_PpPs_idx]
-        amp_PsPs = data_norm[t_PsPs_idx]
-
-        amp_stack = self.weight[0] * amp_Ps + self.weight[1] * amp_PpPs - self.weight[2] * amp_PsPs
+        (amp_Ps, valid_Ps), (amp_PpPs, valid_PpPs), (amp_PsPs, valid_PsPs) = (
+            _sample_rf(self.RFtrace, data_norm, delays, return_valid=True)
+            for delays in (t_Ps, t_PpPs, t_PsPs)
+        )
+        amp_stack = hk_stack_amplitude(amp_Ps, amp_PpPs, amp_PsPs, self.weight)
 
         if smooth:
             amp_new = gaussian_filter(amp_stack, sigma=1.5)
@@ -351,48 +335,35 @@ class HkStack:
                 'vp0': self.vp0 if self.vp0 is not None else np.nan,
                 'vs0': self.vs0 if self.vs0 is not None else np.nan,
                 'k0': self.k0 if self.k0 is not None else np.nan,
-                'rf_file': self.RFtrace.file
+                'rf_file': self.RFtrace.file,
+                'ray_parameter_s_per_km': float(self.RFtrace.slowness),
+                'amplitude_correction': 'seispy',
+                'phase_sampling': (
+                    'nearest sample; delays outside the RF trace or post-critical '
+                    'contribute zero'
+                ),
+                'n_invalid_Ps': int(np.size(valid_Ps) - np.count_nonzero(valid_Ps)),
+                'n_invalid_PpPs': int(
+                    np.size(valid_PpPs) - np.count_nonzero(valid_PpPs)
+                ),
+                'n_invalid_PsPs': int(
+                    np.size(valid_PsPs) - np.count_nonzero(valid_PsPs)
+                ),
             }
         )
 
         return hk_ds
 
-    def _times2idx(self, t_axis, t_grid):
-        t_grid_flat = t_grid.ravel()
-        idx_flat = np.abs(t_axis[:, None] - t_grid_flat[None, :]).argmin(axis=0)
-        return idx_flat.reshape(t_grid.shape)
-
     def _amp_correct(self, method="seispy", P_wins=None):
-        if method == "seispy":
-            p = self.RFtrace.slowness 
-            amp_corr = 151.5478 * p**2 + 3.2896 * p + 0.2618
-            data = self.RFtrace.trace.data
-            return amp_corr * data
-        elif method == "max_amp":
-            P_wins = [-2, 2] if P_wins is None else P_wins
-            tr = self.RFtrace.trace
-            b = tr.stats.sac.b
-            dt = tr.stats.sac.delta
-            npts = tr.stats.sac.npts
-            t_axis = b + dt * np.arange(npts)
-            P_idx = (t_axis >= P_wins[0]) & (t_axis <= P_wins[1])
-            data = self.RFtrace.trace.data
-            if not np.any(P_idx):
-                raise ValueError(f"P_wins {P_wins} does not overlap the RF trace.")
-            max_amp = np.max(np.abs(data[P_idx]))
-            if max_amp == 0:
-                return data.copy()
-            return data / max_amp
-        else:
-            raise ValueError(f"Unknown method: {method}. Supported methods are 'seispy' and 'max_amp'.")
-    
+        return _amplitude_corrected_rf(self.RFtrace, method=method, P_wins=P_wins)
+
     def plot(self):
         hk_ds = self.stack()
         amp_stack = hk_ds.amp_stack.values
         amp = [hk_ds.amp_Ps.values, hk_ds.amp_PpPs.values, hk_ds.amp_PsPs.values]
         H_best = hk_ds.attrs['H_best']
         k_best = hk_ds.attrs['k_best']
-        print(f"Best H: {H_best:.2f} km, Best k: {k_best:.2f} Vp/Vs")
+        logger.info("Best H: %.2f km, Best k: %.2f Vp/Vs", H_best, k_best)
 
         H_grid = self.H.values
         k_grid = self.k.values
@@ -703,7 +674,14 @@ def plot_hk_QC(Hk_results, QC_masks=None, QC_key=None, title=None):
 
     return fig
 
-def hkSeq(Params, mode="both", plot=False):
+def hkSeq(Params, mode="both", plot=False, overwrite=None):
+    """Sequential sediment (high-frequency) then crust (low-frequency) H-k.
+
+    Only the files of the requested stage(s) are written; existing outputs
+    raise ``FileExistsError`` unless ``overwrite`` (or ``IO.OVERWRITE``) is set.
+    """
+    if mode not in ["both", "low", "high"]:
+        raise ValueError("Invalid mode. Supported modes are 'both', 'low', and 'high'.")
     IO_params = Params['IO']
     rootdir = IO_params['ROOT']
     HighFreq_RF_dir = os.path.join(rootdir, IO_params['HighFreq_RF'])
@@ -711,28 +689,53 @@ def hkSeq(Params, mode="both", plot=False):
     savedir = os.path.join(rootdir, IO_params['SAVE'])
     figdir = os.path.join(rootdir, IO_params['FIGURE'])
     logdir = os.path.join(rootdir, IO_params['LOG'])
-    _reset_output_dir(savedir, rootdir)
-    os.makedirs(figdir, exist_ok=True)
-    os.makedirs(logdir, exist_ok=True)
+    if overwrite is None:
+        overwrite = bool(IO_params.get('OVERWRITE', False))
 
     meta_params = Params['Meta']
     sta = meta_params['station']
     net = meta_params['network']
 
-    logging.basicConfig(
-        filename=os.path.join(logdir, f"{net}.{sta}_hkSeq.log"),
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-        filemode='w',
-        force=True,
+    _check_output_dir(savedir, rootdir, [HighFreq_RF_dir, LowFreq_RF_dir])
+    planned = []
+    if mode in ["both", "high"]:
+        planned += _hk_output_files(
+            savedir, figdir, net, sta, "HFreq", f"{net}.{sta}_HFreq_QC.png", plot
+        )
+    if mode in ["both", "low"]:
+        low_figure = (
+            f"{net}.{sta}_HFreq_LFreq_QC.png" if mode == "both" else f"{net}.{sta}_LFreq_QC.png"
+        )
+        planned += _hk_output_files(savedir, figdir, net, sta, "LFreq", low_figure, plot)
+    _check_existing_outputs(planned, overwrite)
+    os.makedirs(savedir, exist_ok=True)
+    os.makedirs(figdir, exist_ok=True)
+    os.makedirs(logdir, exist_ok=True)
+
+    handler = logging.FileHandler(
+        os.path.join(logdir, f"{net}.{sta}_hkSeq.log"), mode="w", encoding="utf-8"
     )
+    handler.setFormatter(
+        logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S'
+        )
+    )
+    previous_level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        _run_hkseq(
+            Params, mode, plot, HighFreq_RF_dir, LowFreq_RF_dir, savedir, figdir, net, sta
+        )
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+        handler.close()
 
 
-    logging.info(f"Starting H-k analysis for {net}.{sta}")
+def _run_hkseq(Params, mode, plot, HighFreq_RF_dir, LowFreq_RF_dir, savedir, figdir, net, sta):
+    logger.info(f"Starting H-k analysis for {net}.{sta}")
 
-    if mode not in ["both", "low", "high"]:
-        raise ValueError("Invalid mode. Supported modes are 'both', 'low', and 'high'.")
     if mode in ["both", "high"]:
         # High Frequency RF analysis
 
@@ -776,19 +779,19 @@ def hkSeq(Params, mode="both", plot=False):
         mask2    = mask0 & mask1 # Combined mask
         mask3, _ = HFreq_QC.mahalanobis_dist_select(return_mask_only=True) # Mahalanobis distance select
 
-        logging.info(f"High Frequency RFs: {len(HFreq_results)} total")
-        logging.info(f"High Frequency RFs after energy select: {np.sum(mask0)}")
-        logging.info(f"High Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
-        logging.info(f"High Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
-        logging.info(f"High Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
+        logger.info(f"High Frequency RFs: {len(HFreq_results)} total")
+        logger.info(f"High Frequency RFs after energy select: {np.sum(mask0)}")
+        logger.info(f"High Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
+        logger.info(f"High Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
+        logger.info(f"High Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
 
-        logging.info("Mahalanobis distance-based QC is taken")
+        logger.info("Mahalanobis distance-based QC is taken")
         H0_best, k0_best, H0_uncert, k0_uncert = _estimate_hk_summary(
             HFreq_results,
             mask3,
         )
-        logging.info(f"High Frequency RFs: H = {H0_best:.2f} ± {H0_uncert:.2f} km")
-        logging.info(f"High Frequency RFs: k = {k0_best:.2f} ± {k0_uncert:.2f} Vp/Vs")
+        logger.info(f"High Frequency RFs: H = {H0_best:.2f} ± {H0_uncert:.2f} km")
+        logger.info(f"High Frequency RFs: k = {k0_best:.2f} ± {k0_uncert:.2f} Vp/Vs")
         # Save results
         # datasets = []
         # for res in HFreq_results:
@@ -819,11 +822,11 @@ def hkSeq(Params, mode="both", plot=False):
         dump(HFreq_results_QC, os.path.join(savedir, f"{net}.{sta}_HFreq_Hk_results_QC.joblib"))
 
         _write_qc_table(
-            os.path.join(savedir, f"{sta}.{net}_HFreq_Hk_QC.dat"),
+            os.path.join(savedir, f"{net}.{sta}_HFreq_Hk_QC.dat"),
             HFreq_results,
             mask3,
         )
-        logging.info("Hk analysis for High Frequency RFs completed and saved.")
+        logger.info("Hk analysis for High Frequency RFs completed and saved.")
         if plot and HFreq_results:
             QC_key = ["Energy Select", "Elliptical MAD Select", "Energy & Elliptical Combined", "Mahalanobis Select"]
             fig_title = f"{net}.{sta} (High Frequency RFs)"
@@ -856,8 +859,8 @@ def hkSeq(Params, mode="both", plot=False):
             k0_best = np.nan
 
         if np.isnan(H0_best) or np.isnan(k0_best) or H0_best <= 0.4:
-            logging.warning("No valid H and k estimates from sediment layer or Only consider crust layer")
-            logging.info("Only use one-layer Hk analysis for crust")
+            logger.warning("No valid H and k estimates from sediment layer or Only consider crust layer")
+            logger.info("Only use one-layer Hk analysis for crust")
             hk_func = partial(
                 Hk_analysis,
                 H=Hparam_crust,
@@ -868,7 +871,7 @@ def hkSeq(Params, mode="both", plot=False):
                 mode=1
             )
         else:
-            logging.info("Use two-layer Hk analysis for crust")
+            logger.info("Use two-layer Hk analysis for crust")
             hk_func = partial(
             Hk_analysis,
             H=Hparam_crust,
@@ -893,19 +896,19 @@ def hkSeq(Params, mode="both", plot=False):
         mask1, _ = LFreq_QC.elliptical_mad_select(return_mask_only=True)
         mask2    = mask0 & mask1
         mask3, _ = LFreq_QC.mahalanobis_dist_select(return_mask_only=True)
-        logging.info(f"Low Frequency RFs: {len(LFreq_results)} total")
-        logging.info(f"Low Frequency RFs after energy select: {np.sum(mask0)}")
-        logging.info(f"Low Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
-        logging.info(f"Low Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
-        logging.info(f"Low Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
+        logger.info(f"Low Frequency RFs: {len(LFreq_results)} total")
+        logger.info(f"Low Frequency RFs after energy select: {np.sum(mask0)}")
+        logger.info(f"Low Frequency RFs after elliptical MAD select: {np.sum(mask1)}")
+        logger.info(f"Low Frequency RFs after [Energy & Elliptical] select: {np.sum(mask2)}")
+        logger.info(f"Low Frequency RFs after Mahalanobis distance select: {np.sum(mask3)}")
 
-        logging.info("Mahalanobis distance-based QC is taken")
+        logger.info("Mahalanobis distance-based QC is taken")
         H1_best, k1_best, H1_uncert, k1_uncert = _estimate_hk_summary(
             LFreq_results,
             mask3,
         )
-        logging.info(f"Low Frequency RFs: H = {H1_best:.2f} ± {H1_uncert:.2f} km")
-        logging.info(f"Low Frequency RFs: k = {k1_best:.2f} ± {k1_uncert:.2f} Vp/Vs")
+        logger.info(f"Low Frequency RFs: H = {H1_best:.2f} ± {H1_uncert:.2f} km")
+        logger.info(f"Low Frequency RFs: k = {k1_best:.2f} ± {k1_uncert:.2f} Vp/Vs")
         # Save results
         dump(LFreq_results, os.path.join(savedir, f"{net}.{sta}_LFreq_Hk_results.joblib"))
         LFreq_results_QC = [res for res, m in zip(LFreq_results, mask3) if m]
@@ -917,7 +920,7 @@ def hkSeq(Params, mode="both", plot=False):
         )
 
 
-        logging.info("Hk analysis for Low Frequency RFs completed and saved.")
+        logger.info("Hk analysis for Low Frequency RFs completed and saved.")
         if plot and LFreq_results:
             QC_key = ["Energy Select", "Elliptical MAD Select", "Energy & Elliptical Combined", "Mahalanobis Select"]
             fig_title = f"{net}.{sta} (Low Frequency RFs)"
@@ -930,7 +933,7 @@ def hkSeq(Params, mode="both", plot=False):
             fig.savefig(os.path.join(figdir, figfile), dpi=300, bbox_inches='tight')
             plt.close(fig)
 
-    logging.info(f"Completed H-k analysis for {net}.{sta}")
+    logger.info(f"Completed H-k analysis for {net}.{sta}")
 
  
     
@@ -940,6 +943,7 @@ def load_parse_args():
     parser.add_argument("-c", "--config_file", type=str, required=True, help="Hk analysis configuration file in YAML format")
     parser.add_argument("-m", "--mode", type=str, default="both", choices=["both", "high", "low"], help="Mode of Hk analysis: 'both', 'high' or 'low'")
     parser.add_argument("-p", "--plot", action="store_true", help="Plot the results if set")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing H-k outputs of the requested stage(s)")
 
     return parser.parse_args()
 
@@ -950,4 +954,4 @@ def main():
     
     plot_flag = args.plot
 
-    hkSeq(params, mode=args.mode, plot=plot_flag)
+    hkSeq(params, mode=args.mode, plot=plot_flag, overwrite=args.overwrite or None)

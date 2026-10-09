@@ -71,6 +71,11 @@ def _register_hkseq(
         action="store_true",
         help="Save H-k QC figures.",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing H-k outputs of the requested stage(s).",
+    )
     parser.set_defaults(func=_run_hkseq)
 
 
@@ -85,7 +90,7 @@ def _run_hkseq(args: argparse.Namespace) -> int:
     from seisforge.rf.hk import hkSeq
 
     params = _read_yaml(args.config_file)
-    hkSeq(params, mode=args.mode, plot=args.plot)
+    hkSeq(params, mode=args.mode, plot=args.plot, overwrite=args.overwrite or None)
     return 0
 
 
