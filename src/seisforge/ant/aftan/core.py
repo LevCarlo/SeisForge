@@ -429,26 +429,6 @@ class AFTANMeasurement:
                         "units": "km/s",
                     },
                 ),
-                "phase_cycle_residual_cycles_before": (
-                    ("target_period",),
-                    measured["phase_cycle_residual_cycles_before"],
-                    {
-                        "long_name": (
-                            "reference travel-time residual before correction"
-                        ),
-                        "units": "cycles",
-                    },
-                ),
-                "phase_cycle_residual_cycles_after": (
-                    ("target_period",),
-                    measured["phase_cycle_residual_cycles_after"],
-                    {
-                        "long_name": (
-                            "reference travel-time residual after correction"
-                        ),
-                        "units": "cycles",
-                    },
-                ),
                 "picked_group_velocity": (
                     ("target_period",),
                     measured["group_velocity"],
@@ -480,45 +460,25 @@ class AFTANMeasurement:
                         "units": "cycles",
                     },
                 ),
-                "phase_cycle_candidate_score_gap_cycles": (
+                "phase_cycle_reference_score_gap_cycles": (
                     (),
-                    measured["phase_cycle_candidate_score_gap_cycles"],
+                    measured["phase_cycle_reference_score_gap_cycles"],
                     {
                         "long_name": (
-                            "score gap between best and second-best cycle shifts"
+                            "reference-score gap between best and second-best shifts"
                         ),
                         "units": "cycles",
                     },
                 ),
-                "phase_cycle_reference_rmse_km_s_before": (
-                    (),
-                    measured["phase_cycle_reference_rmse_km_s_before"],
-                    {
-                        "long_name": (
-                            "phase-velocity RMSE to reference before correction"
-                        ),
-                        "units": "km/s",
-                    },
-                ),
-                "phase_cycle_reference_rmse_km_s_after": (
-                    (),
-                    measured["phase_cycle_reference_rmse_km_s_after"],
-                    {
-                        "long_name": (
-                            "phase-velocity RMSE to reference after correction"
-                        ),
-                        "units": "km/s",
-                    },
+                "phase_cycle_candidate_reference_score_cycles": (
+                    ("cycle_shift_candidate",),
+                    measured["phase_cycle_candidate_reference_score_cycles"],
+                    {"units": "cycles"},
                 ),
                 "phase_cycle_valid_count": (
                     (),
                     measured["phase_cycle_valid_count"],
                     {"long_name": "period count used for global cycle selection"},
-                ),
-                "phase_cycle_qc_pass": (
-                    (),
-                    measured["phase_cycle_qc_pass"],
-                    {"long_name": "one when global phase-cycle diagnostics pass"},
                 ),
                 "phase_cycle_search_limit_reached": (
                     (),
@@ -529,6 +489,7 @@ class AFTANMeasurement:
             coords={
                 "target_period": measured["target_period"],
                 "phase_velocity": phase_velocity,
+                "cycle_shift_candidate": measured["phase_cycle_candidate_shift"],
             },
             attrs={
                 "stage": stage,
@@ -546,15 +507,10 @@ class AFTANMeasurement:
                 "phase_cycle_selection_method": (
                     "global minimum median absolute reference travel-time residual"
                 ),
-                "phase_cycle_status": str(measured["phase_cycle_status"].item()),
+                "phase_cycle_selection_source": "automatic",
+                "phase_cycle_implementation": "seisforge_extension",
                 "phase_cycle_enabled": bool(self.config.phase_cycle.enabled),
                 "phase_cycle_max_shift": int(self.config.phase_cycle.max_shift),
-                "phase_cycle_max_reference_residual_cycles": float(
-                    self.config.phase_cycle.max_reference_residual_cycles
-                ),
-                "phase_cycle_min_candidate_score_gap_cycles": float(
-                    self.config.phase_cycle.min_candidate_score_gap_cycles
-                ),
                 "description": "phase-velocity cycle-candidate diagnostic map",
             },
         )
@@ -877,13 +833,16 @@ def _select_phase_cycle(
     distance_km: float,
     config: AFTANPhaseCycleConfig,
 ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Select one global integer-cycle branch against a reference curve."""
+    """Select one global integer-cycle shift against the reference curve."""
     period = np.asarray(period, dtype=float)
     uncorrected = np.asarray(phase_velocity, dtype=float)
     reference = np.asarray(reference_phase_velocity, dtype=float)
-    corrected = uncorrected.copy()
-    residual_before = np.full(period.shape, np.nan, dtype=float)
-    residual_after = np.full(period.shape, np.nan, dtype=float)
+    if period.shape != uncorrected.shape or period.shape != reference.shape:
+        raise ValueError(
+            "period, phase_velocity, and reference_phase_velocity must match."
+        )
+    if distance_km <= 0:
+        raise ValueError("distance_km must be positive.")
 
     valid = (
         np.isfinite(period)
@@ -894,121 +853,94 @@ def _select_phase_cycle(
         & (reference > 0)
     )
     valid_count = int(np.count_nonzero(valid))
-    if valid_count:
-        residual_before[valid] = (
+    candidate_shifts = (
+        np.arange(-config.max_shift, config.max_shift + 1, dtype=np.int32)
+        if config.enabled
+        else np.asarray([0], dtype=np.int32)
+    )
+    candidate_scores = np.full(candidate_shifts.shape, np.nan, dtype=float)
+    cycle_shift = 0
+    reference_score = np.nan
+    score_gap = np.nan
+
+    # A single reference sample cannot distinguish a stable global branch.
+    if valid_count >= 2:
+        residual_zero = (
             distance_km / uncorrected[valid]
             - distance_km / reference[valid]
         ) / period[valid]
+        ranked: list[tuple[float, int]] = []
+        for index, shift in enumerate(candidate_shifts):
+            candidate_slowness = (
+                1.0 / uncorrected[valid]
+                + int(shift) * period[valid] / distance_km
+            )
+            if np.all(candidate_slowness > 0):
+                score = float(np.median(np.abs(residual_zero + int(shift))))
+                candidate_scores[index] = score
+                ranked.append((score, int(shift)))
+        ranked.sort(key=lambda item: (item[0], abs(item[1]), item[1]))
+        if ranked:
+            reference_score, cycle_shift = ranked[0]
+            if len(ranked) > 1:
+                score_gap = float(ranked[1][0] - reference_score)
 
-    offsets = np.array([0], dtype=int)
-    if config.enabled:
-        offsets = np.arange(-config.max_shift, config.max_shift + 1, dtype=int)
-
-    candidates: list[tuple[float, int]] = []
-    for offset in offsets:
-        candidate_slowness = (
-            1.0 / uncorrected[valid] + offset * period[valid] / distance_km
-        )
-        if valid_count and np.all(candidate_slowness > 0):
-            score = float(np.median(np.abs(residual_before[valid] + offset)))
-            candidates.append((score, int(offset)))
-
-    candidates.sort(key=lambda item: (item[0], abs(item[1]), item[1]))
-    if candidates:
-        best_score, cycle_shift = candidates[0]
-        score_gap = (
-            float(candidates[1][0] - best_score)
-            if len(candidates) > 1
-            else np.nan
-        )
-    else:
-        best_score = np.nan
-        cycle_shift = 0
-        score_gap = np.nan
-
-    if valid_count and cycle_shift:
-        corrected_slowness = 1.0 / uncorrected + cycle_shift * period / distance_km
-        if np.all(corrected_slowness[valid] > 0):
-            corrected[valid] = 1.0 / corrected_slowness[valid]
-        else:
-            cycle_shift = 0
-
-    if valid_count:
-        residual_after[valid] = (
-            distance_km / corrected[valid] - distance_km / reference[valid]
-        ) / period[valid]
-        rmse_before = float(
-            np.sqrt(np.mean((uncorrected[valid] - reference[valid]) ** 2))
-        )
-        rmse_after = float(
-            np.sqrt(np.mean((corrected[valid] - reference[valid]) ** 2))
-        )
-    else:
-        rmse_before = np.nan
-        rmse_after = np.nan
+    corrected = apply_phase_cycle_shift(
+        period,
+        uncorrected,
+        distance_km,
+        cycle_shift,
+    )
 
     search_limit_reached = bool(
         config.enabled
         and config.max_shift > 0
         and abs(cycle_shift) == config.max_shift
     )
-    score_ok = bool(
-        np.isfinite(best_score)
-        and best_score <= config.max_reference_residual_cycles
-    )
-    gap_ok = bool(
-        not config.enabled
-        or config.max_shift == 0
-        or (
-            np.isfinite(score_gap)
-            and score_gap >= config.min_candidate_score_gap_cycles
-        )
-    )
-    qc_pass = bool(
-        config.enabled
-        and valid_count >= 2
-        and score_ok
-        and gap_ok
-        and not search_limit_reached
-    )
-
-    if not config.enabled:
-        status = "disabled"
-    elif valid_count < 2:
-        status = "insufficient_reference"
-    elif search_limit_reached:
-        status = "search_limit_reached"
-    elif not score_ok:
-        status = "reference_misfit"
-    elif not gap_ok:
-        status = "ambiguous"
-    elif cycle_shift:
-        status = "corrected"
-    else:
-        status = "unchanged"
-
     diagnostics = {
         "phase_velocity_uncorrected": uncorrected,
         "phase_reference_velocity": reference,
-        "phase_cycle_residual_cycles_before": residual_before,
-        "phase_cycle_residual_cycles_after": residual_after,
         "phase_cycle_shift": np.asarray(cycle_shift, dtype=np.int32),
-        "phase_cycle_reference_score_cycles": np.asarray(best_score, dtype=float),
-        "phase_cycle_candidate_score_gap_cycles": np.asarray(score_gap, dtype=float),
-        "phase_cycle_reference_rmse_km_s_before": np.asarray(
-            rmse_before, dtype=float
+        "phase_cycle_reference_score_cycles": np.asarray(
+            reference_score, dtype=float
         ),
-        "phase_cycle_reference_rmse_km_s_after": np.asarray(
-            rmse_after, dtype=float
+        "phase_cycle_reference_score_gap_cycles": np.asarray(
+            score_gap, dtype=float
         ),
+        "phase_cycle_candidate_shift": candidate_shifts.astype(np.int32),
+        "phase_cycle_candidate_reference_score_cycles": candidate_scores,
         "phase_cycle_valid_count": np.asarray(valid_count, dtype=np.int32),
-        "phase_cycle_qc_pass": np.asarray(qc_pass, dtype=np.int8),
         "phase_cycle_search_limit_reached": np.asarray(
             search_limit_reached, dtype=np.int8
         ),
-        "phase_cycle_status": np.asarray(status),
     }
     return corrected, diagnostics
+
+
+def apply_phase_cycle_shift(
+    period: np.ndarray,
+    phase_velocity_uncorrected: np.ndarray,
+    distance_km: float,
+    cycle_shift: int,
+) -> np.ndarray:
+    """Apply one global integer shift to phase slowness."""
+    period = np.asarray(period, dtype=float)
+    uncorrected = np.asarray(phase_velocity_uncorrected, dtype=float)
+    if period.shape != uncorrected.shape:
+        raise ValueError("period and phase_velocity_uncorrected must match.")
+    if distance_km <= 0:
+        raise ValueError("distance_km must be positive.")
+    corrected = uncorrected.copy()
+    valid = np.isfinite(period) & np.isfinite(uncorrected) & (period > 0) & (
+        uncorrected > 0
+    )
+    corrected_slowness = (
+        1.0 / uncorrected[valid] + int(cycle_shift) * period[valid] / distance_km
+    )
+    if np.any(corrected_slowness <= 0):
+        raise ValueError("cycle shift produces non-positive phase slowness.")
+    corrected[valid] = 1.0 / corrected_slowness
+    return corrected
 
 
 def _build_period_grid(

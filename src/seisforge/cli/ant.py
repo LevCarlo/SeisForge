@@ -18,6 +18,7 @@ def register(
     ant_subparsers = parser.add_subparsers(dest="ant_command", metavar="<command>")
     _register_rotate_ccf(ant_subparsers)
     _register_aftan(ant_subparsers)
+    _register_aftan_cycle_set(ant_subparsers)
     _register_eikonal(ant_subparsers)
     return parser
 
@@ -130,6 +131,51 @@ def _register_aftan(
     parser.set_defaults(func=_run_aftan)
 
 
+def _register_aftan_cycle_set(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "aftan-cycle-set",
+        help="Preview or manually set one saved AFTAN phase-cycle branch.",
+        description=(
+            "Recompute phase velocity from the uncorrected curve stored in one "
+            "AFTAN .vph.nc file. By default this is a read-only preview; pass "
+            "--in-place to update the phase map and companion .dat file."
+        ),
+    )
+    parser.add_argument(
+        "phase_map",
+        help="Path to a basic or PMF AFTAN phase map ending in .vph.nc.",
+    )
+    parser.add_argument(
+        "--shift",
+        type=int,
+        required=True,
+        help="Absolute global integer cycle shift relative to the uncorrected curve.",
+    )
+    parser.add_argument(
+        "--dat-file",
+        default=None,
+        help="Companion dispersion .dat file; inferred from the phase-map name.",
+    )
+    parser.add_argument(
+        "--phase-map-only",
+        action="store_true",
+        help="Update only the phase-map NetCDF and do not require a .dat file.",
+    )
+    parser.add_argument(
+        "--reason",
+        default=None,
+        help="Short reason stored with an in-place manual override.",
+    )
+    parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="Apply the override; without this flag the command only previews it.",
+    )
+    parser.set_defaults(func=_run_aftan_cycle_set)
+
+
 def _register_eikonal(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
@@ -190,6 +236,33 @@ def _run_aftan(args: argparse.Namespace) -> int:
         plot_energy_map=args.plot_energy_map,
     )
     print(f"measured {len(results)} AFTAN traces")
+    return 0
+
+
+def _run_aftan_cycle_set(args: argparse.Namespace) -> int:
+    from seisforge.ant.aftan import override_phase_cycle
+
+    result = override_phase_cycle(
+        args.phase_map,
+        args.shift,
+        dat_file=args.dat_file,
+        phase_map_only=args.phase_map_only,
+        write=args.in_place,
+        reason=args.reason,
+    )
+    action = "updated" if result.written else "preview"
+    print(
+        f"{action}: shift {result.previous_shift:+d} -> "
+        f"{result.requested_shift:+d}; "
+        f"reference score={result.reference_score_cycles:.4f} cycles; "
+        f"vph={result.phase_velocity_min_km_s:.4f}-"
+        f"{result.phase_velocity_max_km_s:.4f} km/s"
+    )
+    print(f"phase_map: {result.phase_map}")
+    if result.dat_file is not None:
+        print(f"dat_file: {result.dat_file}")
+    if not result.written:
+        print("No files were changed. Add --in-place to apply this override.")
     return 0
 
 

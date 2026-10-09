@@ -1,7 +1,12 @@
 """AFTAN dispersion measurement for ambient-noise CCFs."""
 
 from .config import build_station_aftan_config, _override_energy_map_config
-from .core import _align_to_period_grid
+from .core import _align_to_period_grid, apply_phase_cycle_shift
+from .cycle import (
+    PhaseCycleOverrideResult,
+    infer_dispersion_dat_path,
+    override_phase_cycle,
+)
 from .driver import run_aftan_config, run_aftan_file, run_station_aftan
 from .models import (
     AFTANAlphaConfig,
@@ -41,10 +46,14 @@ __all__ = [
     "AFTANShortDistanceGuardConfig",
     "BranchTrace",
     "StationAFTANConfig",
+    "PhaseCycleOverrideResult",
+    "apply_phase_cycle_shift",
     "build_station_aftan_config",
     "run_aftan_config",
     "run_aftan_file",
     "run_station_aftan",
+    "infer_dispersion_dat_path",
+    "override_phase_cycle",
     "automatic_pi_over_4",
     "physical_branch_for_branch",
     "physical_component_for_branch",

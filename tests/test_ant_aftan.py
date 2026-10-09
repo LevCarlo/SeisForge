@@ -13,6 +13,7 @@ from seisforge.ant.aftan import (
     AFTANPeriodSamplingConfig,
     _align_to_period_grid,
     _aftan_diagram_snr,
+    apply_phase_cycle_shift,
     _override_energy_map_config,
     _period_qc,
     _qc_warnings,
@@ -21,6 +22,7 @@ from seisforge.ant.aftan import (
     build_station_aftan_config,
     physical_branch_for_branch,
     physical_station_pair_for_branch,
+    override_phase_cycle,
     run_aftan_config,
 )
 from seisforge.ant.aftan.core import (
@@ -92,6 +94,9 @@ def test_build_station_aftan_config_is_station_scoped(tmp_path):
             },
             "snr": {"noise_mode": "complement"},
         },
+        "phase_cycle_selection": {
+            "max_shift": 3,
+        },
     }
 
     built = build_station_aftan_config(config, base_dir=tmp_path)
@@ -114,6 +119,32 @@ def test_build_station_aftan_config_is_station_scoped(tmp_path):
     assert built.aftan.pmf.trig_threshold == 20.0
     assert built.aftan.pmf.jump_points == 5
     assert built.aftan.snr.noise_mode == "complement"
+    assert built.aftan.phase_cycle.max_shift == 3
+
+
+@pytest.mark.parametrize(
+    "phase_cycle_config",
+    [
+        {"phase_cycle_selection": {"max_reference_residual_cycles": 0.35}},
+        {"aftan": {"phase_cycle": {"enabled": True}}},
+    ],
+)
+def test_build_station_aftan_config_rejects_removed_phase_cycle_fields(
+    tmp_path,
+    phase_cycle_config,
+):
+    config = {
+        "station": "WT.2001",
+        "io": {"input_dir": "ccf", "output_dir": "ftan"},
+        "aftan": {"branch": "positive"},
+    }
+    if "aftan" in phase_cycle_config:
+        config["aftan"].update(phase_cycle_config["aftan"])
+    else:
+        config.update(phase_cycle_config)
+
+    with pytest.raises(ValueError):
+        build_station_aftan_config(config, base_dir=tmp_path)
 
 
 def test_build_station_aftan_config_accepts_station_pair_component_list(tmp_path):
@@ -708,14 +739,116 @@ def test_global_phase_cycle_selection_recovers_reference_branch():
 
     np.testing.assert_allclose(corrected, reference)
     assert diagnostics["phase_cycle_shift"].item() == 1
-    assert diagnostics["phase_cycle_qc_pass"].item() == 1
-    assert diagnostics["phase_cycle_status"].item() == "corrected"
     assert diagnostics["phase_cycle_reference_score_cycles"].item() == pytest.approx(
         0.0
     )
-    assert diagnostics["phase_cycle_reference_rmse_km_s_after"].item() == pytest.approx(
+    assert diagnostics["phase_cycle_reference_score_gap_cycles"].item() > 0
+    assert diagnostics["phase_cycle_candidate_reference_score_cycles"].shape == (
+        5,
+    )
+
+
+def test_global_phase_cycle_selection_tie_prefers_zero_shift():
+    period = np.array([1.0, 2.0, 3.0])
+    uncorrected = np.array([2.8, 2.9, 3.0])
+    distance_km = 50.0
+    reference = 1.0 / (1.0 / uncorrected + 0.5 * period / distance_km)
+
+    corrected, diagnostics = _select_phase_cycle(
+        period,
+        uncorrected,
+        reference,
+        distance_km,
+        AFTANPhaseCycleConfig(max_shift=1),
+    )
+    np.testing.assert_allclose(corrected, uncorrected)
+    assert diagnostics["phase_cycle_shift"].item() == 0
+    assert diagnostics["phase_cycle_reference_score_gap_cycles"].item() == pytest.approx(
         0.0
     )
+
+
+def test_global_phase_cycle_selection_requires_two_reference_points():
+    period = np.array([2.0, 3.0])
+    uncorrected = np.array([2.8, 2.9])
+    reference = np.array([3.1, np.nan])
+
+    corrected, diagnostics = _select_phase_cycle(
+        period,
+        uncorrected,
+        reference,
+        80.0,
+        AFTANPhaseCycleConfig(max_shift=2),
+    )
+
+    np.testing.assert_allclose(corrected, uncorrected)
+    assert diagnostics["phase_cycle_shift"].item() == 0
+    assert diagnostics["phase_cycle_valid_count"].item() == 1
+    assert np.isnan(diagnostics["phase_cycle_reference_score_cycles"].item())
+    assert np.all(
+        np.isnan(diagnostics["phase_cycle_candidate_reference_score_cycles"])
+    )
+
+
+def test_manual_phase_cycle_override_previews_then_updates_nc_and_dat(tmp_path):
+    period = np.array([2.0, 3.0, 4.0])
+    uncorrected = np.array([2.8, 2.9, 3.0])
+    reference = np.array([3.0, 3.1, 3.2])
+    distance_km = 80.0
+    phase_map = tmp_path / "pair.negative.pmf.vph.nc"
+    dat_file = tmp_path / "pair.negative.pmf.dat"
+    dataset = xr.Dataset(
+        data_vars={
+            "picked_phase_velocity": (("target_period",), uncorrected),
+            "picked_phase_velocity_uncorrected": (
+                ("target_period",),
+                uncorrected,
+            ),
+            "reference_phase_velocity": (("target_period",), reference),
+            "picked_instant_period": (("target_period",), period),
+            "phase_cycle_shift": np.asarray(0, dtype=np.int32),
+            "phase_cycle_reference_score_cycles": np.asarray(0.5),
+            "phase_cycle_reference_score_gap_cycles": np.asarray(0.1),
+            "phase_cycle_search_limit_reached": np.asarray(0, dtype=np.int8),
+        },
+        coords={"target_period": period},
+        attrs={"distance_km": distance_km},
+    )
+    dataset.to_netcdf(phase_map, engine="scipy")
+    table = np.column_stack(
+        [period, period, np.full(3, 2.7), uncorrected, np.ones(3), np.full(3, 20.0)]
+    )
+    np.savetxt(
+        dat_file,
+        table,
+        header=(
+            "target_period_s instant_period_s group_velocity_km_s "
+            "phase_velocity_km_s amplitude snr"
+        ),
+    )
+
+    preview = override_phase_cycle(phase_map, -1)
+    assert not preview.written
+    with xr.open_dataset(phase_map) as unchanged:
+        assert unchanged["phase_cycle_shift"].item() == 0
+
+    result = override_phase_cycle(
+        phase_map,
+        -1,
+        write=True,
+        reason="visual cycle inspection",
+    )
+    expected = apply_phase_cycle_shift(period, uncorrected, distance_km, -1)
+    assert result.written
+    with xr.open_dataset(phase_map) as updated:
+        np.testing.assert_allclose(updated["picked_phase_velocity"], expected)
+        np.testing.assert_allclose(
+            updated["picked_phase_velocity_automatic"], uncorrected
+        )
+        assert updated["phase_cycle_shift"].item() == -1
+        assert updated.attrs["phase_cycle_selection_source"] == "manual_override"
+        assert updated.attrs["phase_cycle_manual_reason"] == "visual cycle inspection"
+    np.testing.assert_allclose(np.loadtxt(dat_file)[:, 3], expected, rtol=2e-4)
 
 
 def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
@@ -749,17 +882,15 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
                 "    phase_velocity: true",
                 "    phase_cycle_count: 3",
                 "    velocity_count: 64",
-                "  phase_cycle:",
-                "    enabled: true",
-                "    max_shift: 2",
-                "    max_reference_residual_cycles: 0.4",
-                "    min_candidate_score_gap_cycles: 0.15",
                 "  trig_threshold: 9999.0",
                 "  basic:",
                 *_alpha_config_lines(),
                 "  snr:",
                 "    dsn: 20.0",
                 "    nlen: 40.0",
+                "phase_cycle_selection:",
+                "  enabled: true",
+                "  max_shift: 2",
             ]
         )
     )
@@ -790,21 +921,17 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
             "target_period",
         )
         assert dataset["reference_phase_velocity"].dims == ("target_period",)
-        assert dataset["phase_cycle_residual_cycles_before"].dims == (
-            "target_period",
-        )
-        assert dataset["phase_cycle_residual_cycles_after"].dims == (
-            "target_period",
-        )
         assert dataset["phase_cycle_shift"].dims == ()
         assert dataset["phase_cycle_reference_score_cycles"].dims == ()
-        assert dataset["phase_cycle_candidate_score_gap_cycles"].dims == ()
-        assert dataset["phase_cycle_qc_pass"].dims == ()
+        assert dataset["phase_cycle_reference_score_gap_cycles"].dims == ()
+        assert dataset["phase_cycle_candidate_reference_score_cycles"].dims == (
+            "cycle_shift_candidate",
+        )
+        assert dataset["phase_cycle_valid_count"].dims == ()
+        assert dataset["phase_cycle_search_limit_reached"].dims == ()
         assert dataset.attrs["phase_cycle_selection_method"]
-        assert dataset.attrs["phase_cycle_status"]
+        assert dataset.attrs["phase_cycle_implementation"] == "seisforge_extension"
         assert dataset.attrs["phase_cycle_max_shift"] == 2
-        assert dataset.attrs["phase_cycle_max_reference_residual_cycles"] == 0.4
-        assert dataset.attrs["phase_cycle_min_candidate_score_gap_cycles"] == 0.15
     finally:
         dataset.close()
 

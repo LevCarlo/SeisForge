@@ -108,6 +108,11 @@ aftan:
       vmax: 4.5
       vmin: 1.0
 
+# SeisForge phase-cycle selection extension, not an original AFTAN parameter.
+phase_cycle_selection:
+  enabled: true
+  max_shift: 2
+
 # SeisForge short-distance period guard, not an original AFTAN parameter.
 short_distance_period_guard:
   enabled: true

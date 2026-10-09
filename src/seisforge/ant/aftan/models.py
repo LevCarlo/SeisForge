@@ -88,8 +88,6 @@ class AFTANQCConfig:
 class AFTANPhaseCycleConfig:
     enabled: bool = True
     max_shift: int = 2
-    max_reference_residual_cycles: float = 0.35
-    min_candidate_score_gap_cycles: float = 0.10
 
 
 @dataclass(frozen=True)

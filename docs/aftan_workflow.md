@@ -122,6 +122,57 @@ phase velocities. When plotting is enabled, this phase panel is included in the
 same `<input_stem>.basic_ftan.png` summary figure rather than written as a
 separate PNG.
 
+### Phase-cycle selection
+
+The cycle score is the median absolute travel-time residual to the configured
+phase-velocity reference, in cycles:
+
+```yaml
+phase_cycle_selection:
+  enabled: true
+  max_shift: 2
+```
+
+`phase_cycle_selection` is a top-level SeisForge extension, parallel to
+`short_distance_period_guard`; it is not part of the classical AFTAN parameter
+set. It accepts only `enabled` and `max_shift`.
+
+For each integer shift `k`, SeisForge evaluates
+
+```text
+median(abs((D / c_uncorrected - D / c_reference) / T + k)).
+```
+
+The candidate with the lowest score is applied to the complete picked phase
+curve. Exact ties prefer the smaller absolute shift. With fewer than two valid
+periods shared by the measurement and reference, the curve remains at shift
+zero. The phase-map NetCDF records every candidate reference score, the selected
+shift and score, the gap to the second-best score, the valid-period count, and
+whether the selected shift reached the configured search limit. These values
+are diagnostics only; the FTAN step does not perform later curve-shape QC.
+
+If visual inspection still identifies the wrong branch, preview an absolute
+manual shift relative to `picked_phase_velocity_uncorrected`:
+
+```bash
+seisforge ant aftan-cycle-set path/to/pair.negative.pmf.vph.nc --shift 0
+```
+
+The preview changes no files. Apply it explicitly with:
+
+```bash
+seisforge ant aftan-cycle-set path/to/pair.negative.pmf.vph.nc \
+  --shift 0 --in-place --reason "visual cycle inspection"
+```
+
+The in-place command updates the phase-map NetCDF and its inferred companion
+`.dat` file. It preserves the original automatic curve and diagnostics under
+`*_automatic` variables and records the manual shift, UTC time, and optional
+reason. Repeated overrides are deterministic because every branch is rebuilt
+from the stored uncorrected phase velocity rather than from the previous manual
+result. Use `--phase-map-only` only when no companion `.dat` file should be
+updated.
+
 This first SeisForge implementation ports the pure-Python FTAN path from
 PyAFTAN and removes its global `PARAM` dependency. The Fortran path, large
 dataset formatters, and tomography writers are intentionally left out for now.

@@ -43,6 +43,13 @@ def build_station_aftan_config(
     base_path = Path(base_dir) if base_dir is not None else None
     io_config = config.get("io", {})
     aftan_config = config.get("aftan", {})
+    if not isinstance(aftan_config, dict):
+        raise ValueError("aftan must be a mapping.")
+    if "phase_cycle" in aftan_config:
+        raise ValueError(
+            "aftan.phase_cycle is not supported; use top-level "
+            "phase_cycle_selection with only enabled and max_shift."
+        )
 
     source_station = _optional_string(
         config.get("source_station") or io_config.get("source_station")
@@ -105,6 +112,9 @@ def build_station_aftan_config(
         aftan=_build_aftan_config(
             aftan_config,
             base_path,
+            phase_cycle_selection=_build_phase_cycle_selection_config(
+                config.get("phase_cycle_selection"),
+            ),
             short_distance_guard=_build_short_distance_guard_config(
                 config.get("short_distance_period_guard"),
                 aftan_config,
@@ -122,6 +132,7 @@ def _build_aftan_config(
     config: dict[str, Any],
     base_path: Path | None,
     *,
+    phase_cycle_selection: AFTANPhaseCycleConfig | None = None,
     short_distance_guard: AFTANShortDistanceGuardConfig | None = None,
     default_auto_pi_over_4: bool = False,
 ) -> AFTANConfig:
@@ -129,7 +140,6 @@ def _build_aftan_config(
     pmf = config.get("pmf", {})
     snr = config.get("snr", {})
     energy_map = config.get("energy_map", {})
-    phase_cycle = _nested_option_config(config, "phase_cycle")
     qc_config = config.get("qc", {})
     velocity_window = config.get("velocity_window", {})
     prediction_file = config.get("prediction_file")
@@ -191,15 +201,10 @@ def _build_aftan_config(
             min_valid_fraction=float(qc_config.get("min_valid_fraction", 0.0)),
             fail_on_short_branch=bool(qc_config.get("fail_on_short_branch", False)),
         ),
-        phase_cycle=AFTANPhaseCycleConfig(
-            enabled=bool(phase_cycle.get("enabled", True)),
-            max_shift=int(phase_cycle.get("max_shift", 2)),
-            max_reference_residual_cycles=float(
-                phase_cycle.get("max_reference_residual_cycles", 0.35)
-            ),
-            min_candidate_score_gap_cycles=float(
-                phase_cycle.get("min_candidate_score_gap_cycles", 0.10)
-            ),
+        phase_cycle=(
+            phase_cycle_selection
+            if phase_cycle_selection is not None
+            else AFTANPhaseCycleConfig()
         ),
         short_distance_guard=(
             short_distance_guard
@@ -247,15 +252,7 @@ def _validate_aftan_config(config: AFTANConfig) -> None:
     if config.energy_map.phase_cycle_count < 0:
         raise ValueError("aftan.energy_map.phase_cycle_count must be non-negative.")
     if config.phase_cycle.max_shift < 0:
-        raise ValueError("aftan.phase_cycle.max_shift must be non-negative.")
-    if config.phase_cycle.max_reference_residual_cycles < 0:
-        raise ValueError(
-            "aftan.phase_cycle.max_reference_residual_cycles must be non-negative."
-        )
-    if config.phase_cycle.min_candidate_score_gap_cycles < 0:
-        raise ValueError(
-            "aftan.phase_cycle.min_candidate_score_gap_cycles must be non-negative."
-        )
+        raise ValueError("phase_cycle_selection.max_shift must be non-negative.")
     if config.qc.period_rel_warning < 0:
         raise ValueError("aftan.qc.period_rel_warning must be non-negative.")
     if not 0 <= config.qc.min_valid_fraction <= 1:
@@ -291,6 +288,26 @@ def _build_short_distance_guard_config(
         enabled=bool(config.get("enabled", True)),
         reference_velocity=float(reference_velocity),
         max_period_nwl=float(max_period_nwl),
+    )
+
+
+def _build_phase_cycle_selection_config(
+    config: Any,
+) -> AFTANPhaseCycleConfig:
+    """Build the top-level SeisForge phase-cycle selection extension."""
+    if config is None:
+        config = {}
+    if not isinstance(config, dict):
+        raise ValueError("phase_cycle_selection must be a mapping.")
+    unexpected = sorted(set(config).difference({"enabled", "max_shift"}))
+    if unexpected:
+        raise ValueError(
+            "phase_cycle_selection has unsupported fields: "
+            + ", ".join(unexpected)
+        )
+    return AFTANPhaseCycleConfig(
+        enabled=bool(config.get("enabled", True)),
+        max_shift=int(config.get("max_shift", 2)),
     )
 
 
