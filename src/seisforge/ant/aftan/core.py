@@ -26,7 +26,13 @@ from .models import (
     AFTANPeriodSamplingConfig,
     AFTANSNRConfig,
 )
-from .snr import _aftan_diagram_snr, _window_snr
+from .products import (
+    amplitude_time_to_velocity,
+    energy_map_dataset,
+    phase_velocity_candidate_map,
+    phase_velocity_map_dataset,
+)
+from .snr import spectral_snr
 from .taper import (
     cosine_window_weights,
     group_velocity_window_bounds_s,
@@ -311,6 +317,38 @@ class AFTANMeasurement:
         out["center_period"] = target_periods
         return par_all, out
 
+    def _map_velocity_axis(self, velocity_count: int) -> np.ndarray:
+        return np.linspace(
+            self.config.velocity_min,
+            self.config.velocity_max,
+            int(velocity_count),
+        )
+
+    def _product_attrs(
+        self,
+        *,
+        stage: str,
+        source_file: Path,
+        branch: str,
+        alpha: float,
+        target_period: np.ndarray,
+    ) -> dict[str, object]:
+        return {
+            "stage": stage,
+            "branch": branch,
+            "input_file": str(source_file),
+            "distance_km": float(self.distance_km),
+            "alpha": float(alpha),
+            "alpha_mode": (
+                self.basic_alpha_mode if stage == "basic" else self.pmf_alpha_mode
+            ),
+            "velocity_min": float(self.config.velocity_min),
+            "velocity_max": float(self.config.velocity_max),
+            "period_min": float(np.nanmin(target_period)),
+            "period_max": float(np.nanmax(target_period)),
+            "period_sampling_mode": self.config.period_sampling.mode,
+        }
+
     def energy_map_dataset(
         self,
         measured: dict[str, np.ndarray],
@@ -323,114 +361,39 @@ class AFTANMeasurement:
         signal_data: np.ndarray | None = None,
     ):
         """Build an xarray dataset for the FTAN group-velocity energy map."""
-        import xarray as xr
-
         if signal_data is None:
             signal_data = self.trace.data
+        npts = self.trace.stats.npts
         target_period = measured.get("energy_target_period", measured["target_period"])
         alpha = float(np.asarray(measured.get("ftan_alpha", self.basic_alpha)))
         amplitude = np.abs(
-            self._ftan_complex(
-                signal_data,
-                np.asarray(target_period, dtype=float),
-                alpha,
-            )
-        )
-        amplitude = amplitude[: self.trace.stats.npts, :].T
-        velocity = np.linspace(
-            self.config.velocity_min,
-            self.config.velocity_max,
-            int(velocity_count),
-        )
-        map_amplitude = self._amplitude_time_to_velocity(amplitude, velocity)
-        picked_target_period = measured["target_period"]
-        data_vars = {
-            "amplitude": (("target_period", "velocity"), map_amplitude),
-            "picked_group_velocity": (
-                ("target_period",),
-                _align_to_period_grid(
-                    target_period,
-                    picked_target_period,
-                    measured["group_velocity"],
-                ),
+            self._ftan_complex(signal_data, np.asarray(target_period, dtype=float), alpha)
+        )[:npts, :].T
+        velocity = self._map_velocity_axis(velocity_count)
+        return energy_map_dataset(
+            measured,
+            target_period=target_period,
+            velocity_km_s=velocity,
+            map_amplitude=amplitude_time_to_velocity(
+                amplitude, self.time[:npts], self.distance_km, velocity
             ),
-            "picked_instant_period": (
-                ("target_period",),
-                _align_to_period_grid(
-                    target_period,
-                    picked_target_period,
-                    measured["period"],
-                ),
-            ),
-            "picked_amplitude": (
-                ("target_period",),
-                _align_to_period_grid(
-                    target_period,
-                    picked_target_period,
-                    measured["amplitude"],
-                ),
-            ),
-            "picked_snr": (
-                ("target_period",),
-                _align_to_period_grid(
-                    target_period,
-                    picked_target_period,
-                    measured["snr"],
-                ),
-            ),
-        }
-        if self.config.debug:
-            data_vars.update(
-                picked_hilbert_instant_period=(
-                    ("target_period",),
-                    _align_to_period_grid(
-                        target_period,
-                        picked_target_period,
-                        measured["hilbert_period"],
-                    ),
-                ),
-                picked_instant_period_delta=(
-                    ("target_period",),
-                    _align_to_period_grid(
-                        target_period,
-                        picked_target_period,
-                        measured["hilbert_period"] - measured["period"],
-                    ),
-                ),
-            )
-        if normalize:
-            scale = np.nanmax(map_amplitude, axis=1, keepdims=True)
-            scale[~np.isfinite(scale) | (scale == 0)] = 1.0
-            data_vars["normalized_amplitude"] = (
-                ("target_period", "velocity"),
-                map_amplitude / scale,
-            )
-        dataset = xr.Dataset(
-            data_vars=data_vars,
-            coords={
-                "target_period": target_period,
-                "velocity": velocity,
-            },
+            normalize=normalize,
+            debug=self.config.debug,
             attrs={
-                "stage": stage,
-                "branch": branch,
-                "input_file": str(source_file),
-                "distance_km": float(self.distance_km),
-                "alpha": float(alpha),
-                "alpha_mode": (
-                    self.basic_alpha_mode if stage == "basic" else self.pmf_alpha_mode
+                **self._product_attrs(
+                    stage=stage,
+                    source_file=source_file,
+                    branch=branch,
+                    alpha=alpha,
+                    target_period=target_period,
                 ),
-                "velocity_min": float(self.config.velocity_min),
-                "velocity_max": float(self.config.velocity_max),
-                "period_min": float(np.nanmin(target_period)),
-                "period_max": float(np.nanmax(target_period)),
-                "period_sampling_mode": self.config.period_sampling.mode,
-                "signal_source": "raw_waveform" if stage == "basic" else "pmf_clean_waveform",
+                "signal_source": (
+                    "raw_waveform" if stage == "basic" else "pmf_clean_waveform"
+                ),
                 "debug": bool(self.config.debug),
                 **self.time_taper_attrs(),
             },
         )
-        return dataset
 
     def phase_velocity_map_dataset(
         self,
@@ -444,16 +407,9 @@ class AFTANMeasurement:
         cycle_count: int,
     ):
         """Build an xarray dataset that shows phase-velocity cycle candidates."""
-        import xarray as xr
-
         alpha = self.basic_alpha if stage == "basic" else self.pmf_alpha
-        alpha_mode = self.basic_alpha_mode if stage == "basic" else self.pmf_alpha_mode
-        phase_velocity = np.linspace(
-            self.config.velocity_min,
-            self.config.velocity_max,
-            int(velocity_count),
-        )
-        candidate_amplitude = _phase_velocity_candidate_map(
+        phase_velocity = self._map_velocity_axis(velocity_count)
+        candidate_amplitude = phase_velocity_candidate_map(
             measured["period"],
             measured["group_velocity"],
             measured["phase"],
@@ -464,115 +420,18 @@ class AFTANMeasurement:
             cycle_count,
             normalize,
         )
-        return xr.Dataset(
-            data_vars={
-                "phase_candidate_amplitude": (
-                    ("target_period", "phase_velocity"),
-                    candidate_amplitude,
-                ),
-                "picked_phase_velocity": (
-                    ("target_period",),
-                    measured["phase_velocity"],
-                    {
-                        "long_name": "cycle-corrected phase velocity",
-                        "units": "km/s",
-                    },
-                ),
-                "picked_phase_velocity_uncorrected": (
-                    ("target_period",),
-                    measured["phase_velocity_uncorrected"],
-                    {
-                        "long_name": (
-                            "phase velocity before global cycle correction"
-                        ),
-                        "units": "km/s",
-                    },
-                ),
-                "reference_phase_velocity": (
-                    ("target_period",),
-                    measured["phase_reference_velocity"],
-                    {
-                        "long_name": (
-                            "reference phase velocity evaluated at picked "
-                            "instant period"
-                        ),
-                        "units": "km/s",
-                    },
-                ),
-                "picked_group_velocity": (
-                    ("target_period",),
-                    measured["group_velocity"],
-                ),
-                "picked_instant_period": (
-                    ("target_period",),
-                    measured["period"],
-                ),
-                "picked_amplitude": (
-                    ("target_period",),
-                    measured["amplitude"],
-                ),
-                "phase_cycle_shift": (
-                    (),
-                    measured["phase_cycle_shift"],
-                    {
-                        "long_name": (
-                            "global integer cycle shift applied to phase slowness"
-                        )
-                    },
-                ),
-                "phase_cycle_reference_score_cycles": (
-                    (),
-                    measured["phase_cycle_reference_score_cycles"],
-                    {
-                        "long_name": (
-                            "median absolute reference residual after correction"
-                        ),
-                        "units": "cycles",
-                    },
-                ),
-                "phase_cycle_reference_score_gap_cycles": (
-                    (),
-                    measured["phase_cycle_reference_score_gap_cycles"],
-                    {
-                        "long_name": (
-                            "reference-score gap between best and second-best shifts"
-                        ),
-                        "units": "cycles",
-                    },
-                ),
-                "phase_cycle_candidate_reference_score_cycles": (
-                    ("cycle_shift_candidate",),
-                    measured["phase_cycle_candidate_reference_score_cycles"],
-                    {"units": "cycles"},
-                ),
-                "phase_cycle_valid_count": (
-                    (),
-                    measured["phase_cycle_valid_count"],
-                    {"long_name": "period count used for global cycle selection"},
-                ),
-                "phase_cycle_search_limit_reached": (
-                    (),
-                    measured["phase_cycle_search_limit_reached"],
-                    {"long_name": "one when the selected shift reaches max_shift"},
-                ),
-            },
-            coords={
-                "target_period": measured["target_period"],
-                "phase_velocity": phase_velocity,
-                "cycle_shift_candidate": measured["phase_cycle_candidate_shift"],
-            },
+        return phase_velocity_map_dataset(
+            measured,
+            phase_velocity_km_s=phase_velocity,
+            candidate_amplitude=candidate_amplitude,
             attrs={
-                "stage": stage,
-                "branch": branch,
-                "input_file": str(source_file),
-                "distance_km": float(self.distance_km),
-                "alpha": float(alpha),
-                "alpha_mode": alpha_mode,
-                "velocity_min": float(self.config.velocity_min),
-                "velocity_max": float(self.config.velocity_max),
-                "period_min": float(np.nanmin(measured["target_period"])),
-                "period_max": float(np.nanmax(measured["target_period"])),
-                "period_sampling_mode": self.config.period_sampling.mode,
+                **self._product_attrs(
+                    stage=stage,
+                    source_file=source_file,
+                    branch=branch,
+                    alpha=alpha,
+                    target_period=measured["target_period"],
+                ),
                 "phase_cycle_count": int(cycle_count),
                 "phase_cycle_selection_method": (
                     "global minimum median absolute reference travel-time residual"
@@ -585,18 +444,6 @@ class AFTANMeasurement:
                 **self.time_taper_attrs(),
             },
         )
-
-    def _amplitude_time_to_velocity(
-        self,
-        amplitude: np.ndarray,
-        velocity: np.ndarray,
-    ) -> np.ndarray:
-        times = self.time[: self.trace.stats.npts]
-        out = np.full((amplitude.shape[0], velocity.size), np.nan)
-        for idx, amp in enumerate(amplitude):
-            query_time = self.distance_km / velocity
-            out[idx] = np.interp(query_time, times, amp, left=np.nan, right=np.nan)
-        return out
 
     def _ftan_complex(
         self,
@@ -823,78 +670,26 @@ class AFTANMeasurement:
         target_periods: np.ndarray,
         snr_signal_data: np.ndarray | None = None,
     ) -> np.ndarray:
-        if config.definition == "pyftan":
-            return self._pyftan_spectral_snr(
-                self.snr_data if snr_signal_data is None else snr_signal_data,
-                period,
-                group_velocity,
-                config,
-                alpha,
-            )
-
         snr_data = self.snr_data if snr_signal_data is None else snr_signal_data
         valid = np.isfinite(period) & (period > 0)
-        snr = np.zeros(period.size)
         if not np.any(valid):
-            return snr
-
-        ft = self._ftan_complex(snr_data, period[valid], alpha)
-        envelope = np.abs(ft[: self.trace.stats.npts, :])
-        work_trace = Trace(header=self.trace.stats)
-        valid_indices = np.flatnonzero(valid)
-        for column, idx in enumerate(valid_indices):
-            if config.definition == "aftan":
-                peak_time = self.distance_km / group_velocity[idx]
-                peak_index = int(
-                    np.argmin(np.abs(self.time[: self.trace.stats.npts] - peak_time))
-                )
-                snr[idx] = _aftan_diagram_snr(envelope[:, column], peak_index, config)
-            else:
-                work_trace.data = envelope[:, column]
-                snr[idx] = _window_snr(
-                    work_trace,
-                    self.distance_km,
-                    period[idx],
-                    group_velocity[idx],
-                    self.max_period,
-                    config,
-                )
-            if snr[idx] <= 0:
-                break
-        return snr
-
-    def _pyftan_spectral_snr(
-        self,
-        signal_data: np.ndarray,
-        period: np.ndarray,
-        group_velocity: np.ndarray,
-        config: AFTANSNRConfig,
-        alpha: float,
-    ) -> np.ndarray:
-        valid = np.isfinite(period) & (period > 0)
-        snr = np.zeros(period.size)
-        if not np.any(valid):
-            return snr
-
-        filtered = self._ftan_complex(signal_data, period[valid], alpha).real[
-            : self.trace.stats.npts,
-            :,
-        ]
-        work_trace = Trace(header=self.trace.stats)
-        valid_indices = np.flatnonzero(valid)
-        for column, idx in enumerate(valid_indices):
-            work_trace.data = filtered[:, column]
-            snr[idx] = _window_snr(
-                work_trace,
-                self.distance_km,
-                period[idx],
-                group_velocity[idx],
-                self.config.max_period,
-                config,
-            )
-            if snr[idx] <= 0:
-                break
-        return snr
+            return np.zeros(period.size)
+        # PyAFTAN windows scale with the configured max period; local windows
+        # use the effective (short-distance guarded) max period.
+        max_period_s = (
+            self.config.max_period if config.definition == "pyftan" else self.max_period
+        )
+        return spectral_snr(
+            self._ftan_complex(snr_data, period[valid], alpha),
+            period,
+            group_velocity,
+            valid=valid,
+            header=self.trace.stats,
+            time_s=self.time,
+            distance_km=self.distance_km,
+            max_period_s=max_period_s,
+            config=config,
+        )
 
 
 def _select_phase_cycle(
@@ -1061,32 +856,6 @@ def _period_count_from_sampling(
     raise ValueError(f"period count cannot be inferred for mode {config.mode!r}.")
 
 
-def _align_to_period_grid(
-    target_period: np.ndarray,
-    picked_target_period: np.ndarray,
-    values: np.ndarray,
-) -> np.ndarray:
-    """Align picked values to the full target-period grid."""
-    aligned = np.full(target_period.size, np.nan, dtype=float)
-    if picked_target_period.size == 0:
-        return aligned
-
-    indices = np.searchsorted(target_period, picked_target_period)
-    for period, item, value in zip(picked_target_period, indices, values):
-        candidates = []
-        if item < target_period.size:
-            candidates.append(item)
-        if item > 0:
-            candidates.append(item - 1)
-        if not candidates:
-            continue
-        best = min(candidates, key=lambda idx: abs(target_period[idx] - period))
-        tolerance = max(1e-8, abs(period) * 1e-8)
-        if abs(target_period[best] - period) <= tolerance:
-            aligned[best] = value
-    return aligned
-
-
 def _pmf_period_bounds(
     apparent_period: np.ndarray,
     config_min_period: float,
@@ -1104,56 +873,6 @@ def _pmf_period_bounds(
             f"{period_min:.6g}-{period_max:.6g} s."
         )
     return period_min, period_max, period_min, period_max
-
-
-def _phase_velocity_candidate_map(
-    period: np.ndarray,
-    group_velocity: np.ndarray,
-    phase: np.ndarray,
-    picked_phase_velocity: np.ndarray,
-    amplitude: np.ndarray,
-    distance_km: float,
-    velocity: np.ndarray,
-    cycle_count: int,
-    normalize: bool,
-) -> np.ndarray:
-    out = np.zeros((period.size, velocity.size), dtype=float)
-    if velocity.size < 2:
-        return out
-
-    sigma = max(float(np.median(np.diff(velocity))) * 1.5, 1e-6)
-    offsets = np.arange(-int(cycle_count), int(cycle_count) + 1)
-    for idx, (per, gv, ph, pv, amp) in enumerate(
-        zip(period, group_velocity, phase, picked_phase_velocity, amplitude)
-    ):
-        if not all(np.isfinite(value) for value in (per, gv, ph, pv, amp)):
-            continue
-        if per <= 0 or gv <= 0 or pv <= 0:
-            continue
-        omega = tau / per
-        time = distance_km / gv
-        base = omega * time - ph
-        selected_denominator = omega * distance_km / pv
-        selected_cycle = int(np.rint((selected_denominator - base) / tau))
-        cycles = selected_cycle + offsets
-        for cycle in cycles:
-            denominator = base + cycle * tau
-            if abs(denominator) < 1e-10:
-                continue
-            candidate_velocity = omega * distance_km / denominator
-            if not np.isfinite(candidate_velocity):
-                continue
-            if candidate_velocity < velocity[0] or candidate_velocity > velocity[-1]:
-                continue
-            out[idx] += amp * np.exp(
-                -0.5 * ((velocity - candidate_velocity) / sigma) ** 2
-            )
-
-    if normalize:
-        scale = np.nanmax(out, axis=1, keepdims=True)
-        scale[~np.isfinite(scale) | (scale == 0)] = 1.0
-        out = out / scale
-    return out
 
 
 def _resolve_alpha(config: AFTANAlphaConfig, distance_km: float) -> float:

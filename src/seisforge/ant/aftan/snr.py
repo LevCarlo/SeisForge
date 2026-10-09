@@ -10,6 +10,56 @@ from .io import _trace_times
 from .models import AFTANSNRConfig
 
 
+def spectral_snr(
+    ftan: np.ndarray,
+    period: np.ndarray,
+    group_velocity: np.ndarray,
+    *,
+    valid: np.ndarray,
+    header,
+    time_s: np.ndarray,
+    distance_km: float,
+    max_period_s: float,
+    config: AFTANSNRConfig,
+) -> np.ndarray:
+    """SNR of each picked period from its narrow-band FTAN-filtered trace.
+
+    ``ftan`` holds the complex Gaussian-filtered traces (time x valid period)
+    of the SNR input waveform at the picked instantaneous periods.
+
+    - ``pyftan``: window SNR of the filtered real trace (PyAFTAN/Bensen windows).
+    - ``aftan``: FTAN-diagram contrast of the envelope at ``t = distance / U``.
+    - ``local``: window SNR of the envelope around ``t = distance / U``.
+
+    As in AFTAN, evaluation stops at the first non-positive SNR.
+    """
+    snr = np.zeros(period.size)
+    npts = header.npts
+    if config.definition == "pyftan":
+        columns = ftan.real[:npts, :]
+    else:
+        columns = np.abs(ftan[:npts, :])
+    work_trace = Trace(header=header)
+    for column, idx in enumerate(np.flatnonzero(valid)):
+        if config.definition == "aftan":
+            peak_time = distance_km / group_velocity[idx]
+            peak_index = int(np.argmin(np.abs(time_s[:npts] - peak_time)))
+            snr[idx] = _aftan_diagram_snr(columns[:, column], peak_index, config)
+        else:
+            work_trace.data = columns[:, column]
+            snr[idx] = _window_snr(
+                work_trace,
+                distance_km,
+                period[idx],
+                group_velocity[idx],
+                max_period_s,
+                config,
+            )
+        if snr[idx] <= 0:
+            break
+    return snr
+
+
 def _window_snr(
     trace: Trace,
     distance_km: float,

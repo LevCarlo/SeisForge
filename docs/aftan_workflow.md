@@ -184,6 +184,21 @@ The filter workflow is organized around two public concepts in
 - `PhaseMatchedFilter` performs phase correction, spectral tapering,
   time-domain cleanup, and redispersion before the second Gaussian FTAN pass.
 
+Inside `seisforge.ant.aftan`, each module has a single role:
+
+| Module | Role |
+|---|---|
+| `config`, `models` | YAML parsing, validation, frozen config/result dataclasses |
+| `branch`, `phase` | positive/negative/stack branch extraction, component and `pi/4` conventions |
+| `taper` | time-domain input taper weights (pure functions) |
+| `core` | `AFTANMeasurement`: Gaussian FTAN, peak interpolation, jump correction, phase velocity, cycle selection |
+| `snr` | SNR definitions (`spectral_snr`, window and diagram SNR) |
+| `products` | energy and phase-velocity diagnostic maps and their xarray datasets |
+| `qc` | period-mismatch and retained-branch QC |
+| `io`, `plot` | SAC/path helpers, `.dat` writer, summary figure |
+| `cycle` | post-pick manual phase-cycle override (`aftan-cycle-set`) |
+| `driver` | per-file/per-branch orchestration, overwrite policy, logs |
+
 The alpha helpers keep the three common choices explicit:
 
 - `gaussian_alpha_from_distance`: empirical distance-alpha table.

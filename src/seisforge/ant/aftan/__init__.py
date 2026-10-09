@@ -1,7 +1,8 @@
 """AFTAN dispersion measurement for ambient-noise CCFs."""
 
 from .config import build_station_aftan_config, _override_energy_map_config
-from .core import _align_to_period_grid, apply_phase_cycle_shift
+from .core import apply_phase_cycle_shift
+from .products import _align_to_period_grid
 from .cycle import (
     PhaseCycleOverrideResult,
     infer_dispersion_dat_path,
