@@ -7,6 +7,11 @@ notebook/
 tests/**/*.png
 tests/**/*.nc
 tests/**/*.log
-*/**/__pycache__/
-*.vscode/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.DS_Store
+.vscode/
 examples/STA001/*

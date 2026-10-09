@@ -14,6 +14,25 @@ conda activate seis
 python -m pip install -e ".[dev]"
 ```
 
+Core dependencies include `disba`, which the inversion (`seisforge.inv`) and
+native HVSR forward modelling need. Optional extras:
+
+- `hvsr-fortran`: build tools for the f2py HVSR extension
+  (`python tools/build_hvsr_fortran.py`).
+- `gmt`: `pygmt`, for the GMT `surface` interpolator in Eikonal tomography.
+
+## Development
+
+```bash
+python -m ruff check src tests
+python -m pytest -q
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the same two commands on
+Python 3.10 and 3.12 for pushes to `main`/`modern` and for pull requests. The
+Fortran-extension and HVDFA regression tests are skipped unless the extension
+is built or `SEISFORGE_HVDFA_EXECUTABLE` is set.
+
 ## Command Line Interface
 
 SeisForge groups commands by scientific workflow:
