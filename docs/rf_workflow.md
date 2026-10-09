@@ -168,9 +168,17 @@ prediction.time_s, prediction.rf
   `hk` synthetics. `amplitude="gaussian_peak"` divides by `a / sqrt(pi)` so a
   spike `A` peaks at `A`. Use the convention that matches how the observed RFs
   were normalized.
-- The spectrum is computed on an FFT twice the window length (next power of
-  two) so late reverberations do not wrap into the window, and only where the
-  Gaussian exceeds 1e-12.
+- The result is periodic in the FFT length, so reverberations arriving after
+  it wrap into the window. The FFT covers `max(2 x window, window + 60 s)`
+  (rounded to an FFT-friendly length). If the trace has not decayed to
+  `tail_tolerance` (default 1e-3) of its peak by the end of the padding, the
+  length is doubled, up to 16 times; the doubled grid reuses every existing
+  frequency, so only the new half is computed. A trace that still rings, because the
+  vertical spectrum is nearly zero and `R/Z` has a near-pole, raises an error
+  instead of returning a wrapped result. Against a 131072-point FFT the
+  default is accurate to about 1e-4 of the peak even for a 15 s window. An
+  explicit `n_fft` is used as given.
+- Only frequencies where the Gaussian exceeds 1e-12 are computed.
 - Every layer and the half-space must have `p < 1/Vp` (no evanescent P), which
   holds for teleseismic P; otherwise a `ForwardError` is raised.
 - Not yet supported: S receiver functions, fluid (water) layers, attenuation.
@@ -188,10 +196,21 @@ prediction.time_s, prediction.rf
 The pyhk difference is not a density effect (no density law reproduces it),
 so pyhk is not used as a reference.
 
-**Cost.** Linear in the number of layers and in the number of frequencies the
-Gaussian passes: about 4-9 ms for a 67-layer model and 30-60 s windows
-(`dt = 0.05-0.1 s`, `a = 1-2.5`), 2-4 times one 40-period disba dispersion
-curve on the same model.
+**Cost.** The frequency loop is a numba kernel in the up/down wave basis:
+each layer costs a phase multiplication and one real 4x4 transfer matrix, and
+the layer phases follow a frequency recurrence (refreshed every 64
+frequencies). The kernel releases the GIL, so the `thread` MCMC executor
+runs chains in parallel (4 threads: about 3x). Typical times:
+
+| model | 60 s, dt 0.05, a 2.5 | 30 s, dt 0.1, a 1.0 | 40 s, dt 0.02, a 5.0 |
+|---|---|---|---|
+| ~20 layers | 0.22 ms | 0.11 ms | 0.34 ms |
+| ~67 layers | 0.48 ms | 0.19 ms | 0.79 ms |
+| ~200 layers | 1.33 ms | 0.48 ms | 2.16 ms |
+
+That is below one 40-period disba dispersion curve on the same model. A
+degenerate model with zero vertical surface motion raises `ValueError`
+(`ForwardError` through `predict_receiver_function`).
 
 ## Code Layout
 

@@ -29,6 +29,7 @@ dependencies = [
     "pyyaml>=6.0",
     "tqdm>=4.60",
     "disba>=0.6",
+    "numba>=0.57",
 ]
 
 [project.optional-dependencies]

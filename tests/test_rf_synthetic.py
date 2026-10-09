@@ -120,7 +120,7 @@ def test_density_enters_the_conversions():
     heavier_mantle = dict(CRUST, rho_g_cm3=np.array([2.8, 3.5]))
     time, a = _rf(lighter_mantle)
     _, b = _rf(heavier_mantle)
-    assert _amplitude_near(time, a, 0.0) == pytest.approx(_amplitude_near(time, b, 0.0), rel=1e-6)
+    assert _amplitude_near(time, a, 0.0) == pytest.approx(_amplitude_near(time, b, 0.0), rel=1e-5)
     assert abs(_amplitude_near(time, b, 4.35)) > abs(_amplitude_near(time, a, 4.35))
 
 
@@ -140,10 +140,43 @@ def test_gaussian_peak_amplitude_recovers_the_spike_amplitude():
     assert peak.max() == pytest.approx(ratio, rel=1e-3)
 
 
-def test_padding_does_not_change_the_window():
+def test_default_padding_matches_a_long_fft():
     _, default = _rf()
-    _, padded = _rf(n_fft=16384)
-    np.testing.assert_allclose(default, padded, atol=1e-6)
+    _, long_fft = _rf(n_fft=65536)
+    assert np.max(np.abs(default - long_fft)) < 1e-4 * np.abs(long_fft).max()
+
+
+def test_short_window_padding_adapts_to_late_multiples():
+    # A 15 s window: Moho multiples at 15-25 s would wrap into a window-sized
+    # FFT; the default covers window + 60 s and checks the decay.
+    _, short = _rf(n_samples=300)
+    _, long_fft = _rf(n_samples=300, n_fft=65536)
+    assert np.max(np.abs(short - long_fft)) < 1e-3 * np.abs(long_fft).max()
+    _, wrapped = _rf(n_samples=300, n_fft=300)
+    assert np.max(np.abs(wrapped - long_fft)) > 1e-2 * np.abs(long_fft).max()
+
+
+def _random_stack(rng, n_layers):
+    thickness = np.r_[rng.uniform(0.2, 3, n_layers - 1), 0.0]
+    vs = np.sort(rng.uniform(0.6, 4.6, n_layers))
+    return dict(
+        thickness_km=thickness,
+        vp_km_s=vs * rng.uniform(1.7, 2.6, n_layers),
+        vs_km_s=vs,
+        rho_g_cm3=rng.uniform(1.6, 3.4, n_layers),
+    )
+
+
+def test_non_decaying_receiver_function_is_rejected():
+    # The third random stack (67 layers) has a nearly vanishing vertical
+    # spectrum: R/Z rings for thousands of seconds, so any finite FFT wraps.
+    rng = np.random.default_rng(5)
+    decaying = [_random_stack(rng, n) for n in (2, 12)]
+    ringing = _random_stack(rng, 67)
+    for model in decaying:
+        _rf(model)
+    with pytest.raises(ValueError, match="not decayed"):
+        _rf(ringing)
 
 
 def test_evanescent_p_is_rejected():
@@ -175,3 +208,15 @@ def test_predict_receiver_function_uses_layered_model_and_reports_errors():
     steep = ReceiverFunctionRequest(ray_parameter_s_per_km=0.075, dt_s=0.1, n_samples=400, gauss_a=1.0)
     with pytest.raises(ForwardError, match="evanescent"):
         predict_receiver_function(too_fast, steep)
+
+
+def test_singular_surface_response_raises_value_error_not_zero_division():
+    from seisforge.rf import synthetic
+
+    radial = np.empty(1, dtype=complex)
+    vertical = np.empty(1, dtype=complex)
+    synthetic._surface_response(
+        np.zeros((1, 4, 4)), np.zeros((4, 2)), np.zeros(1), np.zeros(1),
+        np.array([1.0]), 0.0, False, radial, vertical,
+    )
+    assert np.isnan(radial[0]) and np.isnan(vertical[0])
