@@ -269,6 +269,12 @@ def event_fields_to_dataset(
                 "s_H^2=|grad(travel_time)|^2-laplacian(amplitude)/"
                 "(amplitude*omega^2)"
             ),
+            "laplacian_metric": config.eikonal.laplacian_metric,
+            "laplacian_formula": (
+                "f_xx+f_yy-(tan(lat)/N)*f_y (WGS84 arc-length coordinates)"
+                if config.eikonal.laplacian_metric == "ellipsoidal"
+                else "f_xx+f_yy (locally flat, compatibility)"
+            ),
             "config_yaml": config_yaml(config),
         },
     )

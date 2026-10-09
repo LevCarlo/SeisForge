@@ -99,6 +99,9 @@ class EikonalMethodConfig:
     min_apparent_velocity_km_s: float = 2.0
     max_apparent_velocity_km_s: float = 5.0
     boundary_cells_to_mask: int = 1
+    # ellipsoidal (default) or locally_flat (compatibility: omits the
+    # -(tan(lat)/N) df/dy metric term, as SeisForge did before).
+    laplacian_metric: str = "ellipsoidal"
 
 
 @dataclass(frozen=True)

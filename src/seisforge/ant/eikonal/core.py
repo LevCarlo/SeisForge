@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from .grid import wrap_angle_180
+from .grid import prime_vertical_radius_km, wrap_angle_180
 from .models import GeographicGrid
+
+
+LAPLACIAN_METRICS = ("ellipsoidal", "locally_flat")
 
 
 def phase_travel_time_s(
@@ -52,16 +55,42 @@ def scalar_field_gradient_per_km(
 def travel_time_laplacian_s_per_km2(
     travel_time_s: np.ndarray,
     grid: GeographicGrid,
+    *,
+    metric: str = "ellipsoidal",
 ) -> np.ndarray:
     """Compute the horizontal travel-time Laplacian."""
-    return scalar_field_laplacian_per_km2(travel_time_s, grid)
+    return scalar_field_laplacian_per_km2(travel_time_s, grid, metric=metric)
+
+
+def parallel_convergence_per_km(latitude_deg: np.ndarray) -> np.ndarray:
+    """``(1/r) dr/dy = -tan(lat) / N`` for the parallel radius ``r = N cos(lat)``.
+
+    ``y`` is meridian arc length, so ``dr/dy = (d(N cos lat)/d lat) / M =
+    -sin(lat)`` exactly on the ellipsoid, with ``M`` and ``N`` the meridional
+    and prime-vertical radii of curvature.
+    """
+    latitude_rad = np.deg2rad(np.asarray(latitude_deg, dtype=float))
+    return -np.tan(latitude_rad) / prime_vertical_radius_km(latitude_deg)
 
 
 def scalar_field_laplacian_per_km2(
     field_values: np.ndarray,
     grid: GeographicGrid,
+    *,
+    metric: str = "ellipsoidal",
 ) -> np.ndarray:
-    """Compute a scalar field's horizontal Laplacian on the metric grid."""
+    """Horizontal Laplacian in grid arc-length coordinates.
+
+    With ``x`` the arc length along each parallel and ``y`` along the
+    meridian, the surface Laplacian is
+
+        f_xx + f_yy + (1/r) (dr/dy) f_y,   (1/r) dr/dy = -tan(lat) / N.
+
+    ``metric="locally_flat"`` drops the last term; it reproduces SeisForge
+    results before the metric term was added and is kept for comparison only.
+    """
+    if metric not in LAPLACIAN_METRICS:
+        raise ValueError(f"metric must be one of {LAPLACIAN_METRICS}.")
     gradient_north, gradient_east = scalar_field_gradient_per_km(
         field_values, grid
     )
@@ -75,7 +104,12 @@ def scalar_field_laplacian_per_km2(
             grid.x_km_by_latitude[row],
             edge_order=2,
         )
-    return second_north + second_east
+    laplacian = second_north + second_east
+    if metric == "ellipsoidal":
+        laplacian = laplacian + (
+            parallel_convergence_per_km(grid.latitude_deg)[:, None] * gradient_north
+        )
+    return laplacian
 
 
 def apparent_slowness_s_per_km(

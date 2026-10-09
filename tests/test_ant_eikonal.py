@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import sys
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from seisforge.ant.eikonal import (
@@ -496,3 +497,48 @@ output:
 compute:
   workers: 1
 """
+
+
+@pytest.mark.parametrize("latitude_deg", [0.0, 35.0, 60.0])
+def test_ellipsoidal_laplacian_of_epicentral_distance_matches_sphere(latitude_deg):
+    from seisforge.ant.eikonal.core import scalar_field_laplacian_per_km2
+    from seisforge.ant.eikonal.grid import (
+        EARTH_RADIUS_KM,
+        build_geographic_grid,
+        geodesic_distance_and_azimuth,
+    )
+    from seisforge.ant.eikonal.models import GridConfig
+
+    grid = build_geographic_grid(
+        GridConfig(
+            longitude_convention="-180_180",
+            min_longitude_deg=100.0,
+            max_longitude_deg=104.0,
+            longitude_step_deg=0.05,
+            min_latitude_deg=latitude_deg,
+            max_latitude_deg=latitude_deg + 4.0,
+            latitude_step_deg=0.05,
+        )
+    )
+    # Source due south of the grid maximises the north gradient of distance.
+    distance_km, _ = geodesic_distance_and_azimuth(
+        102.0, latitude_deg - 3.0, grid.longitude_2d_deg, grid.latitude_2d_deg
+    )
+    # On a sphere, Laplacian(distance) = 1 / (R tan(distance / R)).
+    expected = 1.0 / (EARTH_RADIUS_KM * np.tan(distance_km / EARTH_RADIUS_KM))
+    inner = (slice(2, -2), slice(2, -2))
+
+    ellipsoidal = scalar_field_laplacian_per_km2(distance_km, grid)
+    np.testing.assert_allclose(ellipsoidal[inner], expected[inner], rtol=2e-3)
+
+    flat = scalar_field_laplacian_per_km2(distance_km, grid, metric="locally_flat")
+    flat_error = np.median(np.abs(flat[inner] / expected[inner] - 1.0))
+    if latitude_deg >= 35.0:
+        assert flat_error > 0.05
+
+
+def test_laplacian_metric_is_validated():
+    from seisforge.ant.eikonal.core import scalar_field_laplacian_per_km2
+
+    with pytest.raises(ValueError, match="metric"):
+        scalar_field_laplacian_per_km2(np.zeros((3, 3)), None, metric="spherical")

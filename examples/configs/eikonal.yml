@@ -52,6 +52,9 @@ eikonal:
   min_apparent_velocity_km_s: 2.0
   max_apparent_velocity_km_s: 5.0
   boundary_cells_to_mask: 1
+  # ellipsoidal: f_xx + f_yy - tan(lat)/N f_y (default). locally_flat drops the
+  # metric term and only reproduces older SeisForge results.
+  laplacian_metric: ellipsoidal
 
 helmholtz:
   # Requires amplitude(path, period) in the input Dataset.

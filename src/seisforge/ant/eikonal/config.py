@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from .core import LAPLACIAN_METRICS
 from .models import (
     AzimuthWeightingConfig,
     ComputeConfig,
@@ -120,6 +121,7 @@ def build_eikonal_config(
         boundary_cells_to_mask=int(
             method_raw.get("boundary_cells_to_mask", 1)
         ),
+        laplacian_metric=str(method_raw.get("laplacian_metric", "ellipsoidal")),
     )
     helmholtz = HelmholtzConfig(
         enabled=bool(helmholtz_raw.get("enabled", False)),
@@ -266,6 +268,10 @@ def _validate(config: EikonalRunConfig) -> None:
         )
     if config.eikonal.gradient_scheme != "second_order":
         raise ValueError("eikonal.gradient_scheme currently supports second_order.")
+    if config.eikonal.laplacian_metric not in LAPLACIAN_METRICS:
+        raise ValueError(
+            f"eikonal.laplacian_metric must be one of {list(LAPLACIAN_METRICS)}."
+        )
     if config.eikonal.min_apparent_velocity_km_s <= 0:
         raise ValueError("minimum apparent velocity must be positive.")
     if (

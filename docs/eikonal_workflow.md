@@ -122,17 +122,33 @@ c_H = 1/s_H
 ```
 
 Derivatives are taken on the regular longitude/latitude grid with metric
-spacing: geodesic distances along each latitude row for the east direction and
-along the central meridian for the north direction. The Laplacian is the sum of
-the two second derivatives in these local coordinates, i.e. a locally flat
-approximation. It omits the spherical metric term `-(tan(lat)/R) df/dy`. For a
-travel-time field (`|df/dy| <= 1/c`), that term is at most about
-`tan(lat)/(R c)`: roughly `4e-5 s/km^2` at 40 deg latitude and `c = 3 km/s`. The
-geometric-spreading curvature at 300 km from a source is about
-`1/(c r) = 1e-3 s/km^2`, so the omitted term is a few percent there and grows
-relative to it far from the source and at high latitude. Keep this in mind
-when the region spans many degrees of latitude or when the Laplacian QC and the
-Helmholtz correction matter at the percent level.
+spacing: WGS84 geodesic arc length along each latitude row (`x`, east) and along
+the central meridian (`y`, north). In these coordinates the surface Laplacian
+is
+
+```text
+Laplacian(f) = f_xx + f_yy - (tan(lat) / N) f_y
+```
+
+where `N` is the WGS84 prime-vertical radius of curvature. The last term comes
+from parallels converging toward the pole: the parallel radius `r = N cos(lat)`
+changes along `y` as `dr/dy = -sin(lat)`. It is applied to both the
+travel-time Laplacian (curvature QC) and the amplitude Laplacian (Helmholtz
+correction).
+
+```yaml
+eikonal:
+  laplacian_metric: ellipsoidal   # default; locally_flat = compatibility only
+```
+
+`locally_flat` drops the metric term and reproduces earlier SeisForge results.
+Against the analytic Laplacian of epicentral distance, `1/(R tan(D/R))`, the
+ellipsoidal form is accurate to 0.12% at 0-64 deg latitude. The flat form is off
+by a median 6.5% at 35-39 deg N and up to 25% at 60-64 deg N for a source
+300-700 km due south. The practical effect is small: the travel-time Laplacian
+stays far below the default curvature threshold (`5e-3 s/km^2`), and Helmholtz
+velocities for geometric-spreading amplitudes change by less than 0.5 m/s at
+20-50 s. Event-field files record `laplacian_metric` and `laplacian_formula`.
 
 The curvature QC follows surfpy's criterion
 `abs(Laplacian(A)/(A*omega^2)) <= 1/c_ref^2`, where `c_ref` is

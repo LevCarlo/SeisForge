@@ -59,6 +59,12 @@ def build_geographic_grid(config: GridConfig) -> GeographicGrid:
     )
 
 
+def prime_vertical_radius_km(latitude_deg: np.ndarray) -> np.ndarray:
+    """WGS84 prime-vertical radius of curvature ``N = a / sqrt(1 - e^2 sin^2 lat)``."""
+    sin_lat = np.sin(np.deg2rad(np.asarray(latitude_deg, dtype=float)))
+    return WGS84.a / np.sqrt(1.0 - WGS84.es * sin_lat**2) / 1000.0
+
+
 def local_xy_km(
     longitude_deg: np.ndarray,
     latitude_deg: np.ndarray,

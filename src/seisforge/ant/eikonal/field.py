@@ -175,7 +175,9 @@ def compute_event_field(
     slowness = apparent_slowness_s_per_km(gradient_north, gradient_east)
     velocity = apparent_velocity_km_s(slowness)
     propagation = propagation_angle_deg(gradient_north, gradient_east)
-    laplacian = travel_time_laplacian_s_per_km2(gridded_time, grid)
+    laplacian = travel_time_laplacian_s_per_km2(
+        gridded_time, grid, metric=method.laplacian_metric
+    )
 
     rejection = np.zeros(grid.shape, dtype=np.uint8)
     nonfinite = ~np.isfinite(gridded_time)
@@ -263,6 +265,7 @@ def compute_event_field(
         eikonal_slowness_s_per_km=slowness,
         eikonal_rejection_reason=rejection,
         source_qc=qc,
+        laplacian_metric=method.laplacian_metric,
     )
     return EventField(
         source_station=source_station,
@@ -312,6 +315,7 @@ def _compute_helmholtz_field(
     eikonal_slowness_s_per_km: np.ndarray,
     eikonal_rejection_reason: np.ndarray,
     source_qc: EikonalQCConfig,
+    laplacian_metric: str = "ellipsoidal",
 ) -> HelmholtzField:
     """Interpolate amplitude and apply the single-source Helmholtz correction."""
     enabled = config.enabled and period_s >= config.min_period_s
@@ -346,7 +350,9 @@ def _compute_helmholtz_field(
             grid.shape, measurement_count=measurement_count
         )
 
-    laplacian = scalar_field_laplacian_per_km2(gridded_amplitude, grid)
+    laplacian = scalar_field_laplacian_per_km2(
+        gridded_amplitude, grid, metric=laplacian_metric
+    )
     correction = amplitude_laplacian_correction_s2_per_km2(
         gridded_amplitude, laplacian, period_s=float(period_s)
     )
