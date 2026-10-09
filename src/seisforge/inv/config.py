@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 
 from seisforge.inv.io import load_yaml, read_dispersion_dat, read_hv_dat
 from seisforge.inv.likelihood import DispersionObservation, RayleighHVObservation
@@ -75,6 +75,8 @@ def config_with_observations(
 ) -> tuple[dict, Path | None, Path | None]:
     """Merge observation metadata, forward settings, and .dat arrays."""
 
+    if kind not in get_args(InversionKind):
+        raise ValueError(f"kind must be one of {list(get_args(InversionKind))}, got {kind!r}.")
     run_config = copy.deepcopy(inv_config)
     observation_specs = observation_specs_from_config(obs_config)
     observations = {}

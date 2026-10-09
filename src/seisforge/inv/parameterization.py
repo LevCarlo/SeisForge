@@ -12,13 +12,12 @@ from typing import Any
 
 import numpy as np
 
-from seisforge.inv.model import (
-    BSplineVs,
-    ConstantVs,
-    GradientVs,
-    ParameterizedVsModel,
-    ScalingConfig,
-    VsSegment,
+from seisforge.inv.model import ParameterizedVsModel, ScalingConfig
+from seisforge.inv.model_config import (
+    parameter_references,
+    parameterized_model_from_config,
+    scaling_from_config,
+    validate_model_layout,
 )
 
 
@@ -43,6 +42,63 @@ class UniformPrior:
 
 
 @dataclass(frozen=True)
+class NormalPrior:
+    """Gaussian prior truncated to ``[lower, upper]`` (unnormalized log density).
+
+    Typical use: an interface depth with an independent estimate, e.g. Moho
+    depth from H-k stacking as ``mean +/- sigma``.
+    """
+
+    mean: float
+    sigma: float
+    lower: float
+    upper: float
+
+    def __post_init__(self):
+        if not np.isfinite(self.mean) or not np.isfinite(self.sigma) or self.sigma <= 0:
+            raise ValueError("Normal prior mean must be finite and sigma positive.")
+        UniformPrior(self.lower, self.upper)
+
+    def contains(self, value: float) -> bool:
+        return self.lower <= value <= self.upper
+
+    def logpdf(self, value: float) -> float:
+        if not self.contains(value):
+            return -np.inf
+        return float(-0.5 * ((value - self.mean) / self.sigma) ** 2)
+
+
+@dataclass(frozen=True)
+class HalfNormalPrior:
+    """Half-normal prior on ``[lower, upper]`` peaking at ``lower`` (default 0).
+
+    Shrinks a non-negative quantity toward ``lower`` unless the data demand
+    more; used for interface transition widths so that a hard step is the
+    default and a gradational interface must earn its misfit improvement.
+    """
+
+    scale: float
+    upper: float
+    lower: float = 0.0
+
+    def __post_init__(self):
+        if not np.isfinite(self.scale) or self.scale <= 0:
+            raise ValueError("Half-normal prior scale must be finite and positive.")
+        UniformPrior(self.lower, self.upper)
+
+    def contains(self, value: float) -> bool:
+        return self.lower <= value <= self.upper
+
+    def logpdf(self, value: float) -> float:
+        if not self.contains(value):
+            return -np.inf
+        return float(-0.5 * ((value - self.lower) / self.scale) ** 2)
+
+
+ParameterPrior = UniformPrior | NormalPrior | HalfNormalPrior
+
+
+@dataclass(frozen=True)
 class ParameterSpec:
     """One scalar model parameter.
 
@@ -52,7 +108,7 @@ class ParameterSpec:
 
     name: str
     initial: float
-    prior: UniformPrior
+    prior: ParameterPrior
     proposal_sigma: float | None = None
 
     def __post_init__(self):
@@ -118,8 +174,9 @@ class ModelParameterization:
     def vector_to_model(self, theta) -> ParameterizedVsModel:
         theta = self._validate_theta(theta)
         values = dict(zip(self.names, theta))
-        segments = tuple(_segment_from_config(item, values) for item in self.model_config["segments"])
-        return ParameterizedVsModel(segments=segments, scaling=self.scaling)
+        return parameterized_model_from_config(
+            self.model_config, values, default_scaling=self.scaling
+        )
 
     def _validate_theta(self, theta) -> np.ndarray:
         theta = np.asarray(theta, dtype=float)
@@ -139,77 +196,59 @@ def parameterization_from_config(config: dict) -> ModelParameterization:
     model_cfg = config.get("Model", root.get("model"))
     if model_cfg is None:
         raise ValueError("Configuration must contain Model or Inversion.model.")
-    scaling = _scaling_from_model_config(model_cfg)
-    return ModelParameterization(
+    model_config = {
+        key: model_cfg[key]
+        for key in ("segments", "interfaces", "zmax_km")
+        if key in model_cfg
+    }
+    validate_model_layout(model_config)
+    names = {parameter.name for parameter in parameters}
+    unknown = sorted(parameter_references(model_config) - names)
+    if unknown:
+        raise ValueError(f"Model references undefined parameters: {unknown}")
+    parameterization = ModelParameterization(
         parameters=parameters,
-        model_config={"segments": model_cfg["segments"]},
-        scaling=scaling,
+        model_config=model_config,
+        scaling=scaling_from_config(model_cfg.get("scaling")),
     )
+    try:
+        parameterization.vector_to_model(parameterization.theta0())
+    except ValueError as exc:
+        raise ValueError(f"Initial parameter values give an invalid model: {exc}") from exc
+    return parameterization
 
 
 def _parameter_from_config(config: dict) -> ParameterSpec:
-    prior_cfg = config.get("prior", {})
-    prior_type = prior_cfg.get("type", "uniform").lower()
-    if prior_type != "uniform":
-        raise ValueError(f"Unsupported prior type: {prior_cfg.get('type')}")
-    lower, upper = prior_cfg.get("bounds", config.get("bounds"))
     proposal_cfg = config.get("proposal", {})
     proposal_sigma = proposal_cfg.get("sigma", config.get("proposal_sigma"))
     return ParameterSpec(
         name=config["name"],
         initial=float(config["initial"]),
-        prior=UniformPrior(lower=float(lower), upper=float(upper)),
+        prior=prior_from_config(config.get("prior", {}), fallback_bounds=config.get("bounds")),
         proposal_sigma=None if proposal_sigma is None else float(proposal_sigma),
     )
 
 
-def _segment_from_config(config: dict, values: dict[str, float]) -> VsSegment:
-    return VsSegment(
-        top=float(config["top_km"]),
-        bottom=float(config["bottom_km"]),
-        profile=_profile_from_config(config["profile"], values),
-    )
+def prior_from_config(config: dict, *, fallback_bounds=None) -> ParameterPrior:
+    """``uniform`` / ``normal`` / ``half_normal``; ``bounds`` are always required.
 
-
-def _profile_from_config(config: dict, values: dict[str, float]):
-    profile_type = config["type"].lower()
-    if profile_type == "constant":
-        return ConstantVs(value=_resolve_value(config["value"], values))
-    if profile_type == "gradient":
-        return GradientVs(
-            top=_resolve_value(config["top"], values),
-            bottom=_resolve_value(config["bottom"], values),
+    Bounds define the support the sampler explores (and draws starting points
+    from); the prior type defines the density inside it.
+    """
+    prior_type = str(config.get("type", "uniform")).lower()
+    bounds = config.get("bounds", fallback_bounds)
+    if bounds is None:
+        raise ValueError("Every parameter prior needs bounds: [lower, upper].")
+    lower, upper = (float(value) for value in bounds)
+    if prior_type == "uniform":
+        return UniformPrior(lower=lower, upper=upper)
+    if prior_type == "normal":
+        return NormalPrior(
+            mean=float(config["mean"]),
+            sigma=float(config["sigma"]),
+            lower=lower,
+            upper=upper,
         )
-    if profile_type == "bspline":
-        coefficients = [_resolve_value(item, values) for item in config["coefficients"]]
-        return BSplineVs(
-            coefficients=coefficients,
-            degree=config.get("degree", 3),
-            knot_spacing=config.get("knot_spacing", "geometric"),
-            knot_alpha=config.get("knot_alpha", 2.0),
-        )
-    raise ValueError(f"Unknown Vs profile type: {config['type']}")
-
-
-def _resolve_value(config_value, values: dict[str, float]) -> float:
-    if isinstance(config_value, dict):
-        name = config_value.get("parameter")
-        if name is None:
-            raise ValueError("Parameterized values must use {'parameter': name}.")
-        try:
-            return float(values[name])
-        except KeyError as exc:
-            raise ValueError(f"Unknown parameter reference: {name}") from exc
-    return float(config_value)
-
-
-def _scaling_from_model_config(model_cfg: dict) -> ScalingConfig:
-    scaling_cfg = model_cfg.get("scaling", {})
-    vp_cfg = scaling_cfg.get("vp", {})
-    rho_cfg = scaling_cfg.get("rho", {})
-    return ScalingConfig(
-        vp_method=vp_cfg.get("method", "brocher2005"),
-        rho_method=rho_cfg.get("method", "brocher2005"),
-        vp_kwargs={k: v for k, v in vp_cfg.items() if k != "method"} or None,
-        rho_kwargs={k: v for k, v in rho_cfg.items() if k != "method"} or None,
-    )
+    if prior_type == "half_normal":
+        return HalfNormalPrior(scale=float(config["scale"]), lower=lower, upper=upper)
+    raise ValueError(f"Unsupported prior type: {config.get('type')}")

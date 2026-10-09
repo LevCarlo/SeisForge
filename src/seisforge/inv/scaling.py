@@ -73,6 +73,14 @@ def constant_rho(vs: ArrayLike, rho: float = 2.7) -> ArrayLike:
     return np.full_like(np.asarray(vs, dtype=float), fill_value=rho, dtype=float)
 
 
+def gardner_rho_from_vp(vp: ArrayLike, *, a: float = 1.741, b: float = 0.25) -> ArrayLike:
+    """Gardner et al. (1974) density ``rho = a * Vp**b`` (Vp in km/s, rho in g/cm^3).
+
+    The defaults are the km/s form of Gardner's relation for sedimentary rocks.
+    """
+    return a * np.asarray(vp, dtype=float) ** b
+
+
 VP_SCALINGS: dict[str, Callable[..., ArrayLike]] = {
     "brocher2005": brocher_vp_from_vs,
     "constant_vp_vs": constant_vp_vs,
@@ -100,3 +108,9 @@ def estimate_rho(vs: ArrayLike, method: str = "brocher2005", **kwargs) -> ArrayL
     except KeyError:
         raise ValueError(f"Unknown method '{method}' for estimating density. Available methods: {list(RHO_SCALINGS.keys())}") from None
     return func(vs, **kwargs)
+
+
+# Density relations that take Vp (computed first by the Vp relation) as input.
+RHO_FROM_VP_SCALINGS: dict[str, Callable[..., ArrayLike]] = {
+    "gardner1974": gardner_rho_from_vp,
+}

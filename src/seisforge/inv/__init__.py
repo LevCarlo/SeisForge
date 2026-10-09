@@ -78,6 +78,7 @@ from seisforge.inv.model import (
     ConstantVs,
     DiscretizationConfig,
     GradientVs,
+    Interface,
     LayeredModel,
     LayeredVsModel,
     ParameterizedVsModel,
@@ -90,11 +91,30 @@ from seisforge.inv.model import (
     layered_vs_model_from_layer_top_depths,
     parameterized_vs_model_from_depth_profile,
 )
+from seisforge.inv.layering import (
+    LayerGeometry,
+    LayeringReport,
+    layer_geometry,
+    layered_model_from_parameterized,
+    layering_report,
+)
+from seisforge.inv.model_config import (
+    parameterized_model_from_config,
+    parameterized_model_to_config,
+)
 from seisforge.inv.parameterization import (
+    HalfNormalPrior,
     ModelParameterization,
+    NormalPrior,
     ParameterSpec,
     UniformPrior,
     parameterization_from_config,
+    prior_from_config,
+)
+from seisforge.inv.transitions import (
+    TRANSITION_SHAPES,
+    transition_half_support_km,
+    transition_weight,
 )
 from seisforge.inv.plotting import layer_stairs, model_property_stairs, plot_vs_layering
 from seisforge.inv.posterior import JointInversionTarget, JointPosteriorResult
@@ -134,6 +154,20 @@ from seisforge.inv.setup import (
 )
 
 __all__ = [
+    "HalfNormalPrior",
+    "Interface",
+    "LayerGeometry",
+    "LayeringReport",
+    "NormalPrior",
+    "TRANSITION_SHAPES",
+    "layer_geometry",
+    "layered_model_from_parameterized",
+    "layering_report",
+    "parameterized_model_from_config",
+    "parameterized_model_to_config",
+    "prior_from_config",
+    "transition_half_support_km",
+    "transition_weight",
     "BoundaryNonDecreasingVsConstraint",
     "BSplineFit",
     "BSplineVs",

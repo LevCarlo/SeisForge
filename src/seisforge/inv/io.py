@@ -12,14 +12,14 @@ import yaml
 from seisforge.inv.ensemble import VsEnsemble
 from seisforge.inv.forward import DispersionRequest, RayleighHVRequest
 from seisforge.inv.model import (
-    BSplineVs,
-    ConstantVs,
     DiscretizationConfig,
-    GradientVs,
     LayeredVsModel,
     ParameterizedVsModel,
-    ScalingConfig,
-    VsSegment,
+)
+from seisforge.inv.model_config import (
+    parameterized_model_from_config,
+    parameterized_model_to_config,
+    scaling_from_config,
 )
 from seisforge.inv.predictive import JointPredictionEnsemble, ObservablePredictionEnsemble
 from seisforge.inv.prior import PriorSampleDiagnostics
@@ -36,18 +36,6 @@ def dump_yaml(data: dict, path: str | Path) -> None:
         yaml.safe_dump(data, file, sort_keys=False)
 
 
-def scaling_from_config(config: dict | None) -> ScalingConfig:
-    config = config or {}
-    vp_cfg = config.get("vp", {})
-    rho_cfg = config.get("rho", {})
-    return ScalingConfig(
-        vp_method=vp_cfg.get("method", "brocher2005"),
-        rho_method=rho_cfg.get("method", "brocher2005"),
-        vp_kwargs={k: v for k, v in vp_cfg.items() if k != "method"} or None,
-        rho_kwargs={k: v for k, v in rho_cfg.items() if k != "method"} or None,
-    )
-
-
 def layered_vs_model_from_config(config: dict) -> LayeredVsModel:
     model_cfg = config.get("Model", config)
     return LayeredVsModel(
@@ -58,12 +46,8 @@ def layered_vs_model_from_config(config: dict) -> LayeredVsModel:
 
 
 def parameterized_vs_model_from_config(config: dict) -> ParameterizedVsModel:
-    model_cfg = config.get("Model", config)
-    segments = tuple(_segment_from_config(item) for item in model_cfg["segments"])
-    return ParameterizedVsModel(
-        segments=segments,
-        scaling=scaling_from_config(model_cfg.get("scaling")),
-    )
+    """Build a literal (unsampled) model from a ``Model`` section."""
+    return parameterized_model_from_config(config.get("Model", config))
 
 
 def parameterized_vs_model_to_config(
@@ -79,30 +63,44 @@ def parameterized_vs_model_to_config(
     explicitly when preparing an inversion configuration.
     """
 
-    config = {
-        "Model": {
-            "scaling": _scaling_to_config(model.scaling),
-            "segments": [_segment_to_config(segment) for segment in model.segments],
-        }
-    }
+    config = {"Model": parameterized_model_to_config(model)}
     if discretization is not None:
-        discretization_config = {
-            "dz": float(discretization.dz),
-            "force_depths": [float(depth) for depth in discretization.force_depths],
-        }
-        if discretization.zmax is not None:
-            discretization_config["zmax"] = float(discretization.zmax)
-        config["Discretization"] = discretization_config
+        config["Discretization"] = discretization_to_config(discretization)
     return config
 
 
 def discretization_from_config(config: dict | None) -> DiscretizationConfig:
     config = config or {}
+    layers_per_segment = config.get("layers_per_segment")
+    if isinstance(layers_per_segment, dict):
+        layers_per_segment = {str(k): int(v) for k, v in layers_per_segment.items()}
+    elif layers_per_segment is not None:
+        layers_per_segment = int(layers_per_segment)
     return DiscretizationConfig(
         dz=config.get("dz", 0.5),
         zmax=config.get("zmax"),
         force_depths=tuple(config.get("force_depths", ())),
+        layers_per_segment=layers_per_segment,
+        transition_layers=int(config.get("transition_layers", 16)),
+        layer_value=str(config.get("layer_value", "midpoint")),
     )
+
+
+def discretization_to_config(discretization: DiscretizationConfig) -> dict:
+    config = {
+        "dz": float(discretization.dz),
+        "force_depths": [float(depth) for depth in discretization.force_depths],
+    }
+    if discretization.zmax is not None:
+        config["zmax"] = float(discretization.zmax)
+    if discretization.layers_per_segment is not None:
+        counts = discretization.layers_per_segment
+        config["layers_per_segment"] = dict(counts) if isinstance(counts, dict) else int(counts)
+    if discretization.transition_layers != 16:
+        config["transition_layers"] = int(discretization.transition_layers)
+    if discretization.layer_value != "midpoint":
+        config["layer_value"] = discretization.layer_value
+    return config
 
 
 def dispersion_request_from_config(config: dict) -> DispersionRequest:
@@ -317,64 +315,6 @@ def prediction_ensemble_to_xarray(
             prediction.log_prob,
         )
     return xr.Dataset(data_vars=data_vars, coords=coords, attrs=_attrs(attrs))
-
-
-def _segment_from_config(config: dict) -> VsSegment:
-    return VsSegment(
-        top=config["top_km"],
-        bottom=config["bottom_km"],
-        profile=_profile_from_config(config["profile"]),
-    )
-
-
-def _profile_from_config(config: dict):
-    profile_type = config["type"].lower()
-    if profile_type == "constant":
-        return ConstantVs(value=config["value"])
-    if profile_type == "gradient":
-        return GradientVs(top=config["top"], bottom=config["bottom"])
-    if profile_type == "bspline":
-        return BSplineVs(
-            coefficients=config["coefficients"],
-            degree=config.get("degree", 3),
-            knot_spacing=config.get("knot_spacing", "geometric"),
-            knot_alpha=config.get("knot_alpha", 2.0),
-        )
-    raise ValueError(f"Unknown Vs profile type: {config['type']}")
-
-
-def _scaling_to_config(scaling: ScalingConfig) -> dict:
-    vp = {"method": scaling.vp_method, **(scaling.vp_kwargs or {})}
-    rho = {"method": scaling.rho_method, **(scaling.rho_kwargs or {})}
-    return {"vp": vp, "rho": rho}
-
-
-def _segment_to_config(segment: VsSegment) -> dict:
-    return {
-        "top_km": float(segment.top),
-        "bottom_km": float(segment.bottom),
-        "profile": _profile_to_config(segment.profile),
-    }
-
-
-def _profile_to_config(profile: ConstantVs | GradientVs | BSplineVs) -> dict:
-    if isinstance(profile, ConstantVs):
-        return {"type": "constant", "value": float(profile.value)}
-    if isinstance(profile, GradientVs):
-        return {
-            "type": "gradient",
-            "top": float(profile.top),
-            "bottom": float(profile.bottom),
-        }
-    if isinstance(profile, BSplineVs):
-        return {
-            "type": "bspline",
-            "coefficients": [float(value) for value in profile.coefficients],
-            "degree": int(profile.degree),
-            "knot_spacing": profile.knot_spacing,
-            "knot_alpha": float(profile.knot_alpha),
-        }
-    raise TypeError(f"Unsupported Vs profile type: {type(profile).__name__}")
 
 
 def _add_observable(

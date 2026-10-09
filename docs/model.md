@@ -9,9 +9,9 @@ The model path is deliberately explicit:
 ~~~text
 inv.yaml scalar parameters (theta)
     -> ModelParameterization.vector_to_model(theta)
-    -> ParameterizedVsModel with ordered VsSegment objects
-    -> ParameterizedVsModel.to_layered_model(DiscretizationConfig)
-    -> LayeredModel passed to disba
+    -> ParameterizedVsModel: VsSegment objects separated by Interface objects
+    -> ParameterizedVsModel.to_layered_model(DiscretizationConfig)   (inv.layering)
+    -> LayeredModel passed to disba (and later RF / compliance kernels)
 ~~~
 
 The sampler proposes theta only. Model mapping, hard geophysical constraints,
@@ -62,10 +62,10 @@ A segment boundary is a model feature. During discretization SeisForge never
 creates a layer that crosses it. Thus an interface at 0.30 km or 2.00 km is
 preserved even if Discretization.dz does not divide that depth exactly.
 
-At present top_km and bottom_km must be numeric constants. Segment thicknesses
-and interface depths are not yet inverted. They require a separate mapping from
-theta to ordered interfaces and segment-aware constraints; they should not be
-treated as ordinary velocity coefficients.
+This segment layout fixes every boundary depth. To invert interface depths
+(sediment thickness, Moho depth), give gradational transitions, or use
+different Vp/rho relations per segment, use the interface layout in
+[section 3](#3-interfaces-depth-inversion-and-per-segment-scaling).
 
 ### Available profile types
 
@@ -91,7 +91,167 @@ value:
 Only values written as parameter references become elements of theta. Literal
 values stay fixed for the whole run.
 
-## 3. Tutorial Model: Constant + Gradient + B-spline
+## 3. Interfaces, Depth Inversion, and Per-segment Scaling
+
+The interface layout describes the model as segments separated by interfaces.
+Interface depths are **absolute** depths and may be sampled; segment depths are
+derived from them.
+
+~~~yaml
+Model:
+  zmax_km: 80.0                 # bottom of the parameterized model (half-space top)
+  scaling:                      # default for segments without their own scaling
+    vp: {method: brocher2005}
+    rho: {method: brocher2005}
+  interfaces:                   # ordered top to bottom
+    - name: basement
+      depth_km: {parameter: basement.depth}
+    - name: moho
+      depth_km: {parameter: moho.depth}
+      width_km: {parameter: moho.width}   # 10-90 % transition thickness; 0 = hard step
+      shape: sigmoid                      # or smootherstep
+  segments:                     # one more than interfaces; no top_km/bottom_km
+    - name: sediment
+      profile: {type: gradient, top: {parameter: sed.vs_top}, bottom: {parameter: sed.vs_bot}}
+      scaling:
+        vp: {method: constant_vp_vs, vp_vs: 2.2}
+        rho: {method: gardner1974}
+    - name: crust
+      profile: {type: bspline, coefficients: [...]}
+    - name: mantle
+      profile: {type: gradient, top: 4.4, bottom: {parameter: mantle.vs_bot}}
+      scaling:
+        vp: {method: constant_vp_vs, vp_vs: 1.8}
+        rho: {method: constant, rho: 3.35}
+~~~
+
+A complete file is `examples/configs/interface_model.yml`.
+
+**Profiles stretch with the interfaces.** Every profile is defined on its
+segment's local coordinate, so when the Moho deepens the crustal B-spline
+stretches with it: a coefficient keeps meaning "Vs at this relative position in
+the crust". A gradient's `top`/`bottom` are always the values at the segment's
+current boundaries.
+
+**Gradational interfaces.** With `width_km > 0`, Vs, Vp, and rho blend the two
+neighbouring segments:
+
+~~~text
+v(z) = (1 - S(z)) * v_upper(z) + S(z) * v_lower(z)
+~~~
+
+`S` is 0.5 at `depth_km`, 0.1 and 0.9 at `depth_km -/+ width_km/2`, and
+exactly 0 / 1 outside a finite support. Two shapes are available
+(`seisforge.inv.transitions`):
+
+| shape | form | support half-width | max gradient |
+|---|---|---|---|
+| `sigmoid` | logistic with steepness `k = 2 ln 9 / w`, truncated and rescaled | `2 w` | about `1.1 dv / w` |
+| `smootherstep` | `6x^5 - 15x^4 + 10x^3`, C2-continuous | `0.987 w` | about `0.93 dv / w` |
+
+Outside the support the model is exactly the hard-step model. Each neighbour is
+evaluated with depths clamped to its own segment, so B-splines never
+extrapolate. A support may not reach the surface, overlap a neighbouring
+interface's support, or extend below `zmax_km`; such samples are rejected by
+the prior (log prior = -inf), not raised.
+
+**Per-segment scaling.** Vp and rho are computed from each segment's own Vs
+with that segment's `scaling` (or the model default), then blended with the
+same weights as Vs. A crust relation is never applied to sediment velocities
+inside a transition. Brocher (2005) is only valid for Vs <= 4.5 km/s, so mantle
+segments need their own relation, as above. Available relations:
+
+| key | method | parameters |
+|---|---|---|
+| vp | `brocher2005` | Vs in 0-4.5 km/s |
+| vp | `constant_vp_vs` | `vp_vs` |
+| rho | `brocher2005` | from Brocher Vp |
+| rho | `gardner1974` | `rho = a Vp^b`, defaults `a = 1.741`, `b = 0.25` (km/s, g/cm^3) |
+| rho | `constant` | `rho` |
+
+**Priors for interface parameters.** Besides `uniform`, two prior types help:
+
+~~~yaml
+- name: moho.depth            # independent estimate, e.g. H-k: 35 +/- 2 km
+  initial: 35.0
+  prior: {type: normal, mean: 35.0, sigma: 2.0, bounds: [28.0, 45.0]}
+  proposal: {sigma: 0.8}
+- name: moho.width            # hard step unless the data ask for a gradient
+  initial: 0.0
+  prior: {type: half_normal, scale: 2.0, bounds: [0.0, 8.0]}
+  proposal: {sigma: 0.5}
+~~~
+
+`bounds` are always required: they are the region the sampler explores and
+draws starting points from. `half_normal` peaks at the lower bound, so a hard
+interface is the default and a gradational one has to improve the fit enough to
+pay for its prior cost. Choose `scale` near the thinnest transition the data
+can resolve. Depth parameters need their own `proposal.sigma`, e.g. about 1 km
+for the Moho and 0.02-0.05 km for a sediment base.
+
+At setup, every parameter reference must be defined and the initial values must
+give a valid model; both are checked before sampling starts.
+
+## 4. From Continuous Model to Forward Layers
+
+Every forward solver sees only the `LayeredModel`, so the conversion
+(`seisforge.inv.layering`) follows fixed rules:
+
+1. A hard interface is always a layer boundary, at its exact depth, whatever
+   `dz` is. No layer straddles a velocity jump.
+2. The part of each segment outside interface supports is split into layers by
+   `dz`, or by a fixed count per segment (`layers_per_segment`).
+3. The support of each gradational interface gets `transition_layers` equal
+   layers.
+4. Each layer takes Vs, Vp, and rho from the continuous model at its midpoint
+   (`layer_value: midpoint`, default) or as the depth average
+   (`layer_value: mean`).
+5. The half-space takes the properties at the bottom depth (`zmax`).
+
+~~~yaml
+Discretization:
+  zmax: 80.0
+  layers_per_segment: {sediment: 8, crust: 40, mantle: 12}   # or one integer, or use dz
+  transition_layers: 16
+  layer_value: midpoint
+~~~
+
+**Use `layers_per_segment` when interface depths are sampled.** With `dz` the
+layer count changes in steps as an interface moves, and so does the forward
+prediction. On STA001, moving the sediment base in 1 m steps changed the log
+posterior by up to 4.2 at a step with `dz: 0.25`, 12 times the typical change;
+with fixed counts the largest step equaled the typical one. A fixed count
+moves layer boundaries continuously with the interfaces. Segments missing from
+a `layers_per_segment` mapping fall back to `dz`.
+
+**Check the conversion.** `layering_report` compares the layered model with
+the continuous one:
+
+~~~python
+from seisforge.inv import build_inversion_setup, layering_report, load_yaml
+
+setup = build_inversion_setup(load_yaml("examples/configs/interface_model.yml"))
+theta = setup.parameterization.theta0()
+theta[setup.parameterization.names.index("moho.width")] = 3.0
+model = setup.parameterization.vector_to_model(theta)
+layered = model.to_layered_model(setup.prior.discretization)
+print(layering_report(model, layered).summary())
+# 67 layers (min 0.1 km); hard interfaces preserved: True (max offset 0 km);
+# transition layers: [16]; max |dVs| 0.08109 km/s;
+# vertical time error Vs -5.377e-05, Vp -4.508e-05
+~~~
+
+It reports whether every hard interface is a layer boundary, how many layers
+resolve each transition, the largest Vs difference inside any layer, and the
+relative error of vertical S and P travel time (`integral dz / v`). Vertical
+travel time controls receiver-function delays such as `t_Ps`, so keep that
+error well below the timing uncertainty of the RF data you will invert.
+
+`LayeredModel.segment_index` records which segment each layer came from, and
+`LayeredModel.to_hvsr_model()` converts to the `seisforge.hvsr` diffuse-field
+H/V model.
+
+## 5. Tutorial Model: Constant + Gradient + B-spline
 
 The following example has:
 
@@ -306,7 +466,7 @@ profile:
 and add cover.vs to Inversion.parameters with initial, prior bounds, and a
 proposal sigma.
 
-## 4. Meaning of the B-spline
+## 6. Meaning of the B-spline
 
 Within a B-spline segment, SeisForge uses the segment-local normalized
 coordinate:
@@ -335,7 +495,7 @@ Therefore knot_alpha: 1.6 concentrates flexibility near 2 km in the example,
 but only because 2 km is the top of that specific segment. Moving the segment
 from 2--15 km to 10--40 km preserves exactly the same relative knot layout.
 
-## 5. Inspect the Initial Model Before Sampling
+## 7. Inspect the Initial Model Before Sampling
 
 Use parameterization_from_config for an inversion YAML that contains parameter
 references. It is the same mapping used by the inversion setup.
@@ -416,7 +576,7 @@ This is the right way to develop intuition for interior coefficients. It shows
 their overlapping basis footprint directly rather than assigning them an
 incorrect single physical depth.
 
-## 6. Fit B-spline Coefficients to a Reference Profile
+## 8. Fit B-spline Coefficients to a Reference Profile
 
 Given a sampled reference profile z_ref_km and vs_ref_km_s, fit only the part
 covered by the B-spline segment. For the 2--15 km segment:
@@ -455,7 +615,7 @@ For a noisy reference profile, a small positive smoothing penalizes the second
 difference of the coefficient vector. It regularizes the deterministic fit
 only; it is not automatically an MCMC prior.
 
-## 7. Constraints Define the Physical Prior
+## 9. Constraints Define the Physical Prior
 
 Scalar uniform bounds define a box in coefficient space. Constraints restrict
 that box to a physically accepted model space. Invalid models receive log
@@ -468,12 +628,17 @@ Useful current constraints include:
 - vp_vs_range: derived Vp/Vs lies within stated bounds. It is often more
   informative than only requiring Vp > Vs when empirical scaling is used.
 - boundary_non_decreasing_vs: prevents a downward jump across segment
-  boundaries larger than tolerance; it does not require exact continuity.
+  boundaries larger than tolerance; it does not require exact continuity. The
+  jump compares the two segment profiles at the interface depth, so it applies
+  to gradational interfaces too.
 - vs_range: checks Vs(z) on a depth grid, including between B-spline
   coefficient endpoints.
 - monotonic_vs: requires sampled Vs to be non-decreasing, with an allowed
   negative tolerance.
 - max_vs_gradient: limits the absolute sampled gradient in km/s per km.
+  Inside a gradational interface the gradient peaks at about `1.1 dv / w`
+  (sigmoid), so this constraint also bounds jump/width there. Restrict its
+  `depth_range` if it should not act on interfaces.
 
 monotonic_vs currently acts over the stated depth_range, not over a named
 segment. If a low-velocity zone is allowed in the crust, omit the global
@@ -483,7 +648,7 @@ Constraint sampling always includes segment edges, even when dz does not land
 exactly on them. This is important for both the constant-to-gradient and
 gradient-to-B-spline transitions.
 
-## 8. Initial Values, Broad Priors, and Two-stage Inversion
+## 10. Initial Values, Broad Priors, and Two-stage Inversion
 
 initial is a starting point, not a prior mean. Uniform bounds plus hard
 constraints define the actual prior support.
@@ -506,7 +671,7 @@ case, begin with a known valid theta0, revise the scientific constraints or
 bounds, or simplify the parameterization before merely raising
 max_initial_attempts.
 
-## 9. CLI and Python APIs
+## 11. CLI and Python APIs
 
 Use the CLI for a reproducible station run:
 
@@ -547,14 +712,17 @@ run_inversion owns configuration loading, setup assembly, sampling, NetCDF
 output, resolved-input snapshots, and logging. Model objects themselves do not
 read files or write results.
 
-## 10. Checklist Before a Long Run
+## 12. Checklist Before a Long Run
 
 1. Segments are contiguous, begin at 0 km, and reach the required model depth.
 2. Every parameter reference has exactly one parameter definition.
 3. theta0 passes setup.prior.evaluate(theta0).
-4. The continuous and discretized models agree at the selected dz.
-5. Constraints express geological knowledge, not merely a preferred answer.
-6. B-spline knot geometry and zmax cover the depth sensitivity of the data.
-7. A prior-only run samples the intended constrained model space before its
+4. `layering_report` shows preserved hard interfaces, resolved transitions, and
+   a vertical travel-time error well below the data uncertainty.
+5. Sampled interface depths use `layers_per_segment`, not `dz`.
+6. Segments whose Vs can exceed 4.5 km/s use a scaling other than Brocher.
+7. Constraints express geological knowledge, not merely a preferred answer.
+8. B-spline knot geometry and zmax cover the depth sensitivity of the data.
+9. A prior-only run samples the intended constrained model space before its
    result is compared with a posterior ensemble.
 
