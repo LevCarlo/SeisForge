@@ -12,6 +12,7 @@ __pycache__/
 .ruff_cache/
 build/
 dist/
+site/
 .DS_Store
 .vscode/
 examples/STA001/*

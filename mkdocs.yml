@@ -1,0 +1,40 @@
+site_name: SeisForge
+site_description: Python toolkit for ambient-noise, receiver-function, HVSR, and surface-wave inversion workflows
+repo_url: https://github.com/LevCarlo/SeisForge
+edit_uri: blob/main/docs/
+site_dir: site
+docs_dir: docs
+dev_addr: 127.0.0.1:8000
+strict: true
+validation:
+  links:
+    anchors: warn
+
+theme:
+  name: readthedocs
+  locale: en
+  navigation_depth: 3
+
+extra_css:
+  - css/extra.css
+
+nav:
+  - Home: index.md
+  - Ambient noise:
+      - CCF rotation and filters: ant_workflow.md
+      - AFTAN dispersion: aftan_workflow.md
+      - Eikonal / Helmholtz tomography: eikonal_workflow.md
+  - Receiver functions: rf_workflow.md
+  - Inversion:
+      - User guide: inv_usage.md
+      - Model configuration: model.md
+  - HVSR forward modelling: hvsr_forward.md
+  - Development: development.md
+
+markdown_extensions:
+  - tables
+  - fenced_code
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences

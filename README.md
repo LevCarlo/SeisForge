@@ -58,7 +58,17 @@ hkseq -c examples/configs/hkseq.yml --mode both --plot
 
 Example YAML configs live in `examples/configs/`.
 
-Workflow notes live in `docs/`.
+## Documentation
+
+Workflow guides live in `docs/` and build into one searchable site with MkDocs:
+
+```bash
+python -m pip install -e ".[docs]"
+mkdocs serve   # http://127.0.0.1:8000
+```
+
+Pushes to `main` publish the site to GitHub Pages
+(`.github/workflows/docs.yml`; enable Pages with **Source: GitHub Actions**).
 
 Single-station inversion:
 

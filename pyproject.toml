@@ -41,6 +41,10 @@ hvsr-fortran = [
 gmt = [
     "pygmt",
 ]
+docs = [
+    "mkdocs>=1.6,<2",
+    "pymdown-extensions",
+]
 
 [project.scripts]
 seisforge = "seisforge.cli.main:main"
