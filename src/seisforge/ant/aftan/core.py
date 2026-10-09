@@ -27,6 +27,11 @@ from .models import (
     AFTANSNRConfig,
 )
 from .snr import _aftan_diagram_snr, _window_snr
+from .taper import (
+    cosine_window_weights,
+    group_velocity_window_bounds_s,
+    legacy_edge_fraction_weights,
+)
 
 
 _AFTAN_KEYS = (
@@ -48,7 +53,6 @@ class AFTANMeasurement:
         self.trace = trace.copy()
         self.path = Path(path)
         self.config = config
-        self.trace.taper(0.05)
         self.distance_km = _trace_distance_km(self.trace)
         self.basic_alpha = _resolve_alpha(config.basic.alpha, self.distance_km)
         self.basic_alpha_mode = config.basic.alpha.mode
@@ -70,6 +74,7 @@ class AFTANMeasurement:
         )
         self.nfft = int(2 ** np.ceil(np.log2(self.trace.stats.npts)))
         self.time = _trace_times(self.trace)
+        self._apply_time_taper()
         self.pred_period, self.pred_velocity = _load_prediction(config)
 
     @property
@@ -84,6 +89,66 @@ class AFTANMeasurement:
     def periods0(self) -> np.ndarray:
         return self.target_periods
 
+    def _apply_time_taper(self) -> None:
+        """Taper the FTAN input; keep the SNR input free of the signal window.
+
+        ``self.trace.data`` becomes the tapered FTAN/PMF input. ``self.snr_data``
+        stays untapered for the window taper, because SNR noise windows lie
+        outside the group-velocity window. The legacy mode reproduces the old
+        behavior, in which SNR also used the edge-tapered trace.
+        """
+        taper_config = self.config.time_taper
+        raw = np.asarray(self.trace.data, dtype=float)
+        self.time_taper_window_s = (np.nan, np.nan)
+        self.time_taper_ramp_s = np.nan
+        if taper_config.mode == "velocity_window":
+            start_s, end_s = group_velocity_window_bounds_s(
+                self.distance_km,
+                self.config.velocity_min,
+                self.config.velocity_max,
+            )
+            ramp_s = (
+                self.max_period if taper_config.ramp_s is None else taper_config.ramp_s
+            )
+            weights = cosine_window_weights(self.time, start_s, end_s, ramp_s)
+            self.time_taper_window_s = (start_s, end_s)
+            self.time_taper_ramp_s = float(ramp_s)
+            self.snr_data = raw
+        elif taper_config.mode == "legacy_edge_fraction":
+            weights = legacy_edge_fraction_weights(
+                self.trace, taper_config.legacy_edge_fraction
+            )
+            # ObsPy tapers in place, keeping the input dtype (often float32).
+            tapered = (raw * weights).astype(self.trace.data.dtype, copy=False)
+            self.snr_data = tapered
+            self.trace.data = tapered
+            return
+        else:
+            weights = np.ones(raw.size)
+            self.snr_data = raw
+        self.trace.data = raw * weights
+
+    def time_taper_attrs(self) -> dict[str, object]:
+        """Provenance attributes describing the FTAN input taper."""
+        taper_config = self.config.time_taper
+        start_s, end_s = self.time_taper_window_s
+        return {
+            "time_taper_mode": taper_config.mode,
+            "time_taper_window_start_s": float(start_s),
+            "time_taper_window_end_s": float(end_s),
+            "time_taper_ramp_s": float(self.time_taper_ramp_s),
+            "time_taper_legacy_edge_fraction": (
+                float(taper_config.legacy_edge_fraction)
+                if taper_config.mode == "legacy_edge_fraction"
+                else np.nan
+            ),
+            "snr_input": (
+                "legacy_edge_tapered_waveform"
+                if taper_config.mode == "legacy_edge_fraction"
+                else "untapered_waveform"
+            ),
+        }
+
     def measure(self) -> dict[str, np.ndarray]:
         return self._measure_signal(
             self.trace.data,
@@ -91,7 +156,7 @@ class AFTANMeasurement:
             self.basic_alpha,
             self.config.basic.trig_threshold,
             self.config.basic.jump_points,
-            snr_signal_data=self.trace.data,
+            snr_signal_data=self.snr_data,
         )
 
     def measure_pmf(self, basic: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -123,7 +188,7 @@ class AFTANMeasurement:
             self.pmf_alpha,
             self.config.pmf.trig_threshold,
             self.config.pmf.jump_points,
-            snr_signal_data=self.trace.data,
+            snr_signal_data=self.snr_data,
         )
         measured["signal"] = cleaned
         measured["ftan_alpha"] = np.asarray(self.pmf_alpha)
@@ -217,8 +282,12 @@ class AFTANMeasurement:
                 omega,
                 dt_offset,
             )
-            inst_period = tau / (dphase / self.trace.stats.delta)
-            hilbert_period = tau / (hilbert_dphase / self.trace.stats.delta)
+            # Peaks inside the zero-weight part of the time taper can have a
+            # zero phase increment; they yield non-finite periods and are never
+            # the envelope maximum when the window contains signal.
+            with np.errstate(divide="ignore", invalid="ignore"):
+                inst_period = tau / (dphase / self.trace.stats.delta)
+                hilbert_period = tau / (hilbert_dphase / self.trace.stats.delta)
             t_max = self.time[0] + (peak_indices + dt_offset) * self.trace.stats.delta
             group_velocity = self.distance_km / t_max
             valid = np.isfinite(group_velocity)
@@ -358,6 +427,7 @@ class AFTANMeasurement:
                 "period_sampling_mode": self.config.period_sampling.mode,
                 "signal_source": "raw_waveform" if stage == "basic" else "pmf_clean_waveform",
                 "debug": bool(self.config.debug),
+                **self.time_taper_attrs(),
             },
         )
         return dataset
@@ -512,6 +582,7 @@ class AFTANMeasurement:
                 "phase_cycle_enabled": bool(self.config.phase_cycle.enabled),
                 "phase_cycle_max_shift": int(self.config.phase_cycle.max_shift),
                 "description": "phase-velocity cycle-candidate diagnostic map",
+                **self.time_taper_attrs(),
             },
         )
 
@@ -754,14 +825,14 @@ class AFTANMeasurement:
     ) -> np.ndarray:
         if config.definition == "pyftan":
             return self._pyftan_spectral_snr(
-                self.trace.data if snr_signal_data is None else snr_signal_data,
+                self.snr_data if snr_signal_data is None else snr_signal_data,
                 period,
                 group_velocity,
                 config,
                 alpha,
             )
 
-        snr_data = self.trace.data if snr_signal_data is None else snr_signal_data
+        snr_data = self.snr_data if snr_signal_data is None else snr_signal_data
         valid = np.isfinite(period) & (period > 0)
         snr = np.zeros(period.size)
         if not np.any(valid):

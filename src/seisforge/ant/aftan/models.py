@@ -98,6 +98,18 @@ class AFTANShortDistanceGuardConfig:
 
 
 @dataclass(frozen=True)
+class AFTANTimeTaperConfig:
+    """Time-domain taper applied to the FTAN/PMF input waveform."""
+
+    mode: str = "velocity_window"
+    # Cosine ramp outside the group-velocity window; None uses the effective
+    # maximum period, matching Fortran AFTAN.
+    ramp_s: float | None = None
+    # Compatibility only: ObsPy edge-taper fraction for legacy_edge_fraction.
+    legacy_edge_fraction: float = 0.05
+
+
+@dataclass(frozen=True)
 class AFTANConfig:
     debug: bool = False
     min_period: float = 0.5
@@ -123,6 +135,7 @@ class AFTANConfig:
     )
     pmf: AFTANPMFConfig = field(default_factory=AFTANPMFConfig)
     snr: AFTANSNRConfig = field(default_factory=AFTANSNRConfig)
+    time_taper: AFTANTimeTaperConfig = field(default_factory=AFTANTimeTaperConfig)
     energy_map: AFTANEnergyMapConfig = field(default_factory=AFTANEnergyMapConfig)
     qc: AFTANQCConfig = field(default_factory=AFTANQCConfig)
     phase_cycle: AFTANPhaseCycleConfig = field(

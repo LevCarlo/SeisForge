@@ -20,6 +20,7 @@ from .models import (
     AFTANResult,
     AFTANSNRConfig,
     AFTANShortDistanceGuardConfig,
+    AFTANTimeTaperConfig,
     BranchTrace,
     StationAFTANConfig,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "AFTANResult",
     "AFTANSNRConfig",
     "AFTANShortDistanceGuardConfig",
+    "AFTANTimeTaperConfig",
     "BranchTrace",
     "StationAFTANConfig",
     "PhaseCycleOverrideResult",

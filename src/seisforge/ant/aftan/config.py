@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +18,11 @@ from .models import (
     AFTANQCConfig,
     AFTANSNRConfig,
     AFTANShortDistanceGuardConfig,
+    AFTANTimeTaperConfig,
     StationAFTANConfig,
 )
 from .phase import normalize_component
+from .taper import TIME_TAPER_MODES
 
 
 _BRANCHES = {"positive", "negative", "both", "stack"}
@@ -188,6 +191,7 @@ def _build_aftan_config(
             window_factor=float(pmf.get("window_factor", 1.0)),
         ),
         snr=_build_snr_config(snr),
+        time_taper=_build_time_taper_config(config.get("time_taper", {})),
         energy_map=AFTANEnergyMapConfig(
             enabled=bool(energy_map.get("enabled", False)),
             plot=bool(energy_map.get("plot", False)),
@@ -477,36 +481,30 @@ def _override_energy_map_config(
         phase_velocity=energy_map.phase_velocity,
         phase_cycle_count=energy_map.phase_cycle_count,
     )
-    new_aftan = AFTANConfig(
-        debug=config.aftan.debug,
-        min_period=config.aftan.min_period,
-        max_period=config.aftan.max_period,
-        period_sampling=config.aftan.period_sampling,
-        velocity_min=config.aftan.velocity_min,
-        velocity_max=config.aftan.velocity_max,
-        pi_over_4=config.aftan.pi_over_4,
-        pi_over_4_mode=config.aftan.pi_over_4_mode,
-        branch=config.aftan.branch,
-        prediction_file=config.aftan.prediction_file,
-        basic=config.aftan.basic,
-        pmf=config.aftan.pmf,
-        snr=config.aftan.snr,
-        energy_map=new_energy_map,
-        qc=config.aftan.qc,
-        phase_cycle=config.aftan.phase_cycle,
-        short_distance_guard=config.aftan.short_distance_guard,
-    )
-    return StationAFTANConfig(
-        station=config.station,
-        input_dir=config.input_dir,
-        output_dir=config.output_dir,
-        sac_pattern=config.sac_pattern,
-        overwrite=config.overwrite,
-        aftan=new_aftan,
-        source_station=config.source_station,
-        receiver_station=config.receiver_station,
-        components=config.components,
-        input_template=config.input_template,
+    new_aftan = replace(config.aftan, energy_map=new_energy_map)
+    return replace(config, aftan=new_aftan)
+
+
+def _build_time_taper_config(config: Any) -> AFTANTimeTaperConfig:
+    if config is None:
+        config = {}
+    if not isinstance(config, dict):
+        raise ValueError("aftan.time_taper must be a mapping.")
+    mode = str(config.get("mode", "velocity_window")).lower()
+    if mode not in TIME_TAPER_MODES:
+        raise ValueError(f"aftan.time_taper.mode must be one of {list(TIME_TAPER_MODES)}.")
+    window_config = _nested_option_config(config, "velocity_window")
+    legacy_config = _nested_option_config(config, "legacy_edge_fraction")
+    ramp_s = _option_value(config, window_config, "ramp_s", None)
+    fraction = float(_option_value(config, legacy_config, "fraction", 0.05))
+    if ramp_s is not None and float(ramp_s) < 0:
+        raise ValueError("aftan.time_taper.velocity_window.ramp_s must be non-negative.")
+    if not 0 < fraction <= 0.5:
+        raise ValueError("aftan.time_taper.legacy_edge_fraction.fraction must be in (0, 0.5].")
+    return AFTANTimeTaperConfig(
+        mode=mode,
+        ramp_s=float(ramp_s) if ramp_s is not None else None,
+        legacy_edge_fraction=fraction,
     )
 
 

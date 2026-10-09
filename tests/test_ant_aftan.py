@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
+
 import numpy as np
 from obspy import Trace
 import pytest
@@ -11,6 +14,7 @@ from seisforge.ant.aftan import (
     AFTANPhaseCycleConfig,
     AFTANQCConfig,
     AFTANPeriodSamplingConfig,
+    AFTANTimeTaperConfig,
     _align_to_period_grid,
     _aftan_diagram_snr,
     apply_phase_cycle_shift,
@@ -25,6 +29,7 @@ from seisforge.ant.aftan import (
     override_phase_cycle,
     run_aftan_config,
 )
+from seisforge.ant.aftan.taper import cosine_window_weights
 from seisforge.ant.aftan.core import (
     AFTANMeasurement,
     _build_period_grid,
@@ -1141,3 +1146,108 @@ def test_period_sampling_geomspace_uses_pyftan_dfreq_formula(tmp_path):
     assert built.aftan.period_sampling.dfreq == 0.03
     assert periods.size == expected_count
     assert np.allclose(periods, np.geomspace(2.0, 8.0, expected_count))
+
+
+def _one_sided_packet_trace(duration_s, distance_km=100.0, velocity_km_s=3.0):
+    delta = 0.5
+    time = np.arange(0.0, duration_s, delta)
+    center = distance_km / velocity_km_s
+    data = np.exp(-0.5 * ((time - center) / 10.0) ** 2) * np.cos(2 * np.pi * time / 5.0)
+    trace = Trace(data=data.astype(np.float32))
+    trace.stats.delta = delta
+    trace.stats.sac = {"b": 0.0, "dist": distance_km}
+    return trace
+
+
+def _group_velocity_at_5s(trace, mode):
+    config = replace(
+        AFTANConfig(
+            min_period=4.0,
+            max_period=6.0,
+            period_sampling=AFTANPeriodSamplingConfig(mode="uniform", step=0.5),
+            velocity_min=1.0,
+            velocity_max=5.0,
+        ),
+        time_taper=AFTANTimeTaperConfig(mode=mode),
+    )
+    measured = AFTANMeasurement(trace, Path("pair.SAC"), config).measure()
+    index = int(np.argmin(np.abs(measured["target_period"] - 5.0)))
+    return float(measured["group_velocity"][index])
+
+
+def test_velocity_window_taper_keeps_short_distance_group_velocity():
+    # 100 km at 3 km/s arrives at 33 s, inside the first 5% of a 3000 s branch.
+    short = _group_velocity_at_5s(_one_sided_packet_trace(400.0), "velocity_window")
+    long = _group_velocity_at_5s(_one_sided_packet_trace(3000.0), "velocity_window")
+    assert short == pytest.approx(3.0, abs=0.01)
+    assert long == pytest.approx(short, abs=1e-6)
+
+
+def test_legacy_edge_fraction_taper_biases_short_distance_group_velocity():
+    biased = _group_velocity_at_5s(
+        _one_sided_packet_trace(3000.0), "legacy_edge_fraction"
+    )
+    assert biased < 2.8
+
+
+def test_legacy_edge_fraction_reproduces_obspy_taper_exactly():
+    trace = _one_sided_packet_trace(3000.0)
+    config = replace(
+        AFTANConfig(),
+        time_taper=AFTANTimeTaperConfig(mode="legacy_edge_fraction"),
+    )
+    measurement = AFTANMeasurement(trace, Path("pair.SAC"), config)
+    expected = trace.copy().taper(0.05).data
+    assert measurement.trace.data.dtype == expected.dtype
+    np.testing.assert_array_equal(measurement.trace.data, expected)
+    np.testing.assert_array_equal(measurement.snr_data, expected)
+
+
+def test_velocity_window_taper_leaves_snr_input_untapered():
+    trace = _one_sided_packet_trace(3000.0)
+    measurement = AFTANMeasurement(trace, Path("pair.SAC"), AFTANConfig())
+    np.testing.assert_array_equal(
+        measurement.snr_data, np.asarray(trace.data, dtype=float)
+    )
+    attrs = measurement.time_taper_attrs()
+    assert attrs["time_taper_mode"] == "velocity_window"
+    assert attrs["time_taper_window_start_s"] == pytest.approx(100.0 / 5.5)
+    assert attrs["time_taper_window_end_s"] == pytest.approx(100.0 / 0.5)
+    assert attrs["time_taper_ramp_s"] == pytest.approx(measurement.max_period)
+
+
+def test_cosine_window_weights_shape():
+    time_s = np.arange(0.0, 100.0, 1.0)
+    weights = cosine_window_weights(time_s, start_s=40.0, end_s=60.0, ramp_s=10.0)
+    assert np.all(weights[(time_s >= 40.0) & (time_s <= 60.0)] == 1.0)
+    assert np.all(weights[(time_s < 30.0) | (time_s > 70.0)] == 0.0)
+    assert weights[35] == pytest.approx(0.5)
+    assert weights[65] == pytest.approx(0.5)
+    assert np.all(np.diff(weights[30:41]) >= 0)
+    assert np.all(np.diff(weights[60:71]) <= 0)
+
+
+def test_time_taper_config_parsing_and_validation(tmp_path):
+    def build(time_taper):
+        return build_station_aftan_config(
+            {
+                "station": "STA",
+                "io": {"input_dir": "in", "output_dir": "out"},
+                "aftan": {
+                    "branch": "positive",
+                    "period_sampling": {"mode": "uniform", "step": 0.5},
+                    "basic": {"alpha": {"mode": "constant", "value": 20.0}},
+                    "time_taper": time_taper,
+                },
+            },
+            base_dir=tmp_path,
+        ).aftan.time_taper
+
+    assert build({}).mode == "velocity_window"
+    assert build({"mode": "velocity_window", "velocity_window": {"ramp_s": 8}}).ramp_s == 8.0
+    legacy = build({"mode": "legacy_edge_fraction", "legacy_edge_fraction": {"fraction": 0.1}})
+    assert legacy.legacy_edge_fraction == pytest.approx(0.1)
+    with pytest.raises(ValueError, match="time_taper.mode"):
+        build({"mode": "hann"})
+    with pytest.raises(ValueError, match="ramp_s"):
+        build({"velocity_window": {"ramp_s": -1}})

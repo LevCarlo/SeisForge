@@ -35,6 +35,15 @@ aftan:
   velocity_window:
     min: 0.5
     max: 5.5
+  # Time-domain taper of the FTAN input. velocity_window keeps
+  # [distance/velocity_window.max, distance/velocity_window.min] with cosine
+  # ramps of ramp_s seconds (null = effective max period, as in Fortran AFTAN).
+  # none disables it. legacy_edge_fraction reproduces old SeisForge results
+  # (ObsPy 5% edge taper), which suppresses short-distance arrivals.
+  time_taper:
+    mode: velocity_window
+    velocity_window:
+      ramp_s: null
   # Optional two-column file: period(s), predicted phase velocity(km/s).
   # prediction_file: /path/to/predicted_phase_velocity.dat
   basic:

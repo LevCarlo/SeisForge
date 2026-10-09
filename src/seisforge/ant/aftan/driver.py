@@ -266,6 +266,7 @@ def _run_aftan_branch(
             branch_trace.name,
             branch_config,
             stage="basic",
+            taper_attrs=measurement.time_taper_attrs(),
         ),
     )
 
@@ -333,6 +334,7 @@ def _run_aftan_branch(
                 branch_trace.name,
                 branch_config,
                 stage="pmf",
+                taper_attrs=measurement.time_taper_attrs(),
             ),
         )
         written_pmf_dat = output_pmf_dat
@@ -460,14 +462,24 @@ def _dat_metadata(
     branch_config,
     *,
     stage: str,
+    taper_attrs: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    return {
+    metadata: dict[str, object] = {
         "stage": stage,
         "input_file": path.name,
         "selected_branch": branch,
         "pi_over_4": branch_config.pi_over_4,
         "pi_over_4_mode": branch_config.pi_over_4_mode,
     }
+    if taper_attrs:
+        metadata.update(
+            {
+                key: value
+                for key, value in taper_attrs.items()
+                if not (isinstance(value, float) and np.isnan(value))
+            }
+        )
+    return metadata
 
 
 def _start_log(config: StationAFTANConfig) -> list[str]:

@@ -267,6 +267,74 @@ points, but the usable value also depends on the target period band: short,
 narrow bands can show large target/instant period mismatch when alpha is too
 small, while overly large alpha can make the picked branch jumpier.
 
+### Time-Domain Input Taper
+
+AFTAN measures one-sided CCF branches that start at zero lag. Before the
+Gaussian filter bank, SeisForge tapers the input waveform in time:
+
+```yaml
+aftan:
+  time_taper:
+    # velocity_window (default), none, or legacy_edge_fraction.
+    mode: velocity_window
+    velocity_window:
+      # Cosine ramp outside the group-velocity window; null uses the effective
+      # maximum period, as Fortran AFTAN uses tmax.
+      ramp_s: null
+```
+
+`velocity_window` follows Fortran AFTAN (`aftanpg.f`/`taper.f`). With
+`distance` from the SAC header and `vmin`/`vmax` from `aftan.velocity_window`,
+the weights are
+
+```text
+w(t) = 1                                         t_start <= t <= t_end
+w(t) = 0.5 * (1 - cos(pi * (t - t_start + ramp) / ramp))   t_start - ramp <= t < t_start
+w(t) = 0.5 * (1 + cos(pi * (t - t_end) / ramp))            t_end < t <= t_end + ramp
+w(t) = 0                                         otherwise
+t_start = distance / vmax,  t_end = distance / vmin
+```
+
+Two choices differ from the Fortran code on purpose:
+
+- Fortran clamps the full-weight window to start at least `ramp` after the
+  trace start (`max0(nb, ntapb+1)`). For a zero-lag CCF branch this puts
+  short-distance arrivals back on the ramp, so SeisForge keeps
+  `t_start = distance / vmax` and lets the ramp be truncated at zero lag.
+- Fortran also removes an approximate mean inside the window. CCFs have
+  negligible DC content, and in the example pair this step did not change any
+  pick, so SeisForge does not apply it.
+
+The SNR stage reads the **untapered** waveform, because its noise windows lie
+outside the group-velocity window. FTAN, the PMF input, and the energy maps use
+the tapered waveform.
+
+`legacy_edge_fraction` is a compatibility mode. It reproduces SeisForge
+before this change exactly (ObsPy `Trace.taper(0.05)`, also applied to the SNR
+input). That taper is 5% of the **trace length** on each side, so on a ±3000 s
+CCF it suppresses the first 150 s of the branch. In a synthetic 100 km pair at
+3 km/s on a 3000 s branch, it lowered the 5 s group velocity from 3.00 to
+2.61 km/s and the envelope amplitude by about 85%. Use it only to compare with
+historical outputs:
+
+```yaml
+aftan:
+  time_taper:
+    mode: legacy_edge_fraction
+    legacy_edge_fraction:
+      fraction: 0.05
+```
+
+Every `.dat` header, energy map, and phase-velocity map records
+`time_taper_mode`, `time_taper_window_start_s`, `time_taper_window_end_s`,
+`time_taper_ramp_s`, and `snr_input`.
+
+On the bundled `M07A_M15A` example (562 km), the basic-stage group velocity
+changes by less than 0.03 km/s compared with the legacy taper. Between 45 and
+60 s (fewer than three wavelengths), the PMF pick moves between two
+envelope ridges, and any end taper is enough to switch it. Treat
+PMF picks in that band as unstable regardless of the taper.
+
 ### Phase-Matched Filter
 
 Phase-matched filtering is a second-stage cleanup procedure. It is not a
@@ -460,7 +528,14 @@ SeisForge currently aligns with the reference implementations in these places:
 - `pi_over_4` enters the picked phase as a constant phase shift and therefore
   affects phase velocity, not group velocity.
 
+- The default time taper keeps the AFTAN group-velocity window
+  `[distance / vmax, distance / vmin]` with `tmax` cosine ramps (see
+  [Time-Domain Input Taper](#time-domain-input-taper)).
+
 Current differences and simplifications:
+
+- The time taper does not clamp the window away from zero lag and does not
+  remove the in-window mean (see [Time-Domain Input Taper](#time-domain-input-taper)).
 
 - The Python PMF is a compact implementation. It uses cubic-spline group-delay
   integration, a four-corner spectral taper, and local-minimum time cleanup, but
