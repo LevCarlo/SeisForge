@@ -69,7 +69,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# No pythonpath: tests import the installed package (pip install -e ".[dev]"),
+# so packaging gaps show up as test failures.
 
 [tool.ruff]
 line-length = 88

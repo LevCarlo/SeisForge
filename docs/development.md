@@ -3,9 +3,18 @@
 ## Tests and lint
 
 ```bash
+python -m pip install -e ".[dev]"
 python -m ruff check src tests
 python -m pytest -q
 ```
+
+SeisForge uses the `src/` layout, and pytest imports the **installed** package
+(there is no `pythonpath` override). Install once, editable for development,
+before running the tests. Tests then exercise what users get from
+`pip install`, so a module or data file missing from the package metadata fails
+a test instead of being hidden by the source tree. To check the packaging
+itself, install non-editable (`pip install ".[dev]"`) into a fresh environment
+and run the suite.
 
 GitHub Actions runs both on Python 3.10 and 3.12 for pushes to `main` and
 `modern` and for pull requests (`.github/workflows/ci.yml`). Ruff rules are
