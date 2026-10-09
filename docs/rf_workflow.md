@@ -188,8 +188,10 @@ prediction.time_s, prediction.rf
 The pyhk difference is not a density effect (no density law reproduces it),
 so pyhk is not used as a reference.
 
-**Cost.** About 4-9 ms for a 67-layer model and 30-60 s windows
-(`dt = 0.05-0.1 s`, `a = 1-2.5`), comparable to one disba dispersion curve.
+**Cost.** Linear in the number of layers and in the number of frequencies the
+Gaussian passes: about 4-9 ms for a 67-layer model and 30-60 s windows
+(`dt = 0.05-0.1 s`, `a = 1-2.5`), 2-4 times one 40-period disba dispersion
+curve on the same model.
 
 ## Code Layout
 
