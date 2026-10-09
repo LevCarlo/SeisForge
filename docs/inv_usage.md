@@ -608,11 +608,16 @@ The number of stored draws per chain is approximately:
 
 - `serial`: run chains one after another. This is simplest and best for
   debugging.
-- `thread`: run chains with Python threads. This can help when much of the time
-  is spent in compiled code or external libraries.
-- `process`: run chains in separate processes. This is often better for
-  CPU-bound Python work, but progress callbacks are currently disabled for this
-  executor.
+- `thread`: run chains with Python threads. disba's numba kernels are compiled
+  with `nogil=True`, so the forward solver, which dominates the cost, runs in
+  parallel across threads. Four threads ran disba dispersion about 3.6x faster
+  than serial in a quick benchmark. The pure-Python prior and bookkeeping still
+  serialize on the GIL. This is usually the best choice on one node, and
+  progress display works with it.
+- `process`: run chains in separate processes. This avoids the GIL entirely,
+  which helps when the Python-side prior or likelihood code is a large share of
+  the time. Progress callbacks are currently disabled for this executor, and
+  each worker pays numba's JIT warm-up once.
 
 `max_workers` limits the number of concurrent workers. `null` lets Python
 choose a default.

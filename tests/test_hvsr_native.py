@@ -90,3 +90,13 @@ def test_dispersion_seeds_preserve_requested_frequency_order() -> None:
             _reference_model(), [frequency], mode=0, wave="rayleigh"
         )
         np.testing.assert_allclose(seed, single[0], rtol=5.0e-3)
+
+
+def test_phase_velocity_seeds_report_missing_disba(monkeypatch):
+    import sys
+
+    import pytest
+
+    monkeypatch.setitem(sys.modules, "disba", None)
+    with pytest.raises(ImportError, match="pip install disba"):
+        phase_velocity_seeds_km_s(_reference_model(), np.array([1.0, 2.0]), 0, "rayleigh")

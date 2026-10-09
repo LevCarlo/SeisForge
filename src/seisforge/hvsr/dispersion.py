@@ -9,6 +9,18 @@ from .models import ElasticLayerModel
 from .propagator import psv_surface_compliance, sh_surface_compliance
 
 
+def _phase_dispersion_class():
+    """Return ``disba.PhaseDispersion``; disba is required for mode seeds."""
+    try:
+        from disba import PhaseDispersion
+    except ImportError as exc:
+        raise ImportError(
+            "The native HVSR backend needs disba for dispersion-root seeds. "
+            'Install it with: python -m pip install disba'
+        ) from exc
+    return PhaseDispersion
+
+
 def _disba_model(model: ElasticLayerModel) -> tuple[np.ndarray, ...]:
     thickness = np.concatenate((model.thickness_km, [0.0]))
     return thickness, model.vp_km_s, model.vs_km_s, model.density_g_cm3
@@ -24,9 +36,8 @@ def approximate_phase_velocity_km_s(
 ) -> float | None:
     """Obtain a robust CPS/disba phase-velocity seed for one mode."""
 
+    PhaseDispersion = _phase_dispersion_class()
     try:
-        from disba import PhaseDispersion
-
         solver = PhaseDispersion(*_disba_model(model), algorithm="dunkin", dc=dc_km_s)
         result = solver(np.array([1.0 / frequency_hz]), mode=mode, wave=wave)
     except Exception:
@@ -61,9 +72,8 @@ def phase_velocity_seeds_km_s(
     periods = 1.0 / frequencies
     order = np.argsort(periods, kind="stable")
     sorted_periods = periods[order]
+    PhaseDispersion = _phase_dispersion_class()
     try:
-        from disba import PhaseDispersion
-
         solver = PhaseDispersion(*_disba_model(model), algorithm="dunkin", dc=dc_km_s)
         result = solver(sorted_periods, mode=mode, wave=wave)
     except Exception:

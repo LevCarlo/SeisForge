@@ -121,6 +121,19 @@ s_H^2 = |gradient(travel_time)|^2 - Laplacian(amplitude)/(amplitude*omega^2)
 c_H = 1/s_H
 ```
 
+Derivatives are taken on the regular longitude/latitude grid with metric
+spacing: geodesic distances along each latitude row for the east direction and
+along the central meridian for the north direction. The Laplacian is the sum of
+the two second derivatives in these local coordinates, i.e. a locally flat
+approximation. It omits the spherical metric term `-(tan(lat)/R) df/dy`. For a
+travel-time field (`|df/dy| <= 1/c`), that term is at most about
+`tan(lat)/(R c)`: roughly `4e-5 s/km^2` at 40 deg latitude and `c = 3 km/s`. The
+geometric-spreading curvature at 300 km from a source is about
+`1/(c r) = 1e-3 s/km^2`, so the omitted term is a few percent there and grows
+relative to it far from the source and at high latitude. Keep this in mind
+when the region spans many degrees of latitude or when the Laplacian QC and the
+Helmholtz correction matter at the percent level.
+
 The curvature QC follows surfpy's criterion
 `abs(Laplacian(A)/(A*omega^2)) <= 1/c_ref^2`, where `c_ref` is
 `curvature_reference_velocity_km_s`. The event-field files retain amplitude,

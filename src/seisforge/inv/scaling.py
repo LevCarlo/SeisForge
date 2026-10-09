@@ -89,7 +89,7 @@ def estimate_vp(vs: ArrayLike, method: str = "brocher2005", **kwargs) -> ArrayLi
     try:
         func = VP_SCALINGS[key]
     except KeyError:
-        raise ValueError(f"Unknown method '{method}' for estimating Vp. Available methods: {list(VP_SCALINGS.keys())}")
+        raise ValueError(f"Unknown method '{method}' for estimating Vp. Available methods: {list(VP_SCALINGS.keys())}") from None
     return func(vs, **kwargs)
 
 
@@ -98,5 +98,5 @@ def estimate_rho(vs: ArrayLike, method: str = "brocher2005", **kwargs) -> ArrayL
     try:
         func = RHO_SCALINGS[key]
     except KeyError:
-        raise ValueError(f"Unknown method '{method}' for estimating density. Available methods: {list(RHO_SCALINGS.keys())}")
+        raise ValueError(f"Unknown method '{method}' for estimating density. Available methods: {list(RHO_SCALINGS.keys())}") from None
     return func(vs, **kwargs)
