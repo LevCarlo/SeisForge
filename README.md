@@ -79,7 +79,9 @@ cd examples/STA001
 seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
 ```
 
-See `docs/inv_usage.md` for the inversion configuration guide.
+See `docs/inv_getting_started.md` for a walkthrough of this example,
+`docs/model.md` for the model space, and `docs/inv_usage.md` for every
+configuration key.
 
 See `docs/eikonal_workflow.md` for the Xarray input contract and surface-wave
 Eikonal/Helmholtz tomography workflow.

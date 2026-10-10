@@ -35,22 +35,14 @@ Commands are grouped by workflow; every command takes a YAML config:
 | `seisforge ant eikonal -c eikonal.yml` | Eikonal/Helmholtz phase-velocity maps | [Eikonal](eikonal_workflow.md) |
 | `seisforge rf qc -c rf_qc.yml --plot` | RF quality control | [Receiver functions](rf_workflow.md) |
 | `seisforge rf hkseq -c hkseq.yml --mode both --plot` | sequential H-k stacking | [Receiver functions](rf_workflow.md#sequential-h-k-config) |
-| `seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run` | single-station MCMC inversion | [Inversion](inv_usage.md) |
+| `seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run` | single-station MCMC inversion | [Inversion](inv_getting_started.md) |
 
 Example configs live in `examples/configs/`; `examples/AFTAN/` and
 `examples/STA001/` are small end-to-end examples.
 
-## Design conventions
+## Where to start
 
-- Scientific formulas live in small pure functions (`core`, `hk_core`,
-  `taper`, `snr`, ...); drivers only orchestrate IO, logging, and stage
-  policies.
-- Units are part of names: `period_s`, `distance_km`, `velocity_km_s`,
-  `slowness_s_per_km`.
-- Outputs are self-describing: NetCDF attrs and `.dat` headers record the
-  choices needed to reproduce them (branch, alpha, taper window, SNR
-  definition, ...).
-- Existing outputs are never overwritten or deleted unless explicitly
-  requested (`io.overwrite`, `--overwrite`).
-- Behavior kept only to reproduce old results is isolated and labeled as
-  compatibility (for example `aftan.time_taper.mode: legacy_edge_fraction`).
+- New to the inversion: [getting started](inv_getting_started.md) runs
+  `examples/STA001` end to end.
+- Units, sign conventions, and output policies shared by all workflows:
+  [conventions](conventions.md).

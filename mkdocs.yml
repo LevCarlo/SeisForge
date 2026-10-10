@@ -20,14 +20,16 @@ extra_css:
 
 nav:
   - Home: index.md
+  - Conventions: conventions.md
   - Ambient noise:
       - CCF rotation and filters: ant_workflow.md
       - AFTAN dispersion: aftan_workflow.md
       - Eikonal / Helmholtz tomography: eikonal_workflow.md
   - Receiver functions: rf_workflow.md
   - Inversion:
-      - User guide: inv_usage.md
-      - Model configuration: model.md
+      - Getting started: inv_getting_started.md
+      - Model guide: model.md
+      - Configuration reference: inv_usage.md
   - HVSR forward modelling: hvsr_forward.md
   - Development: development.md
 
