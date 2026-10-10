@@ -44,6 +44,13 @@ request (`.github/workflows/docs.yml`). Pushes to `main` also publish it to
 GitHub Pages once Pages is enabled for the repository with **Source: GitHub
 Actions**.
 
+The API reference pages (`docs/api/`) are generated from docstrings by
+mkdocstrings, reading `src/` statically (the package does not need to be
+importable). Docstrings use the numpy section style where they have sections.
+To document a new public function, add it to the `members` list of the
+matching `docs/api/*.md` page. `CHANGELOG.md` is included as the Changelog
+page.
+
 ## Code layout
 
 Each workflow package follows the same split:
@@ -59,4 +66,5 @@ Each workflow package follows the same split:
 When a change alters numerical results, document it in the workflow page,
 record the new choice in output attrs, and keep the old behavior reachable
 only through an explicitly labeled compatibility option if old results must
-stay reproducible.
+stay reproducible. Add an entry under **Changed results** in `CHANGELOG.md`,
+naming the option that restores the old behavior.

@@ -46,3 +46,6 @@ Example configs live in `examples/configs/`; `examples/AFTAN/` and
   `examples/STA001` end to end.
 - Units, sign conventions, and output policies shared by all workflows:
   [conventions](conventions.md).
+- Python functions and classes: [API reference](api/index.md).
+- Changes that alter results of existing configurations:
+  [changelog](changelog.md).

@@ -31,7 +31,35 @@ nav:
       - Model guide: model.md
       - Configuration reference: inv_usage.md
   - HVSR forward modelling: hvsr_forward.md
+  - API reference:
+      - Overview: api/index.md
+      - Inversion: api/inv.md
+      - Receiver functions: api/rf.md
+      - Ambient noise: api/ant.md
+      - HVSR: api/hvsr.md
+  - References: references.md
+  - Changelog: changelog.md
   - Development: development.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: true
+            heading_level: 3
+            members_order: source
+            filters: ["!^_"]
+            merge_init_into_class: true
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: false
+            show_if_no_docstring: true
 
 markdown_extensions:
   - tables
@@ -40,3 +68,6 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.superfences
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
