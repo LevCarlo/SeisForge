@@ -11,7 +11,7 @@ inv.yaml scalar parameters (theta)
     -> ModelParameterization.vector_to_model(theta)
     -> ParameterizedVsModel: VsSegment objects separated by Interface objects
     -> ParameterizedVsModel.to_layered_model(DiscretizationConfig)   (inv.layering)
-    -> LayeredModel passed to disba (and later RF / compliance kernels)
+    -> LayeredModel passed to the forward solvers (disba, synthetic P RF)
 ~~~
 
 The sampler proposes theta only. Model mapping, hard geophysical constraints,
@@ -262,7 +262,7 @@ The following example has:
 This is a template, not a universal earth model. Adapt depths, bounds, and
 constraints to station geology and period sensitivity.
 
-### 3.1 Complete inv.yaml
+### 5.1 Complete inv.yaml
 
 ~~~yaml
 Model:

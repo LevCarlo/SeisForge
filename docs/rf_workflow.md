@@ -1,7 +1,8 @@
 # Receiver Function Workflows
 
-SeisForge currently exposes two receiver-function workflows through the unified
-CLI:
+SeisForge exposes two receiver-function workflows through the unified CLI
+(QC and sequential H-k stacking) and a synthetic P receiver function forward
+model in Python ([below](#synthetic-p-receiver-functions)):
 
 ```bash
 seisforge rf qc -c examples/configs/rf_qc.yml --plot

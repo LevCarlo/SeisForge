@@ -11,10 +11,25 @@ The current implementation supports:
 - Joint Rayleigh phase velocity + Rayleigh H/V inversion.
 - Segment-based Vs parameterization with constant, gradient, and B-spline
   profiles.
+- Interfaces between segments with sampled absolute depths, optional
+  gradational transition widths, and per-segment Vp/rho scaling
+  ([model guide, section 3](model.md#3-interfaces-depth-inversion-and-per-segment-scaling)).
+- Uniform, truncated normal, and half-normal parameter priors.
+- Interface-aware conversion to forward layers, with a diagnostic report
+  ([model guide, section 4](model.md#4-from-continuous-model-to-forward-layers)).
 - Hard geophysical prior constraints and soft model-space priors.
 - A built-in random-walk Metropolis sampler with multiple chains.
 - NetCDF/xarray outputs for MCMC samples, Vs ensembles, and posterior
   predictions.
+
+The likelihood currently uses dispersion and H/V. A synthetic P receiver
+function forward model exists (`seisforge.inv.predict_receiver_function`, see
+[Receiver functions](rf_workflow.md#synthetic-p-receiver-functions)), but RF
+data cannot yet be configured as an inversion observable.
+
+This page is the configuration reference. Concepts (segments, interfaces,
+transition blending, layering) are explained in the
+[model guide](model.md).
 
 The example station folder is:
 
@@ -170,6 +185,16 @@ Each section is described below.
 `Model` defines how a sampler parameter vector is converted into a Vs profile.
 Vp and density are derived from Vs through a scaling rule.
 
+Two layouts are accepted:
+
+- **Segment layout** (below): every segment has fixed `top_km`/`bottom_km`;
+  all boundaries are hard. Used by `examples/STA001`.
+- **Interface layout**: `Model.interfaces` (depths may be parameters, with an
+  optional `width_km`) plus `Model.zmax_km`; segments then have no
+  `top_km`/`bottom_km` and may carry their own `scaling`. See the
+  [model guide, section 3](model.md#3-interfaces-depth-inversion-and-per-segment-scaling)
+  and `examples/configs/interface_model.yml`.
+
 ```yaml
 Model:
   scaling:
@@ -207,6 +232,8 @@ vp:
 Available density scaling methods:
 
 - `brocher2005`: empirical relation from Vs to density.
+- `gardner1974`: `rho = a * Vp**b` from the scaled Vp (defaults `a = 1.741`,
+  `b = 0.25`; km/s, g/cm^3).
 - `constant`: fixed density.
 
 Example:
@@ -218,8 +245,10 @@ rho:
 ```
 
 The default examples use Brocher scaling. This is convenient when only Vs is
-inverted. If future workflows invert Vp/Vs or Vp directly, the scaling layer
-will need to be extended.
+inverted. Brocher (2005) is only valid for Vs <= 4.5 km/s, so mantle segments
+need their own relation. In the interface layout, a segment's `scaling`
+overrides the model default for that segment (for example a constant Vp/Vs and
+density in the mantle). Vp and Vp/Vs are not inversion parameters.
 
 ### Segments
 
@@ -229,9 +258,9 @@ The model is built from ordered, contiguous depth segments. Each segment has:
 - `bottom_km`: segment bottom depth in km.
 - `profile`: the Vs parameterization inside the segment.
 
-Current segment depths are fixed numeric values. Segment boundaries are
-preserved automatically during discretization; a layer will not cross from one
-segment into another.
+In this layout segment depths are fixed numbers; to sample a boundary depth,
+use the interface layout. Hard segment boundaries are preserved automatically
+during discretization; a layer never crosses one.
 
 Supported profile types are:
 
@@ -321,8 +350,12 @@ Fields:
   `{parameter: name}`.
 - `initial`: initial value. It is used by the `theta0` initialization strategy
   and is also useful as a readable reference model.
-- `prior.type`: currently only `uniform` is implemented.
-- `prior.bounds`: lower and upper hard bounds for the scalar parameter.
+- `prior.type`: `uniform` (default), `normal` (`mean`, `sigma`; truncated to
+  the bounds), or `half_normal` (`scale`; peaks at the lower bound, used for
+  interface widths). See the
+  [model guide](model.md#3-interfaces-depth-inversion-and-per-segment-scaling).
+- `prior.bounds`: lower and upper hard bounds for the scalar parameter. They
+  are required for every prior type.
 - `proposal.sigma`: random-walk proposal standard deviation for this parameter.
 
 Parameter bounds define scalar support. They are only one part of the prior.
@@ -342,23 +375,34 @@ Discretization:
   dz: 0.25
   zmax: 15.0
   force_depths: []
+  # Optional:
+  # layers_per_segment: {sediment: 8, crust: 30}   # or one integer
+  # transition_layers: 16
+  # layer_value: midpoint                          # or mean
 ```
 
 Fields:
 
-- `dz`: nominal layer thickness in km.
+- `dz`: nominal layer thickness in km, used for segments without a fixed
+  layer count.
 - `zmax`: deepest model depth used for discretization.
 - `force_depths`: optional fixed depths that should be inserted as additional
   layer boundaries.
+- `layers_per_segment`: fixed number of layers per segment (an integer for
+  all segments, or a mapping from segment name to count). Recommended when
+  interface depths are sampled: layer boundaries then move continuously with
+  the interfaces instead of the layer count changing in steps.
+- `transition_layers`: number of equal layers across the support of each
+  gradational interface (default 16, minimum 2).
+- `layer_value`: `midpoint` (default) takes each layer's properties at its
+  centre; `mean` takes the depth average.
 
-Important: segment boundaries are already preserved automatically. You do not
-need to put fixed segment boundaries into `force_depths`. Use `force_depths`
-only for extra fixed internal depths that are not already segment boundaries.
-
-This matters for future receiver-function joint inversion. If interface depths
-become inversion parameters, hard-coded `force_depths` will be inappropriate.
-The model should instead preserve the current segment boundaries dynamically
-for each candidate parameter vector.
+Important: hard segment boundaries and hard interfaces are preserved
+automatically, at their current depths for every candidate model. Do not put
+them into `force_depths`; use `force_depths` only for extra fixed internal
+depths. See the
+[model guide, section 4](model.md#4-from-continuous-model-to-forward-layers)
+for the rules and the `layering_report` diagnostic.
 
 ## Constraints
 
@@ -748,61 +792,25 @@ Use the separate dispersion and H/V residual diagnostics to tune likelihood
 weights. A single joint misfit number is usually not very informative when the
 observables have different units and sensitivities.
 
-## Segment-thickness inversion
+## Interface-depth inversion
 
-Variable segment thickness is not implemented yet, but the current architecture
-is close to supporting it.
+Boundary depths (sediment thickness, Moho depth) and transition widths are
+sampled through the interface layout: an interface's `depth_km` or `width_km`
+refers to an inversion parameter, and the neighbouring segments follow it.
+For every candidate model, the parameter mapping checks that interfaces are
+ordered and that transition supports stay inside their segments, and the
+discretization keeps hard interfaces as exact layer boundaries. The full
+description is in the
+[model guide, sections 3-4](model.md#3-interfaces-depth-inversion-and-per-segment-scaling);
+a complete configuration is `examples/configs/interface_model.yml`.
 
-Today, segment boundaries are fixed numeric values:
+Two limitations remain:
 
-```yaml
-segments:
-  - top_km: 0.0
-    bottom_km: 1.0
-```
-
-To invert a boundary depth, the model-mapping layer would need to allow segment
-tops and bottoms to reference parameters:
-
-```yaml
-segments:
-  - name: sediment
-    top_km: 0.0
-    bottom_km:
-      parameter: sediment.bottom
-
-  - name: crust
-    top_km:
-      parameter: sediment.bottom
-    bottom_km: 35.0
-```
-
-This is not only a YAML change. It requires:
-
-1. Updating `ModelParameterization.vector_to_model()` so segment boundaries can
-   be resolved from theta.
-2. Adding validation that resolved segments are ordered, contiguous, positive
-   thickness, and within model bounds.
-3. Updating constraints so they can refer to segment names instead of fixed
-   depth ranges when appropriate.
-4. Ensuring discretization always preserves the current candidate segment
-   boundaries dynamically.
-5. Updating output metadata so variable interfaces can be summarized alongside
-   Vs(z).
-
-The change is moderate, not fundamental. The sampler already works on a flat
-theta vector, so adding boundary-depth parameters does not require a new MCMC
-engine. The main work is in parameter-to-model mapping, validation, and
-segment-aware constraints.
-
-For receiver-function joint inversion, this extension will be important:
-
-- sediment thickness can be a parameter,
-- Moho depth can be a parameter,
-- RF-sensitive discontinuities should be preserved exactly during forward
-  modeling,
-- monotonicity constraints should often apply within selected segments rather
-  than over broad fixed depth intervals.
+- Constraints are depth-range based (see `monotonic_vs` above), so a range
+  does not follow a moving interface. Choose ranges that are valid for every
+  allowed interface depth, or rely on per-segment profile shapes.
+- Output metadata summarizes Vs(z); interface depths and widths are available
+  as ordinary parameters in the MCMC samples.
 
 ## Relationship to reference implementations
 
