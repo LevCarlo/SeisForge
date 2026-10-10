@@ -63,6 +63,10 @@ switch that restores the old behaviour where one exists.
 - Inversion configurations are validated at setup (parameter references,
   model layout, a valid initial model).
 - Tests import the installed package (`pip install -e ".[dev]"` first).
+- `seisforge.ant.aftan` no longer re-exports private helpers (`_snr`,
+  `_aftan_diagram_snr`, `_period_qc`, `_qc_warnings`,
+  `_align_to_period_grid`, `_override_energy_map_config`). They remain in
+  their modules (`snr`, `qc`, `products`, `config`) and are not public API.
 
 ### Fixed
 

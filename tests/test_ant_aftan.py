@@ -15,13 +15,7 @@ from seisforge.ant.aftan import (
     AFTANQCConfig,
     AFTANPeriodSamplingConfig,
     AFTANTimeTaperConfig,
-    _align_to_period_grid,
-    _aftan_diagram_snr,
     apply_phase_cycle_shift,
-    _override_energy_map_config,
-    _period_qc,
-    _qc_warnings,
-    _snr,
     automatic_pi_over_4,
     build_station_aftan_config,
     physical_branch_for_branch,
@@ -30,6 +24,11 @@ from seisforge.ant.aftan import (
     run_aftan_config,
 )
 from seisforge.ant.aftan.taper import cosine_window_weights
+# Internal helpers are tested from their own modules; they are not package API.
+from seisforge.ant.aftan.config import _override_energy_map_config
+from seisforge.ant.aftan.products import _align_to_period_grid
+from seisforge.ant.aftan.qc import _period_qc, _qc_warnings
+from seisforge.ant.aftan.snr import _aftan_diagram_snr, _snr
 from seisforge.ant.aftan.core import (
     AFTANMeasurement,
     _build_period_grid,
