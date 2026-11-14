@@ -3,7 +3,7 @@
 # The .dat files use three columns:
 #   period  observed_value  one_sigma_uncertainty
 
-Observations:
+observations:
   dispersion:
     file: vph_disp.dat
     wave: rayleigh
@@ -15,7 +15,7 @@ Observations:
     wave: rayleigh
     mode: 0
 
-Forward:
+forward:
   # Numerical settings for disba dispersion calculation. These describe how the
   # synthetic data are computed, so they live with the observation definition
   # rather than in inv.yaml.

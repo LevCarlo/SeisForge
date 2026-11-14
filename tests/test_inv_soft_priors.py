@@ -45,7 +45,7 @@ def test_vs_curvature_does_not_difference_across_segment_boundaries():
 def test_soft_prior_config_requires_known_type_and_positive_sigma():
     suite = soft_priors_from_config(
         {
-            "SoftPriors": {
+            "soft_priors": {
                 "priors": [
                     {
                         "type": "vs_curvature",
@@ -61,8 +61,8 @@ def test_soft_prior_config_requires_known_type_and_positive_sigma():
     assert len(suite.priors) == 1
     assert suite.priors[0].sigma == 0.3
     with pytest.raises(ValueError, match="Unknown soft prior type"):
-        soft_priors_from_config({"SoftPriors": {"priors": [{"type": "unknown"}]}})
+        soft_priors_from_config({"soft_priors": {"priors": [{"type": "unknown"}]}})
     with pytest.raises(ValueError, match="positive"):
         soft_priors_from_config(
-            {"SoftPriors": {"priors": [{"type": "vs_curvature", "sigma": 0.0}]}}
+            {"soft_priors": {"priors": [{"type": "vs_curvature", "sigma": 0.0}]}}
         )

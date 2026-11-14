@@ -265,8 +265,8 @@ def _prepare_output_dir(output: str | Path, *, overwrite: bool) -> Path:
 
 def _write_resolved_config(config: dict, path: Path, *, attrs: dict) -> None:
     resolved = copy.deepcopy(config)
-    resolved.setdefault("Run", {}).update(attrs)
-    observations = resolved.get("Observations")
+    resolved.setdefault("run", {}).update(attrs)
+    observations = resolved.get("observations")
     if isinstance(observations, dict):
         for item in observations.values():
             if isinstance(item, dict):
@@ -282,11 +282,11 @@ def _write_input_snapshots(
     attrs: dict,
 ) -> None:
     inv_snapshot = copy.deepcopy(inversion_input.inv_config)
-    inv_snapshot.setdefault("Run", {}).update(attrs)
+    inv_snapshot.setdefault("run", {}).update(attrs)
     dump_yaml(inv_snapshot, output_dir / "resolved_inv.yaml")
     if inversion_input.obs_config is not None:
         obs_snapshot = copy.deepcopy(inversion_input.obs_config)
-        obs_snapshot.setdefault("Run", {}).update(attrs)
+        obs_snapshot.setdefault("run", {}).update(attrs)
         dump_yaml(obs_snapshot, output_dir / "resolved_obs.yaml")
 
 

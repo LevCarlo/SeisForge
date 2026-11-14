@@ -19,3 +19,13 @@ Names that start with an underscore are internal and not listed.
     options:
       members:
         - software_provenance
+
+## Shared configuration helpers
+
+::: seisforge.config_keys
+    options:
+      members:
+        - check_keys
+        - rename_legacy_sections
+        - warn_legacy_sections
+        - ConfigDeprecationWarning

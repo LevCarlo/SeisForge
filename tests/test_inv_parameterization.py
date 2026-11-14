@@ -89,7 +89,7 @@ def test_parameterization_separates_prior_bounds_from_proposal_sigma():
 
 def test_parameterization_from_config_accepts_yaml_like_mapping():
     config = {
-        "Inversion": {
+        "inversion": {
             "parameters": [
                 {
                     "name": "vs0",
@@ -105,7 +105,7 @@ def test_parameterization_from_config_accepts_yaml_like_mapping():
                 },
             ],
         },
-        "Model": {
+        "model": {
             "segments": [
                 {
                     "top_km": 0.0,

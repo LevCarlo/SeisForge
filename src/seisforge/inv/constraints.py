@@ -7,6 +7,7 @@ from typing import Protocol
 
 import numpy as np
 
+from seisforge.inv.config_schema import prepare_inv_config, validate_constraints_config
 from seisforge.inv.model import LayeredModel, ParameterizedVsModel
 
 
@@ -151,16 +152,18 @@ class MaxVsGradientConstraint:
         return bool(np.all(np.abs(gradient) <= self.max_abs))
 
 
-def constraints_from_config(config: dict | None) -> ConstraintSuite:
+def constraints_from_config(config: dict | list | None) -> ConstraintSuite:
+    """Build hard constraints from a full configuration or a ``constraints`` section.
+
+    The section is a list of constraints or a mapping ``{constraints: [...]}``.
+    """
     config = config or {}
-    if isinstance(config, list):
-        items = config
-    else:
-        if "Constraints" in config:
-            config = config["Constraints"]
-        elif "PhysicalConstraints" in config:
-            config = config["PhysicalConstraints"]
-        items = config if isinstance(config, list) else config.get("constraints", ())
+    bare_section = set(config) == {"constraints"} and isinstance(config["constraints"], list)
+    if isinstance(config, dict) and not bare_section:
+        # A full configuration; the bare section maps "constraints" to a list.
+        config = prepare_inv_config(config).get("constraints") or []
+    validate_constraints_config(config)
+    items = config if isinstance(config, list) else config.get("constraints") or ()
     return ConstraintSuite(constraints=tuple(_constraint_from_config(item) for item in items))
 
 

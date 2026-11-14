@@ -12,6 +12,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, get_args
 
+from seisforge.config_keys import rename_legacy_sections, warn_legacy_sections
+from seisforge.inv.config_schema import (
+    INV_SECTION_RENAMES,
+    prepare_inv_config,
+    prepare_obs_config,
+    validate_inv_config,
+    validate_obs_config,
+)
 from seisforge.inv.io import load_yaml, read_dispersion_dat, read_hv_dat
 from seisforge.inv.likelihood import DispersionObservation, RayleighHVObservation
 
@@ -40,12 +48,25 @@ def load_inversion_input(
     obs_file: str | Path | None = None,
     require_observations: bool = True,
 ) -> InversionInput:
-    """Load `inv.yaml` and optional `obs.yaml` for a run."""
+    """Load `inv.yaml` and optional `obs.yaml` for a run.
+
+    Section names are normalized to lowercase (one deprecation warning for
+    both files if old names are used) and every key is checked against
+    `seisforge.inv.config_schema`; the returned configs use the new names.
+    """
 
     inv_path = Path(inv_file)
     obs_path = None if obs_file is None else Path(obs_file)
-    inv_config = load_yaml(inv_path)
-    obs_config = None if obs_path is None else load_yaml(obs_path)
+    inv_config, used = _load_sections(inv_path)
+    obs_config = None
+    if obs_path is not None:
+        obs_config, obs_used = _load_sections(obs_path)
+        used += obs_used
+    files = str(inv_path) if obs_path is None else f"{inv_path} and {obs_path}"
+    warn_legacy_sections(used, where=files)
+    _validate_file(validate_inv_config, inv_config, inv_path)
+    if obs_config is not None:
+        _validate_file(validate_obs_config, obs_config, obs_path)
     run_config, dispersion_file, hv_file = config_with_observations(
         inv_config,
         obs_config=obs_config,
@@ -77,7 +98,7 @@ def config_with_observations(
 
     if kind not in get_args(InversionKind):
         raise ValueError(f"kind must be one of {list(get_args(InversionKind))}, got {kind!r}.")
-    run_config = copy.deepcopy(inv_config)
+    run_config = copy.deepcopy(prepare_inv_config(inv_config))
     observation_specs = observation_specs_from_config(obs_config)
     observations = {}
     dispersion_file = None
@@ -89,7 +110,7 @@ def config_with_observations(
         if dispersion_file is None:
             if require_observations:
                 raise ValueError(
-                    "Observations.dispersion.file is required for dispersion runs."
+                    "observations.dispersion.file is required for dispersion runs."
                 )
         else:
             dispersion = copy.deepcopy(dispersion_spec)
@@ -102,7 +123,7 @@ def config_with_observations(
         hv_file = _observation_file(hv_spec, base_dir=obs_base_dir)
         if hv_file is None:
             if require_observations:
-                raise ValueError("Observations.hv.file is required for H/V runs.")
+                raise ValueError("observations.hv.file is required for H/V runs.")
         else:
             hv = copy.deepcopy(hv_spec)
             hv.pop("file", None)
@@ -110,9 +131,9 @@ def config_with_observations(
             observations["hv"] = hv
 
     if observations and require_observations:
-        run_config["Observations"] = observations
+        run_config["observations"] = observations
     else:
-        run_config.pop("Observations", None)
+        run_config.pop("observations", None)
     return run_config, dispersion_file, hv_file
 
 
@@ -121,8 +142,9 @@ def observation_specs_from_config(obs_config: dict | None) -> dict:
 
     if obs_config is None:
         return {}
-    observations = copy.deepcopy(obs_config.get("Observations", obs_config.get("Data", {})))
-    forward = copy.deepcopy(obs_config.get("Forward", {}))
+    obs_config = prepare_obs_config(obs_config)
+    observations = copy.deepcopy(obs_config.get("observations", {}))
+    forward = copy.deepcopy(obs_config.get("forward", {}))
     for key, settings in forward.items():
         if not isinstance(settings, dict):
             continue
@@ -178,13 +200,27 @@ def rayleigh_hv_observation_from_config(config: dict) -> RayleighHVObservation:
 
 
 def likelihood_weights_from_config(config: dict) -> tuple[float, float]:
-    likelihood_cfg = config.get("Likelihood", {})
+    likelihood_cfg = prepare_inv_config(config).get("likelihood", {})
     if likelihood_cfg:
         return (
             float(likelihood_cfg.get("dispersion_weight", 1.0)),
             float(likelihood_cfg.get("hv_weight", 1.0)),
         )
     return 1.0, 1.0
+
+
+def _load_sections(path: Path) -> tuple[dict, list[tuple[str, str]]]:
+    config = load_yaml(path)
+    if config is None:
+        raise ValueError(f"{path} is empty.")
+    return rename_legacy_sections(config, INV_SECTION_RENAMES, where=str(path))
+
+
+def _validate_file(validate, config: dict, path: Path) -> None:
+    try:
+        validate(config)
+    except ValueError as exc:
+        raise ValueError(f"{path}: {exc}") from exc
 
 
 def _observation_file(metadata: dict, *, base_dir: Path | None) -> Path | None:

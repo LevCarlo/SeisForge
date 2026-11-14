@@ -236,7 +236,7 @@ def test_halfspace_and_segment_provenance():
 
 def _interface_config():
     return {
-        "Inversion": {
+        "inversion": {
             "parameters": [
                 {"name": "basement.depth", "initial": 1.0, "prior": {"bounds": [0.3, 2.0]}},
                 {
@@ -252,7 +252,7 @@ def _interface_config():
                 {"name": "crust.vs_top", "initial": 3.2, "prior": {"bounds": [2.8, 3.6]}},
             ]
         },
-        "Model": {
+        "model": {
             "zmax_km": 80.0,
             "interfaces": [
                 {"name": "basement", "depth_km": {"parameter": "basement.depth"}},
@@ -302,7 +302,7 @@ def test_invalid_interface_geometry_is_rejected_by_the_prior_not_raised():
     # A 8 km wide transition needs ~8 km of room; fine at 35 km.
     assert prior.evaluate([1.0, 35.0, 8.0, 3.2]).success
     # Too wide for a sediment-thin model: support reaches the basement.
-    config["Inversion"]["parameters"][0]["prior"]["bounds"] = [0.3, 40.0]
+    config["inversion"]["parameters"][0]["prior"]["bounds"] = [0.3, 40.0]
     parameterization = parameterization_from_config(config)
     prior = GeophysicalPrior(parameterization=parameterization)
     result = prior.evaluate([30.0, 35.0, 8.0, 3.2])
@@ -311,14 +311,14 @@ def test_invalid_interface_geometry_is_rejected_by_the_prior_not_raised():
 
 def test_interface_config_errors_are_explicit():
     config = _interface_config()
-    config["Model"]["segments"][0]["top_km"] = 0.0
+    config["model"]["segments"][0]["top_km"] = 0.0
     with pytest.raises(ValueError, match="remove top_km"):
         parameterization_from_config(config)
     config = _interface_config()
-    config["Model"]["interfaces"][0]["depth_km"] = {"parameter": "missing"}
+    config["model"]["interfaces"][0]["depth_km"] = {"parameter": "missing"}
     with pytest.raises(ValueError, match="undefined parameters"):
         parameterization_from_config(config)
-    model_cfg = _interface_config()["Model"]
+    model_cfg = _interface_config()["model"]
     model_cfg["interfaces"][0]["depth_km"] = 50.0
     model_cfg["interfaces"][1]["depth_km"] = 35.0
     model_cfg["interfaces"][1]["width_km"] = 0.0

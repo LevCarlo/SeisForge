@@ -72,7 +72,7 @@ Interface depths are **absolute** depths and may be sampled; segment depths are
 derived from them.
 
 ~~~yaml
-Model:
+model:
   zmax_km: 80.0                 # bottom of the parameterized model (half-space top)
   scaling:                      # default for segments without their own scaling
     vp: {method: brocher2005}
@@ -184,7 +184,7 @@ Every forward solver sees only the `LayeredModel`, so the conversion
 5. The half-space takes the properties at the bottom depth (`zmax`).
 
 ~~~yaml
-Discretization:
+discretization:
   zmax: 80.0
   layers_per_segment: {sediment: 8, crust: 40, mantle: 12}   # or one integer, or use dz
   transition_layers: 16
@@ -233,12 +233,12 @@ H/V model.
 
 The prior has three parts:
 
-1. **Parameter priors** (`Inversion.parameters[].prior`): a box in theta, with
+1. **Parameter priors** (`inversion.parameters[].prior`): a box in theta, with
    optional normal or half-normal shapes.
-2. **Hard constraints** (`Constraints`): physical checks on the built model,
+2. **Hard constraints** (`constraints`): physical checks on the built model,
    for example Vp/Vs range, Vs range, monotonicity, maximum gradient. A model
    that fails one gets log prior = -inf before any forward calculation.
-3. **Soft priors** (`SoftPriors`): finite penalties, currently Vs curvature,
+3. **Soft priors** (`soft_priors`): finite penalties, currently Vs curvature,
    that prefer some valid models over others.
 
 Hard constraints turn a box of B-spline coefficients into a physically

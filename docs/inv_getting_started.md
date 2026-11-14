@@ -51,7 +51,7 @@ seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
 
 `inv disp` and `inv hv` invert one data type; `inv disp-hv` inverts both.
 An existing output directory is not overwritten unless `--overwrite` is given.
-The example uses four chains in series (`Sampler.executor: serial`); with
+The example uses four chains in series (`sampler.executor: serial`); with
 `executor: thread` they run in parallel, because the forward solvers release
 the GIL.
 

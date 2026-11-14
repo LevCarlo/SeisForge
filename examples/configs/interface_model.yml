@@ -8,7 +8,7 @@
 #
 # See docs/model.md sections 3-4. Use with an obs.yaml as for examples/STA001.
 
-Model:
+model:
   zmax_km: 80.0
   scaling:
     vp: {method: brocher2005}
@@ -54,7 +54,7 @@ Model:
         vp: {method: constant_vp_vs, vp_vs: 1.8}
         rho: {method: constant, rho: 3.35}
 
-Inversion:
+inversion:
   parameters:
     - name: basement.depth
       initial: 0.8
@@ -94,14 +94,14 @@ Inversion:
       prior: {type: uniform, bounds: [4.2, 4.6]}
       proposal: {sigma: 0.03}
 
-Discretization:
+discretization:
   zmax: 80.0
   # Fixed counts keep the layered model continuous in the sampled depths.
   layers_per_segment: {sediment: 8, crust: 30, mantle: 12}
   transition_layers: 16
   layer_value: midpoint
 
-Constraints:
+constraints:
   constraints:
     - type: positive_velocity
     - type: boundary_non_decreasing_vs
@@ -109,11 +109,11 @@ Constraints:
     - type: vp_vs_range
       bounds: [1.6, 3.0]
 
-Likelihood:
+likelihood:
   dispersion_weight: 1.0
   hv_weight: 1.0
 
-Sampler:
+sampler:
   n_steps: 20000
   burn_in: 5000
   thin: 10

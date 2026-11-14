@@ -68,7 +68,7 @@ input and grid conventions must match
   their input YAML files.
 - Existing outputs are never overwritten or deleted unless explicitly
   requested (`io.overwrite`, `--overwrite`).
-- Random-number seeds are configuration values (`Sampler.seed`) and are
+- Random-number seeds are configuration values (`sampler.seed`) and are
   recorded with the run.
 - Every output records the software that made it, as string attributes from
   `seisforge.provenance.software_provenance()`: `seisforge_version`,

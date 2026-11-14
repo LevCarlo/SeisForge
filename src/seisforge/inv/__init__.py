@@ -20,6 +20,13 @@ from seisforge.inv.constraints import (
     VsRangeConstraint,
     constraints_from_config,
 )
+from seisforge.inv.config_schema import (
+    INV_SECTION_RENAMES,
+    prepare_inv_config,
+    prepare_obs_config,
+    validate_inv_config,
+    validate_obs_config,
+)
 from seisforge.inv.config import (
     InversionInput,
     InversionKind,
@@ -263,6 +270,11 @@ __all__ = [
     "bspline_knots",
     "build_inversion_setup",
     "config_with_observations",
+    "INV_SECTION_RENAMES",
+    "prepare_inv_config",
+    "prepare_obs_config",
+    "validate_inv_config",
+    "validate_obs_config",
     "constraints_from_config",
     "discretization_from_config",
     "dispersion_observation_from_config",

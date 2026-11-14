@@ -100,6 +100,16 @@ switch that restores the old behaviour where one exists.
   of silently rejecting every proposal; the samplers no longer read a
   `ValueError` raised by the target as `-inf`. Runs without such errors draw
   the same samples bit for bit.
+- Inversion configurations (`inv.yaml`, `obs.yaml`) reject unknown keys with
+  the section and the closest valid key, instead of silently using a default.
+  Section names are lowercase (`model`, `inversion`, `discretization`,
+  `constraints`, `soft_priors`, `likelihood`, `sampler`, `observations`,
+  `forward`, `run`); the capitalized names and the aliases
+  `PhysicalConstraints` and `Data` still load with one
+  `ConfigDeprecationWarning` per run. `resolved_*.yaml` and
+  `parameterized_vs_model_to_config` write the lowercase names. `forward`
+  accepts only `algorithm`, `dc` (and `dt` for dispersion); giving both `hv`
+  and `rayleigh_hv` is an error. No numbers change.
 
 ### Fixed
 

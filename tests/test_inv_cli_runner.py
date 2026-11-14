@@ -19,7 +19,7 @@ from seisforge.inv.setup import build_inversion_setup
 
 def _config():
     return {
-        "Inversion": {
+        "inversion": {
             "parameters": [
                 {
                     "name": "vs0",
@@ -41,7 +41,7 @@ def _config():
                 },
             ]
         },
-        "Model": {
+        "model": {
             "segments": [
                 {
                     "top_km": 0.0,
@@ -63,18 +63,18 @@ def _config():
                 },
             ]
         },
-        "Discretization": {"dz": 1.0, "zmax": 3.0},
-        "Constraints": {
+        "discretization": {"dz": 1.0, "zmax": 3.0},
+        "constraints": {
             "constraints": [
                 {"type": "positive_velocity"},
                 {"type": "monotonic_vs", "dz": 0.5},
             ]
         },
-        "Observations": {
+        "observations": {
             "dispersion": {"wave": "rayleigh", "kind": "phase", "mode": 0},
             "hv": {"wave": "rayleigh", "mode": 0},
         },
-        "Sampler": {
+        "sampler": {
             "n_steps": 4,
             "burn_in": 1,
             "thin": 1,
@@ -88,7 +88,7 @@ def _config():
 
 def _write_observations(tmp_path, config):
     prior_config = dict(config)
-    prior_config.pop("Observations", None)
+    prior_config.pop("observations", None)
     setup = build_inversion_setup(prior_config)
     layered = setup.prior.evaluate(setup.parameterization.theta0()).layered_model
     periods = np.array([2.0, 3.0])
@@ -109,7 +109,7 @@ def _write_observations(tmp_path, config):
 
 def _obs_config():
     return {
-        "Observations": {
+        "observations": {
             "dispersion": {
                 "file": "vph_disp.dat",
                 "wave": "rayleigh",
@@ -118,7 +118,7 @@ def _obs_config():
             },
             "hv": {"file": "hv.dat", "wave": "rayleigh", "mode": 0},
         },
-        "Forward": {
+        "forward": {
             "dispersion": {"algorithm": "dunkin", "dc": 0.005, "dt": 0.025},
             "hv": {"algorithm": "dunkin", "dc": 0.005},
         },
@@ -141,7 +141,7 @@ def test_read_observation_dat_sorts_periods(tmp_path):
 
 def test_disp_hv_driver_writes_xarray_outputs(tmp_path, assert_provenance):
     config = _config()
-    config["SoftPriors"] = {
+    config["soft_priors"] = {
         "priors": [
             {
                 "type": "vs_curvature",
@@ -152,7 +152,7 @@ def test_disp_hv_driver_writes_xarray_outputs(tmp_path, assert_provenance):
         ]
     }
     inv_config = dict(config)
-    inv_config.pop("Observations", None)
+    inv_config.pop("observations", None)
     inv_file = tmp_path / "inv.yaml"
     obs_file = tmp_path / "obs.yaml"
     dump_yaml(inv_config, inv_file)
@@ -205,7 +205,7 @@ def test_disp_hv_driver_writes_xarray_outputs(tmp_path, assert_provenance):
 def test_disp_hv_driver_reads_split_inv_and_obs_configs(tmp_path):
     config = _config()
     inv_config = dict(config)
-    inv_config.pop("Observations", None)
+    inv_config.pop("observations", None)
     inv_file = tmp_path / "inv.yaml"
     obs_file = tmp_path / "obs.yaml"
     dump_yaml(inv_config, inv_file)
@@ -232,9 +232,9 @@ def test_disp_hv_driver_reads_split_inv_and_obs_configs(tmp_path):
 def test_driver_with_tempering_writes_swap_acceptance(tmp_path):
     config = _config()
     inv_config = dict(config)
-    inv_config.pop("Observations", None)
-    inv_config["Sampler"] = dict(
-        config["Sampler"], n_steps=6, n_chains=2, tempering={"temperatures": [1, 3, 9]}
+    inv_config.pop("observations", None)
+    inv_config["sampler"] = dict(
+        config["sampler"], n_steps=6, n_chains=2, tempering={"temperatures": [1, 3, 9]}
     )
     inv_file = tmp_path / "inv.yaml"
     obs_file = tmp_path / "obs.yaml"

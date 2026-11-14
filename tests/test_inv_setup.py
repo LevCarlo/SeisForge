@@ -15,7 +15,7 @@ from seisforge.inv.setup import build_inversion_setup
 
 def _base_config():
     return {
-        "Inversion": {
+        "inversion": {
             "parameters": [
                 {
                     "name": "vs0",
@@ -37,7 +37,7 @@ def _base_config():
                 },
             ]
         },
-        "Model": {
+        "model": {
             "segments": [
                 {
                     "top_km": 0.0,
@@ -59,14 +59,14 @@ def _base_config():
                 },
             ]
         },
-        "Discretization": {"dz": 1.0},
-        "Constraints": {
+        "discretization": {"dz": 1.0},
+        "constraints": {
             "constraints": [
                 {"type": "positive_velocity"},
                 {"type": "monotonic_vs", "dz": 0.5},
             ]
         },
-        "Sampler": {
+        "sampler": {
             "n_steps": 8,
             "burn_in": 2,
             "thin": 1,
@@ -85,7 +85,7 @@ def _add_self_consistent_observations(config):
     dispersion = predict_dispersion(layered, DispersionRequest(periods=periods))
     hv = predict_rayleigh_hv(layered, RayleighHVRequest(periods=periods))
     config = dict(config)
-    config["Observations"] = {
+    config["observations"] = {
         "dispersion": {
             "periods": periods.tolist(),
             "velocity": dispersion.velocity.tolist(),
@@ -97,7 +97,7 @@ def _add_self_consistent_observations(config):
             "sigma": [0.1, 0.1, 0.1],
         },
     }
-    config["Likelihood"] = {"dispersion_weight": 1.0, "hv_weight": 2.0}
+    config["likelihood"] = {"dispersion_weight": 1.0, "hv_weight": 2.0}
     return config
 
 
@@ -112,7 +112,7 @@ def test_build_inversion_setup_builds_prior_only_setup():
 
 def test_build_inversion_setup_parses_soft_priors():
     config = _base_config()
-    config["SoftPriors"] = {
+    config["soft_priors"] = {
         "priors": [
             {
                 "type": "vs_curvature",
@@ -134,7 +134,7 @@ def test_build_inversion_setup_parses_soft_priors():
 
 def test_inversion_setup_can_run_prior_sampler():
     config = _base_config()
-    config["Sampler"]["initial_strategy"] = "prior_uniform"
+    config["sampler"]["initial_strategy"] = "prior_uniform"
     setup = build_inversion_setup(config)
 
     result = setup.run_prior()
