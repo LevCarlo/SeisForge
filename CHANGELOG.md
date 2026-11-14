@@ -62,6 +62,10 @@ switch that restores the old behaviour where one exists.
   configuration reference, API reference, and references.
 - MIT license; GitHub Actions for lint, tests (Python 3.10 and 3.12), and the
   documentation build.
+- **Forward-failure counts:** the posterior `*_mcmc.nc` records per chain
+  `forward_attempts`, `forward_failures` and `forward_failure_rate` (with
+  tempering also for the `T = 1` replica), and the log warns when a chain's
+  rate exceeds 1 % (assumed threshold), naming the most frequent errors.
 
 ### Changed
 
@@ -78,6 +82,14 @@ switch that restores the old behaviour where one exists.
   `_aftan_diagram_snr`, `_period_qc`, `_qc_warnings`,
   `_align_to_period_grid`, `_override_energy_map_config`). They remain in
   their modules (`snr`, `qc`, `products`, `config`) and are not public API.
+- Inversion forward wrappers (`predict_dispersion`, `predict_rayleigh_hv`)
+  and the HVSR mode seeds turn only disba's solver failures
+  (`DispersionError`, `ZeroDivisionError`) into a rejected proposal or a
+  missing seed. Other exceptions, for example `TypeError`, `AttributeError`,
+  unsorted observation periods or a missing disba, now stop the run instead
+  of silently rejecting every proposal; the samplers no longer read a
+  `ValueError` raised by the target as `-inf`. Runs without such errors draw
+  the same samples bit for bit.
 
 ### Fixed
 

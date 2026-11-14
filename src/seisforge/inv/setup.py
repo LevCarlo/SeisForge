@@ -10,7 +10,7 @@ from seisforge.inv.config import likelihood_weights_from_config, observations_fr
 from seisforge.inv.constraints import ConstraintSuite, constraints_from_config
 from seisforge.inv.io import discretization_from_config
 from seisforge.inv.parameterization import ModelParameterization, parameterization_from_config
-from seisforge.inv.posterior import JointInversionTarget
+from seisforge.inv.posterior import CountingTarget, JointInversionTarget
 from seisforge.inv.prior import GeophysicalPrior
 from seisforge.inv.soft_priors import SoftPriorSuite, soft_priors_from_config
 from seisforge.inv.samplers import (
@@ -128,8 +128,10 @@ class InversionSetup:
             # The prior has no likelihood to temper; sample it with a plain chain.
             config = replace(config, temperatures=None)
         log_target = self._log_target(target)
-        if config.temperatures is not None:
-            log_target = self.target.log_prior_and_likelihood
+        if target == "posterior":
+            # Same values as target.log_posterior / log_prior_and_likelihood,
+            # plus per-chain forward-failure counts in each chain's target_reports.
+            log_target = CountingTarget(self.target, split=config.temperatures is not None)
         return run_metropolis(
             log_target,
             self.initial_thetas(target=target),

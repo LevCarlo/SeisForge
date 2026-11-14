@@ -246,9 +246,16 @@ def test_driver_with_tempering_writes_swap_acceptance(tmp_path):
     with xr.open_dataset(result.posterior_mcmc) as dataset:
         assert dataset["swap_acceptance"].shape == (2, 2)
         assert dataset.attrs["temperatures"] == "1, 3, 9"
+        # 2 chains x 3 replicas, each evaluating its start and <= 6 proposals.
+        assert dataset["forward_attempts"].dims == ("chain",)
+        assert np.all(dataset["forward_attempts"] >= dataset["forward_attempts_cold"])
+        assert np.all(dataset["forward_attempts_cold"] >= 1)
+        assert np.all(dataset["forward_failure_rate"] == 0)
     with xr.open_dataset(result.prior_mcmc) as dataset:
         # The prior has no likelihood to temper and is sampled by plain chains.
         assert "swap_acceptance" not in dataset
+        assert "forward_attempts" not in dataset  # no forward solver in the prior run
+    assert "posterior forward failures per chain" in result.log_file.read_text()
 
 
 def test_inv_cli_help_runs(capsys):

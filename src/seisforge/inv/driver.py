@@ -22,6 +22,7 @@ from seisforge.inv.io import (
     prediction_ensemble_to_xarray,
     vs_ensemble_to_xarray,
 )
+from seisforge.inv.posterior import forward_failure_summary
 from seisforge.inv.predictive import extract_prediction_ensemble_from_result
 from seisforge.inv.prior import evaluate_prior_samples
 from seisforge.inv.setup import InversionSetup, build_inversion_setup
@@ -178,12 +179,14 @@ def _write_posterior_outputs(
     predictive_file = result.output_dir / f"{prefix}_predictive.nc"
     prior_diagnostics = evaluate_prior_samples(posterior_result.samples, setup.prior)
     convergence = _convergence(posterior_result, setup, logger, stage="posterior")
+    forward_failures = _log_forward_failures(posterior_result, logger)
     mcmc_result_to_xarray(
         posterior_result,
         parameter_names=setup.parameterization.names,
         prior_diagnostics=prior_diagnostics,
         log_likelihood=posterior_result.log_prob - prior_diagnostics.log_prior,
         convergence=convergence,
+        forward_failures=forward_failures,
         attrs=attrs,
     ).to_netcdf(mcmc_file, engine="h5netcdf")
     vs = extract_vs_ensemble_from_result(
@@ -228,6 +231,27 @@ def _convergence(result, setup: InversionSetup, logger: logging.Logger, *, stage
     for message in convergence.warnings(setup.parameterization.names):
         logger.warning("%s convergence: %s", stage, message)
     return convergence
+
+
+def _log_forward_failures(result, logger: logging.Logger):
+    summary = forward_failure_summary(result.chains)
+    if summary is None:
+        return None
+    logger.info(
+        "posterior forward failures per chain (all replicas): %s of %s attempts, rates %s",
+        summary.failures.tolist(),
+        summary.attempts.tolist(),
+        [f"{rate:.4g}" for rate in summary.failure_rate],
+    )
+    if summary.n_replicas > 1:
+        logger.info(
+            "posterior forward failures per chain (T = 1 replica): %s of %s attempts",
+            summary.failures_cold.tolist(),
+            summary.attempts_cold.tolist(),
+        )
+    for message in summary.warnings():
+        logger.warning("posterior forward failures: %s", message)
+    return summary
 
 
 def _prepare_output_dir(output: str | Path, *, overwrite: bool) -> Path:

@@ -1,8 +1,26 @@
-"""Posterior targets for joint geophysical inversion."""
+"""Posterior targets for joint geophysical inversion.
+
+Forward-failure counts: `CountingTarget` wraps a `JointInversionTarget` for the
+sampler and gives every chain replica its own `ForwardFailureCounter` (see
+`seisforge.inv.samplers.ChainLocalTarget`). A *forward attempt* is an
+evaluation whose parameters lie inside the hard prior support, so the forward
+solvers run; a *forward failure* is an attempt whose likelihood failed (the
+solver raised `ForwardError`, which the likelihood turns into ``-inf``, so the
+proposal is rejected). Points outside the prior never reach the solver and are
+not counted. Each chain counts its starting point and every proposal it
+evaluates; with parallel tempering the counts are kept per replica, and
+`forward_failure_summary` reports both the chain total over all replicas and
+the cold (``T = 1``) replica alone. The counter returns exactly the target's
+own values, so counting changes no random number or log probability.
+Evaluations made outside the sampler (starting-point draws, posterior
+predictive ensembles) call the target directly and are not counted.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -139,7 +157,136 @@ class JointInversionTarget:
 
     def log_prior_and_likelihood(self, theta) -> tuple[float, float]:
         """``(log prior, log likelihood)``; the likelihood is -inf outside the prior."""
-        result = self.evaluate(theta)
-        if not np.isfinite(result.log_prior):
-            return -np.inf, -np.inf
-        return result.log_prior, result.log_likelihood
+        return _target_value(self.evaluate(theta), split=True)
+
+
+# Assumed: a chain whose forward solver fails on more than 1% of the proposals
+# inside the prior samples a visibly truncated prior; above this rate the
+# driver logs a warning. Not taken from a published source.
+FORWARD_FAILURE_WARNING_RATE = 0.01
+
+
+@dataclass(frozen=True)
+class ForwardFailureReport:
+    """Forward attempts and failures of one chain replica."""
+
+    n_forward_attempts: int
+    n_forward_failures: int
+    error_counts: dict[str, int] = field(default_factory=dict)
+
+
+class ForwardFailureCounter:
+    """Chain-local evaluator that counts forward failures of a target.
+
+    Returns ``target.log_posterior(theta)``, or ``target.log_prior_and_likelihood(theta)``
+    when ``split`` is true, from a single ``target.evaluate`` call. One instance
+    serves one chain replica, so it needs no lock.
+    """
+
+    def __init__(self, target: JointInversionTarget, *, split: bool):
+        self._target = target
+        self._split = split
+        self._attempts = 0
+        self._errors: Counter[str] = Counter()
+
+    def __call__(self, theta):
+        result = self._target.evaluate(theta)
+        if result.prior.success:
+            self._attempts += 1
+            if not result.success:
+                self._errors[str(result.error)] += 1
+        return _target_value(result, split=self._split)
+
+    def report(self) -> ForwardFailureReport:
+        return ForwardFailureReport(
+            n_forward_attempts=self._attempts,
+            n_forward_failures=int(sum(self._errors.values())),
+            error_counts=dict(self._errors),
+        )
+
+
+@dataclass(frozen=True)
+class CountingTarget:
+    """Sampler target that counts forward failures per chain replica.
+
+    Calling it directly returns the same value as ``target.log_posterior``
+    (or ``log_prior_and_likelihood`` with ``split``) without counting.
+    """
+
+    target: JointInversionTarget
+    split: bool = False
+
+    def __call__(self, theta):
+        return _target_value(self.target.evaluate(theta), split=self.split)
+
+    def chain_evaluator(self) -> ForwardFailureCounter:
+        return ForwardFailureCounter(self.target, split=self.split)
+
+
+@dataclass(frozen=True)
+class ForwardFailureSummary:
+    """Per-chain forward failures; ``*_cold`` count the ``T = 1`` replica only.
+
+    Without parallel tempering a chain has one replica and the cold counts equal
+    the totals.
+    """
+
+    attempts: np.ndarray
+    failures: np.ndarray
+    attempts_cold: np.ndarray
+    failures_cold: np.ndarray
+    error_counts: dict[str, int]
+    n_replicas: int
+
+    @property
+    def failure_rate(self) -> np.ndarray:
+        return _rate(self.failures, self.attempts)
+
+    @property
+    def failure_rate_cold(self) -> np.ndarray:
+        return _rate(self.failures_cold, self.attempts_cold)
+
+    def most_common_errors(self, n: int = 2) -> list[tuple[str, int]]:
+        return Counter(self.error_counts).most_common(n)
+
+    def warnings(self, threshold: float = FORWARD_FAILURE_WARNING_RATE) -> list[str]:
+        """One message per chain whose total failure rate exceeds ``threshold``."""
+        common = "; ".join(f"{message!r} x{count}" for message, count in self.most_common_errors(2))
+        return [
+            f"chain {chain}: forward solver failed on {int(self.failures[chain])} of "
+            f"{int(self.attempts[chain])} evaluations inside the prior "
+            f"(rate {rate:.3g} > {threshold:g}); most frequent errors: {common}"
+            for chain, rate in enumerate(self.failure_rate)
+            if rate > threshold
+        ]
+
+
+def forward_failure_summary(chains: Sequence) -> ForwardFailureSummary | None:
+    """Sum the `ForwardFailureReport` s of sampler chains (None if not counted)."""
+    reports = [getattr(chain, "target_reports", None) for chain in chains]
+    if not reports or any(r is None for r in reports):
+        return None
+    errors: Counter[str] = Counter()
+    for chain_reports in reports:
+        for report in chain_reports:
+            errors.update(report.error_counts)
+    return ForwardFailureSummary(
+        attempts=np.array([sum(r.n_forward_attempts for r in c) for c in reports], dtype=int),
+        failures=np.array([sum(r.n_forward_failures for r in c) for c in reports], dtype=int),
+        attempts_cold=np.array([c[0].n_forward_attempts for c in reports], dtype=int),
+        failures_cold=np.array([c[0].n_forward_failures for c in reports], dtype=int),
+        error_counts=dict(errors),
+        n_replicas=len(reports[0]),
+    )
+
+
+def _target_value(result: JointPosteriorResult, *, split: bool):
+    if not split:
+        return result.log_posterior
+    if not np.isfinite(result.log_prior):
+        return -np.inf, -np.inf
+    return result.log_prior, result.log_likelihood
+
+
+def _rate(failures: np.ndarray, attempts: np.ndarray) -> np.ndarray:
+    return np.where(attempts > 0, failures / np.maximum(attempts, 1), 0.0)

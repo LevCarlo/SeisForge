@@ -21,6 +21,19 @@ def _phase_dispersion_class():
     return PhaseDispersion
 
 
+def _solver_failures() -> tuple[type[Exception], ...]:
+    """disba exceptions meaning "no root for this model and period".
+
+    ``DispersionError`` (root search failed) and ``ZeroDivisionError``
+    (numerical breakdown in the compiled solver); the investigation is recorded
+    in `seisforge.inv.forward`. Input errors (``TypeError``, ``ValueError``)
+    propagate.
+    """
+    from disba import DispersionError
+
+    return (DispersionError, ZeroDivisionError)
+
+
 def _disba_model(model: ElasticLayerModel) -> tuple[np.ndarray, ...]:
     thickness = np.concatenate((model.thickness_km, [0.0]))
     return thickness, model.vp_km_s, model.vs_km_s, model.density_g_cm3
@@ -40,7 +53,7 @@ def approximate_phase_velocity_km_s(
     try:
         solver = PhaseDispersion(*_disba_model(model), algorithm="dunkin", dc=dc_km_s)
         result = solver(np.array([1.0 / frequency_hz]), mode=mode, wave=wave)
-    except Exception:
+    except _solver_failures():
         return None
     if result.velocity.size != 1 or not np.isfinite(result.velocity[0]):
         return None
@@ -76,7 +89,7 @@ def phase_velocity_seeds_km_s(
     try:
         solver = PhaseDispersion(*_disba_model(model), algorithm="dunkin", dc=dc_km_s)
         result = solver(sorted_periods, mode=mode, wave=wave)
-    except Exception:
+    except _solver_failures():
         return np.full(frequencies.size, np.nan)
 
     sorted_seeds = np.full(frequencies.size, np.nan)
