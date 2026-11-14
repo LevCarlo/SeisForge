@@ -12,3 +12,13 @@ each workflow; the workflow pages explain methods and configuration.
 | [HVSR](hvsr.md) | `seisforge.hvsr` diffuse-field forward modelling |
 
 Names that start with an underscore are internal and not listed.
+
+## Shared configuration helpers
+
+::: seisforge.config_keys
+    options:
+      members:
+        - check_keys
+        - rename_legacy_sections
+        - warn_legacy_sections
+        - ConfigDeprecationWarning

@@ -3,7 +3,7 @@
 # This file is meant to be edited often during experiments. Observation files,
 # wave type, mode number, and forward-model numerical settings live in obs.yaml.
 
-Model:
+model:
   # Vs is the primary inverted variable. Vp and rho are derived for disba.
   scaling:
     vp:
@@ -40,7 +40,7 @@ Model:
           - parameter: crust.c6
           - parameter: crust.c7
 
-Inversion:
+inversion:
   # Parameter priors define the scalar support before model-level hard
   # constraints are evaluated. Proposal sigma is only sampler tuning.
   parameters:
@@ -124,14 +124,14 @@ Inversion:
       proposal:
         sigma: 0.035
 
-Discretization:
+discretization:
   dz: 0.25
   zmax: 15.0
   # Segment boundaries are preserved automatically. Use force_depths only for
   # extra fixed internal depths that are not already model segment boundaries.
   force_depths: []
 
-Constraints:
+constraints:
   # These are hard geophysical priors. Invalid models receive log prior = -inf
   # and are rejected before the forward calculation contributes to likelihood.
   constraints:
@@ -160,13 +160,13 @@ Constraints:
       max_abs: 1.2
       dz: 0.25
 
-Likelihood:
+likelihood:
   # Current implementation uses explicit weighted Gaussian chi-square terms:
   # log L = -0.5 * (w_disp * chi2_disp + w_hv * chi2_hv).
   dispersion_weight: 1.0
   hv_weight: 1.0
 
-Sampler:
+sampler:
   n_steps: 5000
   burn_in: 1000
   thin: 5

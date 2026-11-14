@@ -9,6 +9,7 @@ import numpy as np
 import xarray as xr
 import yaml
 
+from seisforge.inv.config_schema import prepare_inv_config, validate_model_config
 from seisforge.inv.diagnostics import ConvergenceDiagnostics
 from seisforge.inv.ensemble import VsEnsemble
 from seisforge.inv.forward import DispersionRequest, RayleighHVRequest
@@ -38,7 +39,8 @@ def dump_yaml(data: dict, path: str | Path) -> None:
 
 
 def layered_vs_model_from_config(config: dict) -> LayeredVsModel:
-    model_cfg = config.get("Model", config)
+    """Build a layered model from a full configuration or its ``model`` section."""
+    model_cfg = _model_section(config)
     return LayeredVsModel(
         thickness=model_cfg["thickness_km"],
         vs=model_cfg["vs_km_s"],
@@ -47,8 +49,8 @@ def layered_vs_model_from_config(config: dict) -> LayeredVsModel:
 
 
 def parameterized_vs_model_from_config(config: dict) -> ParameterizedVsModel:
-    """Build a literal (unsampled) model from a ``Model`` section."""
-    return parameterized_model_from_config(config.get("Model", config))
+    """Build a literal (unsampled) model from a full configuration or its ``model`` section."""
+    return parameterized_model_from_config(_model_section(config))
 
 
 def parameterized_vs_model_to_config(
@@ -60,14 +62,22 @@ def parameterized_vs_model_to_config(
 
     The result contains literal profile values only. Scalar MCMC priors and
     parameter references are scientific choices that cannot be inferred from a
-    concrete model object, so callers should add an ``Inversion`` section
+    concrete model object, so callers should add an ``inversion`` section
     explicitly when preparing an inversion configuration.
     """
 
-    config = {"Model": parameterized_model_to_config(model)}
+    config = {"model": parameterized_model_to_config(model)}
     if discretization is not None:
-        config["Discretization"] = discretization_to_config(discretization)
+        config["discretization"] = discretization_to_config(discretization)
     return config
+
+
+def _model_section(config: dict) -> dict:
+    """The ``model`` section of a full configuration, or a bare model section."""
+    if any(key in config for key in ("segments", "interfaces", "thickness_km", "vs_km_s")):
+        validate_model_config(config)
+        return config
+    return prepare_inv_config(config)["model"]
 
 
 def discretization_from_config(config: dict | None) -> DiscretizationConfig:

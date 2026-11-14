@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from seisforge.inv.config import likelihood_weights_from_config, observations_from_config
+from seisforge.inv.config_schema import prepare_inv_config
 from seisforge.inv.constraints import ConstraintSuite, constraints_from_config
 from seisforge.inv.io import discretization_from_config
 from seisforge.inv.parameterization import ModelParameterization, parameterization_from_config
@@ -152,10 +153,15 @@ class InversionSetup:
 
 
 def build_inversion_setup(config: dict) -> InversionSetup:
-    """Assemble an inversion setup from a validated run configuration."""
+    """Assemble an inversion setup from a run configuration.
 
+    Old capitalized section names are accepted with a deprecation warning;
+    unknown keys raise `ValueError` (see `seisforge.inv.config_schema`).
+    """
+
+    config = prepare_inv_config(config)
     parameterization = parameterization_from_config(config)
-    discretization = discretization_from_config(config.get("Discretization"))
+    discretization = discretization_from_config(config.get("discretization"))
     constraints = constraints_from_config(config)
     soft_priors = soft_priors_from_config(config)
     prior = GeophysicalPrior(
@@ -165,7 +171,7 @@ def build_inversion_setup(config: dict) -> InversionSetup:
         discretization=discretization,
     )
     sampler = sampler_settings_from_config(config, parameterization)
-    dispersion, hv = observations_from_config(config.get("Observations"))
+    dispersion, hv = observations_from_config(config.get("observations"))
     target = None
     if dispersion is not None or hv is not None:
         dispersion_weight, hv_weight = likelihood_weights_from_config(config)
@@ -190,7 +196,7 @@ def sampler_settings_from_config(
     config: dict,
     parameterization: ModelParameterization,
 ) -> SamplerSettings:
-    sampler_cfg = config.get("Sampler", {})
+    sampler_cfg = prepare_inv_config(config).get("sampler", {})
     proposal_sigma = sampler_cfg.get("proposal_sigma")
     if proposal_sigma is None or proposal_sigma == "from_parameters":
         proposal_sigma = parameterization.proposal_sigmas()
@@ -223,7 +229,7 @@ def sampler_settings_from_config(
 
 
 def _tempering_from_config(config: dict | None) -> tuple[tuple[float, ...] | None, int]:
-    """``Sampler.tempering``: an explicit ladder, or a geometric one.
+    """``sampler.tempering``: an explicit ladder, or a geometric one.
 
     ``{temperatures: [1, 2, 5]}`` or ``{n_temperatures: 5, max_temperature: 30}``
     (defaults 5 and 30, ComplyBay's tested ladder), plus ``swap_interval``
@@ -233,11 +239,11 @@ def _tempering_from_config(config: dict | None) -> tuple[tuple[float, ...] | Non
     if config is None:
         return None, 1
     if not isinstance(config, dict):
-        raise ValueError("Sampler.tempering must be a mapping.")
+        raise ValueError("sampler.tempering must be a mapping.")
     swap_interval = int(config.get("swap_interval", 1))
     if "temperatures" in config:
         if "n_temperatures" in config or "max_temperature" in config:
-            raise ValueError("Give Sampler.tempering.temperatures or n/max_temperature, not both.")
+            raise ValueError("Give sampler.tempering.temperatures or n/max_temperature, not both.")
         return tuple(float(t) for t in config["temperatures"]), swap_interval
     ladder = geometric_temperatures(
         int(config.get("n_temperatures", 5)), float(config.get("max_temperature", 30.0))

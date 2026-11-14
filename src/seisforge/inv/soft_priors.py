@@ -7,6 +7,7 @@ from typing import Protocol
 
 import numpy as np
 
+from seisforge.inv.config_schema import prepare_inv_config, validate_soft_priors_config
 from seisforge.inv.model import ParameterizedVsModel
 
 
@@ -108,11 +109,13 @@ class SoftPriorSuite:
 
 
 def soft_priors_from_config(config: dict | None) -> SoftPriorSuite:
-    """Build soft model-space priors from the ``SoftPriors`` YAML section."""
+    """Build soft model-space priors from a full configuration or its ``soft_priors`` section."""
 
     config = config or {}
-    if "SoftPriors" in config:
-        config = config["SoftPriors"]
+    if set(config) != {"priors"}:
+        # A full configuration (the bare section has only "priors").
+        config = prepare_inv_config(config).get("soft_priors") or {}
+    validate_soft_priors_config(config)
     priors: list[SoftPhysicalPrior] = []
     for entry in config.get("priors", ()):
         prior_type = str(entry["type"]).lower()

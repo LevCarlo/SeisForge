@@ -68,7 +68,7 @@ input and grid conventions must match
   their input YAML files.
 - Existing outputs are never overwritten or deleted unless explicitly
   requested (`io.overwrite`, `--overwrite`).
-- Random-number seeds are configuration values (`Sampler.seed`) and are
+- Random-number seeds are configuration values (`sampler.seed`) and are
   recorded with the run.
 - Behaviour kept only to reproduce old results is isolated and labelled as
   compatibility, for example `aftan.time_taper.mode: legacy_edge_fraction`.

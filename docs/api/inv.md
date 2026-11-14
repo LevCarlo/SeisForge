@@ -36,6 +36,15 @@
         - parameterization_from_config
         - prior_from_config
 
+::: seisforge.inv.config_schema
+    options:
+      members:
+        - prepare_inv_config
+        - prepare_obs_config
+        - validate_inv_config
+        - validate_obs_config
+        - INV_SECTION_RENAMES
+
 ::: seisforge.inv.model_config
     options:
       members:

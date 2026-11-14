@@ -1,4 +1,4 @@
-"""Build and serialize `ParameterizedVsModel` objects from ``Model`` config.
+"""Build and serialize `ParameterizedVsModel` objects from ``model`` config.
 
 One builder serves literal models (``inv.io``) and sampled models
 (``inv.parameterization``): any numeric field may be a parameter reference
@@ -9,7 +9,7 @@ Two layouts are accepted.
 Interface layout (absolute interface depths, optional gradational widths,
 per-segment scaling)::
 
-    Model:
+    model:
       zmax_km: 80
       scaling: {vp: {method: brocher2005}, rho: {method: brocher2005}}
       interfaces:
@@ -32,7 +32,7 @@ per-segment scaling)::
 
 Segment layout (legacy, fixed hard boundaries)::
 
-    Model:
+    model:
       segments:
         - {top_km: 0.0, bottom_km: 2.0, profile: ...}
         - {top_km: 2.0, bottom_km: 30.0, profile: ...}
@@ -60,7 +60,7 @@ def parameterized_model_from_config(
     *,
     default_scaling: ScalingConfig | None = None,
 ) -> ParameterizedVsModel:
-    """Build a model from a ``Model`` mapping, resolving parameter references."""
+    """Build a model from a ``model`` mapping, resolving parameter references."""
     values = values or {}
     scaling = (
         default_scaling
@@ -111,39 +111,39 @@ def parameterized_model_from_config(
 
 
 def validate_model_layout(model_cfg: Mapping[str, Any]) -> None:
-    """Check the structure of a ``Model`` mapping without resolving values."""
+    """Check the structure of a ``model`` mapping without resolving values."""
     segment_cfgs = model_cfg.get("segments")
     if not segment_cfgs:
-        raise ValueError("Model.segments must be a non-empty list.")
+        raise ValueError("model.segments must be a non-empty list.")
     for index, item in enumerate(segment_cfgs):
         if "profile" not in item:
-            raise ValueError(f"Model.segments[{index}] needs a profile.")
+            raise ValueError(f"model.segments[{index}] needs a profile.")
     if "interfaces" not in model_cfg:
         for index, item in enumerate(segment_cfgs):
             if "top_km" not in item or "bottom_km" not in item:
                 raise ValueError(
-                    f"Model.segments[{index}] needs top_km and bottom_km "
-                    "(or use Model.interfaces with Model.zmax_km)."
+                    f"model.segments[{index}] needs top_km and bottom_km "
+                    "(or use model.interfaces with model.zmax_km)."
                 )
         return
     interface_cfgs = model_cfg["interfaces"] or []
     if "zmax_km" not in model_cfg:
-        raise ValueError("Model.zmax_km is required with Model.interfaces.")
+        raise ValueError("model.zmax_km is required with model.interfaces.")
     if len(segment_cfgs) != len(interface_cfgs) + 1:
-        raise ValueError("Model.segments must have one more entry than Model.interfaces.")
+        raise ValueError("model.segments must have one more entry than model.interfaces.")
     for index, item in enumerate(interface_cfgs):
         if "depth_km" not in item:
-            raise ValueError(f"Model.interfaces[{index}] needs depth_km.")
+            raise ValueError(f"model.interfaces[{index}] needs depth_km.")
     for item in segment_cfgs:
         if "top_km" in item or "bottom_km" in item:
             raise ValueError(
-                "With Model.interfaces, segment depths come from the interfaces; "
+                "With model.interfaces, segment depths come from the interfaces; "
                 "remove top_km/bottom_km from segments."
             )
 
 
 def parameterized_model_to_config(model: ParameterizedVsModel) -> dict:
-    """Serialize a concrete model (literal values only) to a ``Model`` mapping.
+    """Serialize a concrete model (literal values only) to a ``model`` mapping.
 
     Models with only unnamed hard interfaces and no segment scaling keep the
     legacy segment layout so existing configs round-trip unchanged.

@@ -1,0 +1,126 @@
+# Land station model with sampled interface depths and per-segment scaling.
+#
+#   sediment  | gradient Vs, high Vp/Vs, Gardner density
+#   ---------   basement interface: sampled depth, hard step
+#   crust     | B-spline Vs (stretches with basement and Moho), Brocher Vp/rho
+#   ---------   Moho: sampled depth (H-k style normal prior) and transition width
+#   mantle    | gradient Vs, constant Vp/Vs and density (Brocher is invalid > 4.5 km/s)
+#
+# See docs/model.md sections 3-4. Use with an obs.yaml as for examples/STA001.
+
+Model:
+  zmax_km: 80.0
+  scaling:
+    vp: {method: brocher2005}
+    rho: {method: brocher2005}
+
+  interfaces:
+    - name: basement
+      depth_km: {parameter: basement.depth}
+      width_km: 0.0
+    - name: moho
+      depth_km: {parameter: moho.depth}
+      width_km: {parameter: moho.width}
+      shape: sigmoid
+
+  segments:
+    - name: sediment
+      profile:
+        type: gradient
+        top: {parameter: sediment.vs_top}
+        bottom: {parameter: sediment.vs_bottom}
+      scaling:
+        vp: {method: constant_vp_vs, vp_vs: 2.2}
+        rho: {method: gardner1974}
+
+    - name: crust
+      profile:
+        type: bspline
+        degree: 3
+        knot_spacing: uniform
+        coefficients:
+          - {parameter: crust.c0}
+          - {parameter: crust.c1}
+          - {parameter: crust.c2}
+          - {parameter: crust.c3}
+          - {parameter: crust.c4}
+
+    - name: mantle
+      profile:
+        type: gradient
+        top: {parameter: mantle.vs_top}
+        bottom: 4.6
+      scaling:
+        vp: {method: constant_vp_vs, vp_vs: 1.8}
+        rho: {method: constant, rho: 3.35}
+
+Inversion:
+  parameters:
+    - name: basement.depth
+      initial: 0.8
+      prior: {type: uniform, bounds: [0.2, 2.0]}
+      proposal: {sigma: 0.03}
+
+    - name: moho.depth
+      # e.g. an H-k estimate of 35 +/- 2 km
+      initial: 35.0
+      prior: {type: normal, mean: 35.0, sigma: 2.0, bounds: [28.0, 45.0]}
+      proposal: {sigma: 0.8}
+
+    - name: moho.width
+      # Hard Moho unless the data pay for a gradient.
+      initial: 0.0
+      prior: {type: half_normal, scale: 2.0, bounds: [0.0, 8.0]}
+      proposal: {sigma: 0.5}
+
+    - name: sediment.vs_top
+      initial: 0.6
+      prior: {type: uniform, bounds: [0.2, 1.2]}
+      proposal: {sigma: 0.03}
+
+    - name: sediment.vs_bottom
+      initial: 1.4
+      prior: {type: uniform, bounds: [0.6, 2.4]}
+      proposal: {sigma: 0.04}
+
+    - {name: crust.c0, initial: 3.0, prior: {bounds: [2.4, 3.6]}, proposal: {sigma: 0.04}}
+    - {name: crust.c1, initial: 3.3, prior: {bounds: [2.8, 3.8]}, proposal: {sigma: 0.04}}
+    - {name: crust.c2, initial: 3.5, prior: {bounds: [3.0, 4.0]}, proposal: {sigma: 0.04}}
+    - {name: crust.c3, initial: 3.7, prior: {bounds: [3.2, 4.2]}, proposal: {sigma: 0.04}}
+    - {name: crust.c4, initial: 3.9, prior: {bounds: [3.4, 4.3]}, proposal: {sigma: 0.04}}
+
+    - name: mantle.vs_top
+      initial: 4.45
+      prior: {type: uniform, bounds: [4.2, 4.6]}
+      proposal: {sigma: 0.03}
+
+Discretization:
+  zmax: 80.0
+  # Fixed counts keep the layered model continuous in the sampled depths.
+  layers_per_segment: {sediment: 8, crust: 30, mantle: 12}
+  transition_layers: 16
+  layer_value: midpoint
+
+Constraints:
+  constraints:
+    - type: positive_velocity
+    - type: boundary_non_decreasing_vs
+      tolerance: 0.0
+    - type: vp_vs_range
+      bounds: [1.6, 3.0]
+
+Likelihood:
+  dispersion_weight: 1.0
+  hv_weight: 1.0
+
+Sampler:
+  n_steps: 20000
+  burn_in: 5000
+  thin: 10
+  n_chains: 4
+  executor: thread
+  seed: 20261009
+  initial_strategy: prior_uniform
+  max_initial_attempts: 50000
+  proposal_sigma: from_parameters
+  use_parameter_bounds: true

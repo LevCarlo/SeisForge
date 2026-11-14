@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from seisforge.inv.config_schema import prepare_inv_config
 from seisforge.inv.model import ParameterizedVsModel, ScalingConfig
 from seisforge.inv.model_config import (
     parameter_references,
@@ -188,14 +189,20 @@ class ModelParameterization:
 
 
 def parameterization_from_config(config: dict) -> ModelParameterization:
-    """Build a parameterization from a YAML-like dictionary."""
+    """Build a parameterization from a YAML-like dictionary.
 
-    root = config.get("Inversion", config)
+    Reads ``inversion.parameters`` and ``model`` (or ``inversion.model``).
+    """
+
+    config = prepare_inv_config(config)
+    root = config.get("inversion", config)
+    if "parameters" not in root:
+        raise ValueError("Configuration must contain inversion.parameters.")
     parameter_cfgs = root["parameters"]
     parameters = tuple(_parameter_from_config(item) for item in parameter_cfgs)
-    model_cfg = config.get("Model", root.get("model"))
+    model_cfg = config.get("model", root.get("model"))
     if model_cfg is None:
-        raise ValueError("Configuration must contain Model or Inversion.model.")
+        raise ValueError("Configuration must contain model or inversion.model.")
     model_config = {
         key: model_cfg[key]
         for key in ("segments", "interfaces", "zmax_km")

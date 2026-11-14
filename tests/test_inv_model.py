@@ -198,7 +198,7 @@ def test_parameterized_model_combines_gradient_and_bspline_segments():
 
 def test_layered_vs_model_from_config():
     config = {
-        "Model": {
+        "model": {
             "thickness_km": [1.0, 0.0],
             "vs_km_s": [2.0, 3.5],
             "scaling": {
@@ -216,7 +216,7 @@ def test_layered_vs_model_from_config():
 
 def test_parameterized_model_from_config_and_discretization_config():
     config = {
-        "Model": {
+        "model": {
             "segments": [
                 {
                     "top_km": 0.0,
@@ -230,11 +230,11 @@ def test_parameterized_model_from_config_and_discretization_config():
                 },
             ],
         },
-        "Discretization": {"dz": 1.0, "force_depths": [1.5]},
+        "discretization": {"dz": 1.0, "force_depths": [1.5]},
     }
 
     model = parameterized_vs_model_from_config(config)
-    disc = discretization_from_config(config["Discretization"])
+    disc = discretization_from_config(config["discretization"])
     layered = model.to_layered_model(disc)
 
     assert any(np.isclose(layered.interfaces, 1.5))
@@ -243,7 +243,7 @@ def test_parameterized_model_from_config_and_discretization_config():
 
 def test_parameterized_model_from_config_accepts_bspline_profile():
     config = {
-        "Model": {
+        "model": {
             "segments": [
                 {
                     "top_km": 0.0,
@@ -297,7 +297,7 @@ def test_parameterized_model_config_round_trip():
 
     config = parameterized_vs_model_to_config(model, discretization=discretization)
     restored_model = parameterized_vs_model_from_config(config)
-    restored_disc = discretization_from_config(config["Discretization"])
+    restored_disc = discretization_from_config(config["discretization"])
 
     np.testing.assert_allclose(
         restored_model.evaluate(np.linspace(0.0, 8.0, 31)),

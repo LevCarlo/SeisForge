@@ -11,14 +11,14 @@ def _config(noise_parameter=None, weight=1.0, model_uses_noise=False):
     rng = np.random.default_rng(0)
     periods = np.linspace(1.0, 5.0, 8)
     config = {
-        "Inversion": {
+        "inversion": {
             "parameters": [
                 {"name": "vs0", "initial": 1.5, "prior": {"bounds": [1.2, 1.8]}},
                 {"name": "vs1", "initial": 2.5, "prior": {"bounds": [2.2, 2.8]}},
                 {"name": "noise.dispersion", "initial": 0.0, "prior": {"bounds": [-1.0, 1.0]}},
             ]
         },
-        "Model": {
+        "model": {
             "segments": [
                 {
                     "top_km": 0.0,
@@ -32,18 +32,18 @@ def _config(noise_parameter=None, weight=1.0, model_uses_noise=False):
                 {"top_km": 2.0, "bottom_km": 5.0, "profile": {"type": "constant", "value": 3.2}},
             ]
         },
-        "Discretization": {"dz": 0.25, "zmax": 5.0},
-        "Observations": {
+        "discretization": {"dz": 0.25, "zmax": 5.0},
+        "observations": {
             "dispersion": {
                 "periods": periods.tolist(),
                 "velocity": (1.8 + 0.1 * periods + 0.02 * rng.standard_normal(8)).tolist(),
                 "sigma": [0.02] * 8,
             }
         },
-        "Likelihood": {"dispersion_weight": weight},
+        "likelihood": {"dispersion_weight": weight},
     }
     if noise_parameter is not None:
-        config["Observations"]["dispersion"]["noise_parameter"] = noise_parameter
+        config["observations"]["dispersion"]["noise_parameter"] = noise_parameter
     return config
 
 

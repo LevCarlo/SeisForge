@@ -50,13 +50,30 @@ From Python, `seisforge.inv.run_inversion(kind="disp_hv", inv_file=...,
 obs_file=..., output=...)` does the same (`kind` is `disp`, `hv`, or
 `disp_hv`).
 
+## Section names and unknown keys
+
+Section names are lowercase (`model`, `inversion`, `sampler`, ...), like the
+other SeisForge configurations. An unknown key anywhere in `inv.yaml` or
+`obs.yaml` is an error that names the file, the section, and the closest
+valid key, for example
+`Unknown key in sampler: 'burnin' (did you mean 'burn_in'?)`, so a
+misspelled option never falls back silently to its default.
+
+The old capitalized section names (`Model`, `Inversion`, `Discretization`,
+`Constraints`, `SoftPriors`, `Likelihood`, `Sampler`, `Observations`,
+`Forward`) and the aliases `PhysicalConstraints` (for `constraints`) and
+`Data` (for `observations`) are deprecated: they still load, with one warning
+per run listing the new names. Giving the same section under an old and a new
+name is an error. The `resolved_*.yaml` files of a run use the new names and
+can be loaded again as inputs.
+
 ## obs.yaml
 
 `obs.yaml` describes the data and how synthetics are computed. Observation file
 paths belong here, not on the command line.
 
 ```yaml
-Observations:
+observations:
   dispersion:
     file: vph_disp.dat
     wave: rayleigh
@@ -67,7 +84,7 @@ Observations:
     wave: rayleigh
     mode: 0
 
-Forward:
+forward:
   dispersion:
     algorithm: dunkin
     dc: 0.005
@@ -83,32 +100,32 @@ resolved from the YAML file's folder.
 
 | key | values | meaning |
 |---|---|---|
-| `Observations.dispersion.file` | path | dispersion data (velocity in km/s) |
-| `Observations.dispersion.wave` | `rayleigh`, `love` | the workflow is designed around Rayleigh |
-| `Observations.dispersion.kind` | `phase`, `group` | observed quantity |
-| `Observations.dispersion.mode` | integer | 0 = fundamental mode |
-| `Observations.hv.file` | path | Rayleigh H/V data |
-| `Observations.hv.wave`, `.mode` | `rayleigh`, integer | fundamental-mode Rayleigh ellipticity |
-| `Forward.dispersion.algorithm` | disba algorithm, e.g. `dunkin` | |
-| `Forward.dispersion.dc` | km/s | root-search velocity increment |
-| `Forward.dispersion.dt` | s | period step for group velocity |
-| `Forward.hv.algorithm`, `.dc` | as above | ellipticity calculation |
-| `Observations.*.noise_parameter` | parameter name | optional; samples a noise scale for this data type (see [Likelihood](#likelihood)) |
+| `observations.dispersion.file` | path | dispersion data (velocity in km/s) |
+| `observations.dispersion.wave` | `rayleigh`, `love` | the workflow is designed around Rayleigh |
+| `observations.dispersion.kind` | `phase`, `group` | observed quantity |
+| `observations.dispersion.mode` | integer | 0 = fundamental mode |
+| `observations.hv.file` | path | Rayleigh H/V data |
+| `observations.hv.wave`, `.mode` | `rayleigh`, integer | fundamental-mode Rayleigh ellipticity |
+| `forward.dispersion.algorithm` | disba algorithm, e.g. `dunkin` | |
+| `forward.dispersion.dc` | km/s | root-search velocity increment |
+| `forward.dispersion.dt` | s | period step for group velocity |
+| `forward.hv.algorithm`, `.dc` | as above | ellipticity calculation |
+| `observations.*.noise_parameter` | parameter name | optional; samples a noise scale for this data type (see [Likelihood](#likelihood)) |
 
 ## inv.yaml
 
-`inv.yaml` has the sections `Model`, `Inversion`, `Discretization`,
-`Constraints`, `SoftPriors`, `Likelihood`, and `Sampler`.
+`inv.yaml` has the sections `model`, `inversion`, `discretization`,
+`constraints`, `soft_priors`, `likelihood`, and `sampler`.
 
-### Model
+### model
 
-Numbers anywhere in `Model` may be literals or parameter references
-`{parameter: name}` defined in `Inversion.parameters`.
+Numbers anywhere in `model` may be literals or parameter references
+`{parameter: name}` defined in `inversion.parameters`.
 
 **Segment layout** (fixed boundaries; `examples/STA001`):
 
 ```yaml
-Model:
+model:
   scaling: {vp: {method: brocher2005}, rho: {method: brocher2005}}
   segments:
     - name: sediment          # optional
@@ -172,12 +189,12 @@ In the interface layout a segment's own `scaling` overrides the model default.
 Segments whose Vs can exceed 4.5 km/s (mantle) need a relation other than
 Brocher.
 
-### Inversion parameters
+### inversion parameters
 
-`Inversion.parameters` defines theta, in this order.
+`inversion.parameters` defines theta, in this order.
 
 ```yaml
-Inversion:
+inversion:
   parameters:
     - name: crust.c0
       initial: 3.05
@@ -187,7 +204,7 @@ Inversion:
 
 | key | meaning |
 |---|---|
-| `name` | unique; referenced from `Model` as `{parameter: name}` |
+| `name` | unique; referenced from `model` as `{parameter: name}` |
 | `initial` | starting value for `initial_strategy: theta0`; must lie inside the bounds and give a valid model |
 | `prior.bounds` | `[lower, upper]`; required for every prior type; the sampler never leaves them |
 | `prior.type` | `uniform` (default), `normal`, or `half_normal` |
@@ -197,13 +214,13 @@ Inversion:
 
 `proposal.sigma` only affects sampling efficiency, not the prior.
 
-### Discretization
+### discretization
 
 Converts the continuous model to forward layers
 ([model guide, section 4](model.md#4-from-continuous-model-to-forward-layers)).
 
 ```yaml
-Discretization:
+discretization:
   dz: 0.25
   zmax: 15.0
   force_depths: []
@@ -221,13 +238,13 @@ Discretization:
 | `transition_layers` | 16 | equal layers across each gradational interface support (minimum 2) |
 | `layer_value` | `midpoint` | `midpoint` or `mean` (depth average) |
 
-### Constraints
+### constraints
 
 Hard physical constraints. A model that fails one gets log prior -inf and is
 rejected before any forward calculation.
 
 ```yaml
-Constraints:
+constraints:
   constraints:
     - type: positive_velocity
     - type: vp_vs_range
@@ -262,13 +279,13 @@ Notes:
   `max_vs_gradient` also limits gradational interfaces
   ([model guide, section 5](model.md#5-constraints-and-priors-define-the-model-space)).
 
-### SoftPriors
+### soft_priors
 
 Finite log-prior terms: they do not reject models but prefer some valid models
 over others. Prior-only runs include them.
 
 ```yaml
-SoftPriors:
+soft_priors:
   priors:
     - type: vs_curvature
       depth_range: [0.0, 10.0]
@@ -283,10 +300,10 @@ strength roughly independent of `dz`. Use it to discourage short-wavelength
 B-spline oscillations, together with the hard constraints rather than instead
 of them.
 
-### Likelihood
+### likelihood
 
 ```yaml
-Likelihood:
+likelihood:
   dispersion_weight: 1.0
   hv_weight: 1.0
 ```
@@ -312,12 +329,12 @@ the observation, and define it like any other parameter:
 
 ```yaml
 # obs.yaml
-Observations:
+observations:
   dispersion:
     file: vph_disp.dat
     noise_parameter: noise.dispersion
 # inv.yaml
-Inversion:
+inversion:
   parameters:
     - name: noise.dispersion
       initial: 0.0
@@ -332,7 +349,7 @@ absorb any misfit; at fixed residuals the best value is
 $h_k^2 = \chi^2_k / N_k$. A uniform prior on $\log_{10} h$ treats factors
 above and below 1 alike.
 
-- A noise parameter must not appear in `Model`, and the weight of that data
+- A noise parameter must not appear in `model`, and the weight of that data
   type must stay 1: the sampled scale replaces the weight.
 - The scale corrects the overall error level of a data type, not correlated
   errors or a wrong model space; read a large $h$ as a sign to check both.
@@ -341,10 +358,10 @@ above and below 1 alike.
 - $\log_{10} h$ is stored in `theta` like any other parameter; the run
   attributes record `dispersion_noise_parameter` and `hv_noise_parameter`.
 
-### Sampler
+### sampler
 
 ```yaml
-Sampler:
+sampler:
   n_steps: 5000
   burn_in: 1000
   thin: 5
@@ -407,7 +424,7 @@ which keeps the $T = 1$ replica an exact sample of the posterior. Only that
 replica is stored (Geyer 1991; Earl & Deem 2005).
 
 ```yaml
-Sampler:
+sampler:
   tempering: {n_temperatures: 5, max_temperature: 30}   # geometric ladder
   # tempering: {temperatures: [1, 3, 10, 30]}            # explicit ladder
   # tempering: {}                                        # 5 temperatures up to 30

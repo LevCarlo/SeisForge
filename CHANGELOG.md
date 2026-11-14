@@ -78,6 +78,16 @@ switch that restores the old behaviour where one exists.
   `_aftan_diagram_snr`, `_period_qc`, `_qc_warnings`,
   `_align_to_period_grid`, `_override_energy_map_config`). They remain in
   their modules (`snr`, `qc`, `products`, `config`) and are not public API.
+- Inversion configurations (`inv.yaml`, `obs.yaml`) reject unknown keys with
+  the section and the closest valid key, instead of silently using a default.
+  Section names are lowercase (`model`, `inversion`, `discretization`,
+  `constraints`, `soft_priors`, `likelihood`, `sampler`, `observations`,
+  `forward`, `run`); the capitalized names and the aliases
+  `PhysicalConstraints` and `Data` still load with one
+  `ConfigDeprecationWarning` per run. `resolved_*.yaml` and
+  `parameterized_vs_model_to_config` write the lowercase names. `forward`
+  accepts only `algorithm`, `dc` (and `dt` for dispersion); giving both `hv`
+  and `rayleigh_hv` is an error. No numbers change.
 
 ### Fixed
 
