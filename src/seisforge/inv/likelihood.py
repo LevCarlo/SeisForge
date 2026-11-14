@@ -1,4 +1,18 @@
-"""Likelihood helpers for single-station surface-wave inversions."""
+"""Likelihood helpers for single-station surface-wave inversions.
+
+Each observable contributes a Gaussian log likelihood. An observable may name a
+sampled noise parameter holding ``log10 h``; its standard deviations are then
+``h * sigma`` (a hierarchical noise scale as in Bodin et al. 2012, J. Geophys.
+Res. 117, B02301):
+
+    log L_k = -1/2 chi2_k / h_k^2 - N_k ln h_k,   chi2_k = sum (r_i / sigma_i)^2
+
+Terms that depend on neither the model nor ``h`` are dropped. The ``N ln h``
+term keeps ``h`` from growing to absorb any misfit: at fixed residuals ``log L``
+is largest for ``h^2 = chi2 / N``. Without a noise parameter ``h = 1`` and the
+likelihood is the plain ``-chi2 / 2``. A fixed ``weight`` multiplies the whole
+term; a sampled noise scale replaces it, so the two are not combined.
+"""
 
 from __future__ import annotations
 
@@ -32,6 +46,7 @@ class DispersionObservation:
     algorithm: str = "dunkin"
     dc: float = 0.005
     dt: float = 0.025
+    noise_parameter: str | None = None
 
     def __post_init__(self):
         periods, velocity, sigma = _validate_observation(
@@ -67,6 +82,7 @@ class RayleighHVObservation:
     wave: str = "rayleigh"
     algorithm: str = "dunkin"
     dc: float = 0.005
+    noise_parameter: str | None = None
 
     def __post_init__(self):
         periods, hv, sigma = _validate_observation(
@@ -109,6 +125,7 @@ class ObservableFit:
     weighted_chi2: float
     loglike: float
     weight: float = 1.0
+    noise_scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -133,8 +150,14 @@ def evaluate_joint_likelihood(
     hv: RayleighHVObservation | None = None,
     dispersion_weight: float = 1.0,
     hv_weight: float = 1.0,
+    dispersion_noise_scale: float = 1.0,
+    hv_noise_scale: float = 1.0,
 ) -> JointLikelihoodResult:
-    """Forward model requested observables and compute a joint Gaussian loglike."""
+    """Forward model requested observables and compute a joint Gaussian loglike.
+
+    ``*_noise_scale`` is the factor ``h`` on the data standard deviations (see
+    the module docstring); 1 leaves the likelihood unchanged.
+    """
     if dispersion is None and hv is None:
         raise ValueError("At least one observation must be provided.")
     if dispersion_weight < 0 or hv_weight < 0:
@@ -156,6 +179,7 @@ def evaluate_joint_likelihood(
                 predicted=dispersion_prediction.velocity,
                 sigma=dispersion.sigma,
                 weight=dispersion_weight,
+                noise_scale=dispersion_noise_scale,
             )
         if hv is not None and hv_weight > 0:
             hv_prediction = predict_rayleigh_hv(model, hv.request())
@@ -166,6 +190,7 @@ def evaluate_joint_likelihood(
                 predicted=hv_prediction.hv,
                 sigma=hv.sigma,
                 weight=hv_weight,
+                noise_scale=hv_noise_scale,
             )
     except ForwardError as exc:
         return JointLikelihoodResult(
@@ -210,8 +235,14 @@ def gaussian_observable_fit(
     predicted: ArrayLike,
     sigma: ArrayLike,
     weight: float = 1.0,
+    noise_scale: float = 1.0,
 ) -> ObservableFit:
-    """Compute weighted Gaussian log likelihood for one observable."""
+    """Weighted Gaussian log likelihood for one observable.
+
+    ``chi2`` uses the data ``sigma``; ``weighted_chi2 = weight * chi2 / h^2``
+    and ``loglike = -weighted_chi2 / 2 - weight * N ln h`` with ``h =
+    noise_scale``.
+    """
     periods, observed, sigma = _validate_observation(
         periods,
         observed,
@@ -223,14 +254,16 @@ def gaussian_observable_fit(
         raise ValueError("predicted must have the same length as observed.")
     if weight < 0:
         raise ValueError("weight must be non-negative.")
+    if not np.isfinite(noise_scale) or noise_scale <= 0:
+        raise ValueError("noise_scale must be positive and finite.")
 
     residual = observed - predicted
     normalized = residual / sigma
     chi2 = float(np.sum(normalized**2))
     n_data = len(observed)
     misfit = float(np.sqrt(chi2 / n_data))
-    weighted_chi2 = float(weight * chi2)
-    loglike = float(-0.5 * weighted_chi2)
+    weighted_chi2 = float(weight * chi2 / noise_scale**2)
+    loglike = float(-0.5 * weighted_chi2 - weight * n_data * np.log(noise_scale))
     return ObservableFit(
         n_data=n_data,
         periods=periods,
@@ -245,6 +278,7 @@ def gaussian_observable_fit(
         weighted_chi2=weighted_chi2,
         loglike=loglike,
         weight=float(weight),
+        noise_scale=float(noise_scale),
     )
 
 

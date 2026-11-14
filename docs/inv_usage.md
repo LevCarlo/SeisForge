@@ -93,6 +93,7 @@ resolved from the YAML file's folder.
 | `Forward.dispersion.dc` | km/s | root-search velocity increment |
 | `Forward.dispersion.dt` | s | period step for group velocity |
 | `Forward.hv.algorithm`, `.dc` | as above | ellipticity calculation |
+| `Observations.*.noise_parameter` | parameter name | optional; samples a noise scale for this data type (see [Likelihood](#likelihood)) |
 
 ## inv.yaml
 
@@ -290,14 +291,55 @@ Likelihood:
   hv_weight: 1.0
 ```
 
-```text
-log L = -0.5 * (w_disp * chi2_disp + w_hv * chi2_hv)
+Each data type $k$ contributes a Gaussian term with its residuals $r_i$ and the
+one-sigma uncertainties $\sigma_i$ of the data file,
+$\chi^2_k = \sum_i (r_i/\sigma_i)^2$:
+
+$$
+\log L = \sum_k w_k \left[ -\frac{\chi^2_k}{2 h_k^2} - N_k \ln h_k \right]
+$$
+
+with weights $w_k$ (`dispersion_weight`, `hv_weight`, default 1) and noise
+scales $h_k$ (default 1, giving the plain $-\tfrac12 \sum_k w_k \chi^2_k$).
+
+**Fixed weights** change the relative influence of the two data types by
+hand. Judge them from the separate dispersion and H/V residuals; a single
+combined misfit of quantities with different units says little.
+
+**Sampled noise scales** let the data set the balance instead (a hierarchical
+noise model, Bodin et al. 2012). Name a parameter that holds $\log_{10} h$ in
+the observation, and define it like any other parameter:
+
+```yaml
+# obs.yaml
+Observations:
+  dispersion:
+    file: vph_disp.dat
+    noise_parameter: noise.dispersion
+# inv.yaml
+Inversion:
+  parameters:
+    - name: noise.dispersion
+      initial: 0.0
+      prior: {type: uniform, bounds: [-0.5, 0.5]}   # h from 0.32 to 3.2
+      proposal: {sigma: 0.03}
 ```
 
-Each chi-square uses the one-sigma uncertainties of the data file. Weights
-(default 1) change the relative influence of the two data types, not the data
-uncertainties. Judge them from the separate dispersion and H/V residuals; a
-single combined misfit of quantities with different units says little.
+The data uncertainties become $h\,\sigma_i$: $h > 1$ says the file's
+uncertainties are too small for the misfit the model space allows, $h < 1$
+that they are too large. The $N_k \ln h_k$ term stops $h$ from growing to
+absorb any misfit; at fixed residuals the best value is
+$h_k^2 = \chi^2_k / N_k$. A uniform prior on $\log_{10} h$ treats factors
+above and below 1 alike.
+
+- A noise parameter must not appear in `Model`, and the weight of that data
+  type must stay 1: the sampled scale replaces the weight.
+- The scale corrects the overall error level of a data type, not correlated
+  errors or a wrong model space; read a large $h$ as a sign to check both.
+- With noise-free synthetic data every $h$ runs to its lower bound, because
+  the true model fits perfectly. Synthetic tests need noise added.
+- $\log_{10} h$ is stored in `theta` like any other parameter; the run
+  attributes record `dispersion_noise_parameter` and `hv_noise_parameter`.
 
 ### Sampler
 

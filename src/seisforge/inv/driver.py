@@ -365,6 +365,7 @@ def _run_attrs(
                 "dispersion_algorithm": dispersion.algorithm,
                 "dispersion_dc": float(dispersion.dc),
                 "dispersion_dt": float(dispersion.dt),
+                "dispersion_noise_parameter": dispersion.noise_parameter or "none",
             }
         )
     if setup.target is not None and setup.target.hv is not None:
@@ -375,6 +376,7 @@ def _run_attrs(
                 "hv_mode": int(hv.mode),
                 "hv_algorithm": hv.algorithm,
                 "hv_dc": float(hv.dc),
+                "hv_noise_parameter": hv.noise_parameter or "none",
             }
         )
     return attrs

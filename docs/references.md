@@ -35,6 +35,9 @@ Publications and software whose methods SeisForge implements or follows.
 
 | reference | used in |
 |---|---|
+| Bodin, T., Sambridge, M., Tkalčić, H., Arroucau, P., Gallagher, K., & Rawlinson, N. (2012). Transdimensional inversion of receiver functions and surface wave dispersion. *Journal of Geophysical Research*, 117, B02301. | [sampled noise scales](inv_usage.md#likelihood) |
+| Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.), Sec. 11.4. CRC Press. | split R-hat |
+| Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021). Rank-normalization, folding, and localization: an improved R-hat for assessing convergence of MCMC. *Bayesian Analysis*, 16, 667-718. | effective sample size |
 | Brocher, T. M. (2005). Empirical relations between elastic wavespeeds and density in the Earth's crust. *Bulletin of the Seismological Society of America*, 95, 2081-2092. | `brocher2005` Vp and density scaling |
 | Gardner, G. H. F., Gardner, L. W., & Gregory, A. R. (1974). Formation velocity and density -- the diagnostic basics for stratigraphic traps. *Geophysics*, 39, 770-780. | `gardner1974` density scaling |
 

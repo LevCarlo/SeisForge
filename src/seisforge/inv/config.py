@@ -160,6 +160,7 @@ def dispersion_observation_from_config(config: dict) -> DispersionObservation:
         algorithm=config.get("algorithm", "dunkin"),
         dc=config.get("dc", 0.005),
         dt=config.get("dt", 0.025),
+        noise_parameter=config.get("noise_parameter"),
     )
 
 
@@ -172,6 +173,7 @@ def rayleigh_hv_observation_from_config(config: dict) -> RayleighHVObservation:
         wave=config.get("wave", "rayleigh"),
         algorithm=config.get("algorithm", "dunkin"),
         dc=config.get("dc", 0.005),
+        noise_parameter=config.get("noise_parameter"),
     )
 
 

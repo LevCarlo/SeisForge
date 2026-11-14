@@ -33,6 +33,10 @@ switch that restores the old behaviour where one exists.
 
 ### Added
 
+- **Sampled noise scales** (hierarchical noise): an observation may name a
+  parameter holding `log10 h`, which scales its uncertainties to `h * sigma`
+  in the likelihood (`-chi2 / (2 h^2) - N ln h`). Without it the likelihood
+  is unchanged.
 - **MCMC convergence diagnostics** (`seisforge.inv.diagnostics`): split
   R-hat, effective sample size, and lagging (stuck) chains, written to
   `*_mcmc.nc` and the run log, with warnings for clearly unconverged runs.
