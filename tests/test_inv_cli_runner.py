@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import xarray as xr
+import yaml
 
 from seisforge.cli.main import main
 from seisforge.inv.forward import (
@@ -138,7 +139,7 @@ def test_read_observation_dat_sorts_periods(tmp_path):
     np.testing.assert_allclose(hv["hv"], [0.9, 0.8])
 
 
-def test_disp_hv_driver_writes_xarray_outputs(tmp_path):
+def test_disp_hv_driver_writes_xarray_outputs(tmp_path, assert_provenance):
     config = _config()
     config["SoftPriors"] = {
         "priors": [
@@ -189,9 +190,16 @@ def test_disp_hv_driver_writes_xarray_outputs(tmp_path):
         assert dataset["split_rhat"].dims == ("parameter",)
         assert dataset["effective_sample_size"].dims == ("parameter",)
         assert "max_split_rhat" in dataset.attrs and "lagging_chains" in dataset.attrs
+        assert_provenance(dataset.attrs)
     with xr.open_dataset(result.posterior_predictive) as dataset:
         assert "dispersion_predicted_velocity" in dataset
         assert "hv_predicted_hv" in dataset
+        assert_provenance(dataset.attrs)
+    with xr.open_dataset(result.posterior_vs) as dataset:
+        assert_provenance(dataset.attrs)
+    for name in ("resolved_config.yaml", "resolved_inv.yaml", "resolved_obs.yaml"):
+        resolved = yaml.safe_load((output / name).read_text())
+        assert_provenance(resolved["Run"])
 
 
 def test_disp_hv_driver_reads_split_inv_and_obs_configs(tmp_path):

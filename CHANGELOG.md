@@ -62,6 +62,16 @@ switch that restores the old behaviour where one exists.
   configuration reference, API reference, and references.
 - MIT license; GitHub Actions for lint, tests (Python 3.10 and 3.12), and the
   documentation build.
+- **Software provenance in every output** (`seisforge.provenance.software_provenance`):
+  SeisForge version, git commit and dirty flag (`"unknown"` outside a source
+  checkout), and the Python, numpy, scipy, obspy, xarray, disba and numba
+  versions are written to inversion NetCDF attrs, `resolved_*.yaml`, AFTAN
+  NetCDF attrs, `.dat` headers and `aftan.log`, Eikonal event-field and stack
+  attrs and `eikonal.log`, H-k result attrs, `*_Hk_QC.dat` and the H-k log,
+  the RF QC log, and `rotate_ccf.log`. Attributes are only added; no numbers
+  change. `seisforge.__version__` now comes from the installed distribution
+  metadata (`pyproject.toml` is the single source; `"0+unknown"` when the
+  source tree is imported without installing).
 
 ### Changed
 

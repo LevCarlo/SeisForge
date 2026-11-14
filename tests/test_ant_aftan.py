@@ -330,7 +330,7 @@ def test_aftan_diagram_snr_uses_peak_over_neighboring_minima():
     assert np.isclose(snr, 10.0 / np.sqrt(1.0 * 2.0))
 
 
-def test_run_aftan_config_writes_dispersion_outputs(tmp_path):
+def test_run_aftan_config_writes_dispersion_outputs(tmp_path, assert_provenance):
     input_dir = tmp_path / "ccf"
     input_dir.mkdir()
     sac_file = input_dir / "WT.2001_WT.2100_ZR_pws.SAC"
@@ -389,6 +389,8 @@ def test_run_aftan_config_writes_dispersion_outputs(tmp_path):
     assert "period_grid=" in log_text
     assert "outputs WT.2001_WT.2100_ZR_pws.SAC [positive] basic:" in log_text
     assert "npz=" not in log_text
+    assert_provenance(log_text)
+    assert_provenance(result.output_dat.read_text())
     assert result.branch == "positive"
     assert result.alpha == 20.0
     assert result.alpha_mode == "constant"
@@ -856,7 +858,7 @@ def test_manual_phase_cycle_override_previews_then_updates_nc_and_dat(tmp_path):
     np.testing.assert_allclose(np.loadtxt(dat_file)[:, 3], expected, rtol=2e-4)
 
 
-def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
+def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path, assert_provenance):
     input_dir = tmp_path / "ccf"
     input_dir.mkdir()
     sac_file = input_dir / "WT.2001_WT.2100_ZR_pws.SAC"
@@ -911,10 +913,12 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
     energy_dataset = xr.open_dataset(result.output_energy_map, engine="scipy")
     try:
         assert energy_dataset["picked_snr"].dims == ("target_period",)
+        assert_provenance(energy_dataset.attrs)
     finally:
         energy_dataset.close()
     dataset = xr.open_dataset(result.output_phase_map, engine="scipy")
     try:
+        assert_provenance(dataset.attrs)
         assert dataset.attrs["phase_cycle_count"] == 3
         assert dataset.sizes["phase_velocity"] == 64
         assert dataset["phase_candidate_amplitude"].dims == (
@@ -949,7 +953,7 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path):
     assert "# phase_cycle_shift: 0" in header
 
 
-def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path):
+def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path, assert_provenance):
     input_dir = tmp_path / "ccf"
     input_dir.mkdir()
     sac_file = input_dir / "WT.2001_WT.2100_ZR_pws.SAC"
@@ -1003,6 +1007,7 @@ def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path):
     ]
     assert pmf_lines
     assert {len(line.split()) for line in pmf_lines} == {6}
+    assert_provenance(result.output_pmf_dat.read_text())
     assert result.pmf_alpha == 24.0
     assert result.pmf_period_min >= result.period.min()
     assert result.pmf_period_max <= result.period.max()

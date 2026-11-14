@@ -13,6 +13,8 @@ from pyproj import Geod
 import xarray as xr
 import yaml
 
+from seisforge.provenance import software_provenance
+
 from .models import (
     EikonalRunConfig,
     EventField,
@@ -276,6 +278,7 @@ def event_fields_to_dataset(
                 else "f_xx+f_yy (locally flat, compatibility)"
             ),
             "config_yaml": config_yaml(config),
+            **software_provenance(),
         },
     )
     _set_event_field_metadata(dataset)

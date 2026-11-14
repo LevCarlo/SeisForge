@@ -189,7 +189,7 @@ def test_azimuth_peer_weighting_discards_isolated_direction():
     np.testing.assert_array_equal(stacked["qc_measurement_count"], 2)
 
 
-def test_eikonal_workflow_writes_event_fields_and_stack(tmp_path):
+def test_eikonal_workflow_writes_event_fields_and_stack(tmp_path, assert_provenance):
     measurement_path = tmp_path / "measurements.nc"
     output_directory = tmp_path / "output"
     dataset = _workflow_measurement_dataset()
@@ -208,11 +208,13 @@ def test_eikonal_workflow_writes_event_fields_and_stack(tmp_path):
         assert fields.sizes["source"] == 2
         assert "rejection_reason" in fields
         assert "config_yaml" in fields.attrs
+        assert_provenance(fields.attrs)
         assert fields["helmholtz_applied"].values.all()
         assert np.any(np.isfinite(fields["helmholtz_phase_velocity_km_s"]))
     with xr.open_dataset(outputs[1], engine="h5netcdf") as stacked:
         assert stacked.attrs["stage"] == "eikonal_isotropic_stack"
         assert stacked["period_s"].values.tolist() == [10]
+        assert_provenance(stacked.attrs)
         assert np.any(np.isfinite(stacked["phase_velocity_km_s"]))
         assert np.isclose(
             np.nanmedian(stacked["phase_velocity_km_s"]), 3.5, atol=0.1
@@ -222,6 +224,9 @@ def test_eikonal_workflow_writes_event_fields_and_stack(tmp_path):
             3.5,
             atol=0.1,
         )
+    log_text = (output_directory / "eikonal.log").read_text()
+    assert "fields software:" in log_text and "stack software:" in log_text
+    assert_provenance(log_text)
 
 
 def test_build_eikonal_config_resolves_paths_and_defaults(tmp_path):

@@ -12,3 +12,10 @@ each workflow; the workflow pages explain methods and configuration.
 | [HVSR](hvsr.md) | `seisforge.hvsr` diffuse-field forward modelling |
 
 Names that start with an underscore are internal and not listed.
+
+## Provenance
+
+::: seisforge.provenance
+    options:
+      members:
+        - software_provenance

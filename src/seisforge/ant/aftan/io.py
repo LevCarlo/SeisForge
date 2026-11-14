@@ -10,6 +10,8 @@ import numpy as np
 from obspy import Trace
 import yaml
 
+from seisforge.provenance import software_provenance
+
 from .models import AFTANSNRConfig
 
 
@@ -82,7 +84,8 @@ def _write_dispersion_dat(
             "target_period_s instant_period_s group_velocity_km_s "
             f"phase_velocity_km_s amplitude {snr_label}"
         )
-    header_lines = _dat_metadata_lines(metadata) + [dat_header]
+    header_lines = _dat_metadata_lines({**(metadata or {}), **software_provenance()})
+    header_lines.append(dat_header)
     np.savetxt(
         path,
         table,

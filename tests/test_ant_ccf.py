@@ -151,7 +151,7 @@ def test_run_rotate_ccf_config_prefers_sac_az_baz_headers(tmp_path):
     assert "coordinate fallback: skipped" in result.log_file.read_text()
 
 
-def test_run_rotate_ccf_config_infers_azimuths_from_sac_headers(tmp_path):
+def test_run_rotate_ccf_config_infers_azimuths_from_sac_headers(tmp_path, assert_provenance):
     input_dir = tmp_path / "CC_ZNE" / "S1" / "S1_S2"
     sac = {
         "evla": 0.0,
@@ -196,6 +196,7 @@ def test_run_rotate_ccf_config_infers_azimuths_from_sac_headers(tmp_path):
     assert "failed to read from SAC HEADER" in log_text
     assert "coordinate fallback: success" in log_text
     assert "source=computed from SAC evla/evlo/stla/stlo" in log_text
+    assert_provenance(log_text)
 
 
 def test_run_rotate_ccf_config_preserves_input_naming_by_replacing_component(tmp_path):

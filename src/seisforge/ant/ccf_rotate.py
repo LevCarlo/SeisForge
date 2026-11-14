@@ -17,6 +17,7 @@ from seisforge.ant.rotation import (
     required_zne_components,
     rotate_zne_ccf_to_zrt,
 )
+from seisforge.provenance import software_provenance
 
 @dataclass(frozen=True)
 class RotateCCFJob:
@@ -535,6 +536,7 @@ def _start_log(job: RotateCCFJob) -> list[str]:
         f"output_template: {job.output_template or '<preserve input naming>'}",
         f"obj_components: {','.join(job.obj_components)}",
         f"overwrite: {job.overwrite}",
+        *(f"{key}: {value}" for key, value in software_provenance().items()),
     ]
     return lines
 

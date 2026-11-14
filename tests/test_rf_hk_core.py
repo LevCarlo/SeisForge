@@ -1,5 +1,6 @@
 import os
 
+from joblib import load
 import numpy as np
 from obspy import Trace
 import pytest
@@ -130,7 +131,7 @@ def test_hkseq_refuses_output_dir_overlapping_root_or_inputs(tmp_path, save):
     assert sorted(os.listdir(root / "high")) == ["rf0.sac", "rf1.sac", "rf2.sac"]
 
 
-def test_hkseq_requires_overwrite_and_keeps_other_stage_outputs(tmp_path):
+def test_hkseq_requires_overwrite_and_keeps_other_stage_outputs(tmp_path, assert_provenance):
     root = tmp_path / "NET.STA"
     _write_rfs(root)
     config = _hk_config(root)
@@ -138,6 +139,12 @@ def test_hkseq_requires_overwrite_and_keeps_other_stage_outputs(tmp_path):
     high_dat = root / "hkSeq" / "NET.STA_HFreq_Hk_QC.dat"
     assert high_dat.exists()
     assert (root / "logs" / "NET.STA_hkSeq.log").read_text().count("Starting H-k") == 1
+    assert_provenance((root / "logs" / "NET.STA_hkSeq.log").read_text())
+    assert_provenance(high_dat.read_text())
+    high_results = load(root / "hkSeq" / "NET.STA_HFreq_Hk_results.joblib")
+    assert high_results
+    for result in high_results:
+        assert_provenance(result.attrs)
 
     with pytest.raises(FileExistsError, match="overwrite"):
         hkSeq(config, mode="high")

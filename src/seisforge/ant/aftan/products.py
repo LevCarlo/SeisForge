@@ -16,6 +16,8 @@ from math import tau
 import numpy as np
 import xarray as xr
 
+from seisforge.provenance import software_provenance
+
 
 def amplitude_time_to_velocity(
     amplitude: np.ndarray,
@@ -158,7 +160,7 @@ def energy_map_dataset(
     return xr.Dataset(
         data_vars=data_vars,
         coords={"target_period": target_period, "velocity": velocity_km_s},
-        attrs=attrs,
+        attrs={**attrs, **software_provenance()},
     )
 
 
@@ -247,5 +249,5 @@ def phase_velocity_map_dataset(
             "phase_velocity": phase_velocity_km_s,
             "cycle_shift_candidate": measured["phase_cycle_candidate_shift"],
         },
-        attrs=attrs,
+        attrs={**attrs, **software_provenance()},
     )

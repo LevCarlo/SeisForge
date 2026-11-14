@@ -11,6 +11,7 @@ from collections.abc import Callable
 
 import yaml
 
+from seisforge.provenance import software_provenance
 from seisforge.rf.traces import RFstream, RFtrace
 
 
@@ -153,6 +154,8 @@ def run_rf_qc_config(config_file: str, plot: bool = False) -> None:
     )
 
     print(f"Running RF QC for {net}.{sta}...")
+    for key, value in software_provenance().items():
+        logging.info("%s: %s", key, value)
     logging.info("%sHigh-Frequency RF QC%s", "=" * 20, "=" * 20)
     rf_QC(params, type="HighFreq", plot=plot)
     logging.info("%sLow-Frequency RF QC%s", "=" * 20, "=" * 20)

@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 from obspy import read
 
+from seisforge.provenance import software_provenance
+
 from .branch import _prepare_branch_traces
 from .config import (
     build_station_aftan_config,
@@ -509,6 +511,7 @@ def _start_log(config: StationAFTANConfig) -> list[str]:
         "output_naming: preserve_input_station_pair_component",
         f"debug: {config.aftan.debug}",
         f"snr_output: {_snr_column_name(config.aftan.snr)}",
+        *(f"{key}: {value}" for key, value in software_provenance().items()),
     ]
 
 
