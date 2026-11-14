@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -19,6 +19,7 @@ from seisforge.inv.samplers import (
     MetropolisConfig,
     ProgressCallback,
     draw_valid_initial_thetas,
+    geometric_temperatures,
     run_metropolis,
 )
 
@@ -122,10 +123,17 @@ class InversionSetup:
         progress_callback: ProgressCallback | None = None,
         progress_every: int | None = None,
     ) -> MCMCResult:
+        config = self.sampler.config
+        if target == "prior" and config.temperatures is not None:
+            # The prior has no likelihood to temper; sample it with a plain chain.
+            config = replace(config, temperatures=None)
+        log_target = self._log_target(target)
+        if config.temperatures is not None:
+            log_target = self.target.log_prior_and_likelihood
         return run_metropolis(
-            self._log_target(target),
+            log_target,
             self.initial_thetas(target=target),
-            self.sampler.config,
+            config,
             seeds=self.sampler.seed,
             executor=self.sampler.executor,
             max_workers=self.sampler.max_workers,
@@ -190,6 +198,7 @@ def sampler_settings_from_config(
     if bounds is None and sampler_cfg.get("use_parameter_bounds", True):
         bounds = parameterization.bounds()
 
+    temperatures, swap_interval = _tempering_from_config(sampler_cfg.get("tempering"))
     metropolis = MetropolisConfig(
         n_steps=int(sampler_cfg.get("n_steps", 1000)),
         proposal_sigma=proposal_sigma,
@@ -197,6 +206,8 @@ def sampler_settings_from_config(
         thin=int(sampler_cfg.get("thin", 1)),
         bounds=bounds,
         global_jump_interval=sampler_cfg.get("global_jump_interval"),
+        temperatures=temperatures,
+        swap_interval=swap_interval,
     )
     initial_thetas = sampler_cfg.get("initial_thetas")
     return SamplerSettings(
@@ -209,6 +220,29 @@ def sampler_settings_from_config(
         initial_thetas=initial_thetas,
         max_initial_attempts=int(sampler_cfg.get("max_initial_attempts", 10000)),
     )
+
+
+def _tempering_from_config(config: dict | None) -> tuple[tuple[float, ...] | None, int]:
+    """``Sampler.tempering``: an explicit ladder, or a geometric one.
+
+    ``{temperatures: [1, 2, 5]}`` or ``{n_temperatures: 5, max_temperature: 30}``
+    (defaults 5 and 30, ComplyBay's tested ladder), plus ``swap_interval``
+    (default 1). An empty mapping ``{}`` uses the defaults; absent means no
+    tempering.
+    """
+    if config is None:
+        return None, 1
+    if not isinstance(config, dict):
+        raise ValueError("Sampler.tempering must be a mapping.")
+    swap_interval = int(config.get("swap_interval", 1))
+    if "temperatures" in config:
+        if "n_temperatures" in config or "max_temperature" in config:
+            raise ValueError("Give Sampler.tempering.temperatures or n/max_temperature, not both.")
+        return tuple(float(t) for t in config["temperatures"]), swap_interval
+    ladder = geometric_temperatures(
+        int(config.get("n_temperatures", 5)), float(config.get("max_temperature", 30.0))
+    )
+    return ladder, swap_interval
 
 
 def _normalize_initial_thetas(initial_thetas, *, n_chains: int) -> np.ndarray:

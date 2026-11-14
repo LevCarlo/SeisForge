@@ -153,8 +153,10 @@ from seisforge.inv.samplers import (
     MCMCResult,
     MetropolisConfig,
     draw_valid_initial_thetas,
+    geometric_temperatures,
     run_metropolis,
     run_metropolis_chain,
+    run_tempered_chain,
 )
 from seisforge.inv.setup import (
     InversionSetup,
@@ -164,6 +166,8 @@ from seisforge.inv.setup import (
 )
 
 __all__ = [
+    "geometric_temperatures",
+    "run_tempered_chain",
     "ConvergenceDiagnostics",
     "convergence_diagnostics",
     "effective_sample_size",

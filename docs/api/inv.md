@@ -65,6 +65,8 @@
         - MetropolisConfig
         - run_metropolis
         - run_metropolis_chain
+        - run_tempered_chain
+        - geometric_temperatures
         - draw_valid_initial_thetas
         - ChainResult
         - MCMCResult

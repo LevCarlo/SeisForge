@@ -371,6 +371,7 @@ Sampler:
 | `proposal_sigma` | `from_parameters` | `from_parameters`, one number for all parameters, or a list |
 | `use_parameter_bounds` | true | keep proposals inside the prior bounds |
 | `global_jump_interval` | none | every N steps propose uniformly over the bounds |
+| `tempering` | none | parallel tempering: `{}` for the default ladder, `{n_temperatures, max_temperature}`, or `{temperatures: [...]}`; plus `swap_interval` (below) |
 
 **Executor.** `thread` is usually best on one machine: disba and the RF kernel
 release the GIL, so chains run in parallel (four threads ran disba about 3.6x
@@ -390,13 +391,48 @@ is healthy. A global jump (the pymcinv `step4uwalk` idea) helps a chain leave
 a local region; values of 500-2000 are conservative, and frequent jumps lower
 acceptance.
 
+**Parallel tempering.** A chain stuck in a lower mode (a *lagging chain*,
+or R-hat far above 1 with chains at different log posteriors) cannot leave it
+by small steps. With `tempering`, each chain becomes a ladder of replicas at
+temperatures $1 = T_1 < T_2 < \dots < T_n$, sampling
+$p(\theta)\, L(\theta)^{1/T_i}$. Hot replicas see a flattened likelihood and
+cross between modes; adjacent replicas exchange states every `swap_interval`
+steps with probability
+
+$$
+\alpha = \min\Big(1,\ \exp\big[(1/T_i - 1/T_{i+1})(\ln L_{i+1} - \ln L_i)\big]\Big),
+$$
+
+which keeps the $T = 1$ replica an exact sample of the posterior. Only that
+replica is stored (Geyer 1991; Earl & Deem 2005).
+
+```yaml
+Sampler:
+  tempering: {n_temperatures: 5, max_temperature: 30}   # geometric ladder
+  # tempering: {temperatures: [1, 3, 10, 30]}            # explicit ladder
+  # tempering: {}                                        # 5 temperatures up to 30
+```
+
+- Cost: a ladder of $n$ costs about $n$ times a plain run.
+- `swap_acceptance(chain, temperature_pair)` in `*_mcmc.nc` and the log show
+  how often neighbours exchange. Values well above 0.1 on every pair are
+  fine; a pair near 0 needs another temperature between them.
+- `max_temperature` must flatten the barrier between modes: roughly, it
+  should be comparable to the drop of $\ln L$ between them.
+- Replica $i$ proposes with `proposal_sigma` $\times \sqrt{T_i}$ (an assumed
+  scaling: a likelihood tempered by $1/T$ widens a Gaussian posterior by
+  $\sqrt{T}$).
+- Prior-only runs ignore `tempering`: the prior has no likelihood to temper.
+- Run untempered first; turn tempering on when the diagnostics show separate
+  modes.
+
 ## Output files
 
 For `disp-hv` (other kinds use their own prefix):
 
 | file | content |
 |---|---|
-| `disp_hv_mcmc.nc` | `theta(chain, draw, parameter)`, `log_prob`, `log_prior`, `log_parameter_prior`, `log_physical_hard_prior`, `log_soft_prior`, `log_likelihood`, acceptance, initial and final theta; `vs_curvature_rms` with the curvature prior; convergence diagnostics `split_rhat(parameter)`, `effective_sample_size(parameter)`, and attrs `max_split_rhat`, `min_effective_sample_size`, `lagging_chains` |
+| `disp_hv_mcmc.nc` | `theta(chain, draw, parameter)`, `log_prob`, `log_prior`, `log_parameter_prior`, `log_physical_hard_prior`, `log_soft_prior`, `log_likelihood`, acceptance, initial and final theta; `vs_curvature_rms` with the curvature prior; convergence diagnostics `split_rhat(parameter)`, `effective_sample_size(parameter)`, and attrs `max_split_rhat`, `min_effective_sample_size`, `lagging_chains`; with tempering, `swap_acceptance(chain, temperature_pair)` and attr `temperatures` |
 | `disp_hv_vs.nc` | Vs(z) per sample and depth-wise `mean`, `std`, `minimum`, `maximum`, `p01`...`p99`, `median`, `best_vs` |
 | `disp_hv_predictive.nc` | predicted dispersion and H/V per sample, their percentiles, and the observed values and sigmas |
 | `disp_hv.log` | settings, acceptance rates, best theta, output paths |

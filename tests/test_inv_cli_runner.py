@@ -221,6 +221,36 @@ def test_disp_hv_driver_reads_split_inv_and_obs_configs(tmp_path):
         assert "hv_predicted_hv" in dataset
 
 
+def test_driver_with_tempering_writes_swap_acceptance(tmp_path):
+    config = _config()
+    inv_config = dict(config)
+    inv_config.pop("Observations", None)
+    inv_config["Sampler"] = dict(
+        config["Sampler"], n_steps=6, n_chains=2, tempering={"temperatures": [1, 3, 9]}
+    )
+    inv_file = tmp_path / "inv.yaml"
+    obs_file = tmp_path / "obs.yaml"
+    dump_yaml(inv_config, inv_file)
+    dump_yaml(_obs_config(), obs_file)
+    _write_observations(tmp_path, config)
+
+    result = run_inversion(
+        kind="disp_hv",
+        inv_file=inv_file,
+        obs_file=obs_file,
+        output=tmp_path / "tempered",
+        with_prior=True,
+        progress=False,
+    )
+
+    with xr.open_dataset(result.posterior_mcmc) as dataset:
+        assert dataset["swap_acceptance"].shape == (2, 2)
+        assert dataset.attrs["temperatures"] == "1, 3, 9"
+    with xr.open_dataset(result.prior_mcmc) as dataset:
+        # The prior has no likelihood to temper and is sampled by plain chains.
+        assert "swap_acceptance" not in dataset
+
+
 def test_inv_cli_help_runs(capsys):
     with pytest.raises(SystemExit) as exc_info:
         main(["inv", "disp-hv", "--help"])

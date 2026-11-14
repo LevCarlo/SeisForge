@@ -199,6 +199,10 @@ def _write_posterior_outputs(
     prediction_ensemble_to_xarray(prediction, attrs=attrs).to_netcdf(predictive_file, engine="h5netcdf")
     best_theta = vs.best_theta
     logger.info("posterior acceptance rates: %s", posterior_result.acceptance_rates)
+    if posterior_result.config.temperatures is not None:
+        swap = [chain.swap_acceptance for chain in posterior_result.chains]
+        logger.info("tempering ladder: %s", posterior_result.config.temperatures)
+        logger.info("swap acceptance per adjacent pair, per chain: %s", swap)
     logger.info("posterior mean acceptance: %.6g", posterior_result.mean_acceptance_rate)
     if best_theta is not None:
         logger.info("best theta: %s", best_theta)
@@ -351,6 +355,11 @@ def _run_attrs(
         "sampler_initial_strategy": setup.sampler.initial_strategy,
         "sampler_global_jump_interval": setup.sampler.config.global_jump_interval,
         "sampler_seed": setup.sampler.seed,
+        "sampler_temperatures": (
+            "none"
+            if setup.sampler.config.temperatures is None
+            else ", ".join(f"{t:.6g}" for t in setup.sampler.config.temperatures)
+        ),
     }
     if setup.target is not None:
         attrs["dispersion_weight"] = float(setup.target.dispersion_weight)

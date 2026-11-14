@@ -33,6 +33,10 @@ switch that restores the old behaviour where one exists.
 
 ### Added
 
+- **Parallel tempering** (`Sampler.tempering`): each chain becomes a
+  ladder of tempered replicas with state swaps between neighbours; only the
+  `T = 1` replica is stored. Swap acceptance is written to `*_mcmc.nc`.
+  Without `tempering` chains draw exactly the same random numbers as before.
 - **Sampled noise scales** (hierarchical noise): an observation may name a
   parameter holding `log10 h`, which scales its uncertainties to `h * sigma`
   in the likelihood (`-chi2 / (2 h^2) - N ln h`). Without it the likelihood

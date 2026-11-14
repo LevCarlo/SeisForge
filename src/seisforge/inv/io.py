@@ -234,6 +234,11 @@ def mcmc_result_to_xarray(
         if log_likelihood.shape != result.log_prob.shape:
             raise ValueError("log_likelihood must match result.log_prob shape.")
         dataset["log_likelihood"] = (sample_dims, log_likelihood)
+    swap = [chain.swap_acceptance for chain in result.chains]
+    if result.config.temperatures is not None and all(s is not None for s in swap):
+        dataset["swap_acceptance"] = (("chain", "temperature_pair"), np.stack(swap))
+        dataset.attrs["temperatures"] = ", ".join(f"{t:.6g}" for t in result.config.temperatures)
+        dataset.attrs["swap_interval"] = int(result.config.swap_interval)
     if convergence is not None:
         dataset["split_rhat"] = (("parameter",), convergence.rhat)
         dataset["effective_sample_size"] = (("parameter",), convergence.ess)
