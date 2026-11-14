@@ -110,11 +110,11 @@ current boundaries.
 **Gradational interfaces.** With `width_km > 0`, Vs, Vp, and rho blend the two
 neighbouring segments:
 
-~~~text
-v(z) = (1 - S(z)) * v_upper(z) + S(z) * v_lower(z)
-~~~
+$$
+v(z) = \big(1 - S(z)\big)\, v_\text{upper}(z) + S(z)\, v_\text{lower}(z)
+$$
 
-`S` is 0.5 at `depth_km`, 0.1 and 0.9 at `depth_km -/+ width_km/2`, and
+$S$ is 0.5 at `depth_km`, 0.1 and 0.9 at `depth_km` $\mp$ `width_km`/2, and
 exactly 0 / 1 outside a finite support. Two shapes are available
 (`seisforge.inv.transitions`):
 

@@ -146,8 +146,14 @@ before building new code on it.
   ```
 
   `mkdocs.yml` sets `strict: true`: a new page must be added to `nav`, and
-  broken internal links fail the build. CI builds the site on every push and
-  pull request (`.github/workflows/docs.yml`).
+  broken internal links fail the build. The theme is MkDocs Material.
+- Formulas are LaTeX between `$...$` (inline) or `$$...$$` (display),
+  rendered by MathJax; a literal dollar sign in prose needs escaping (`\$`).
+- CI builds the site on every push and pull request
+  (`.github/workflows/docs.yml`) and publishes pushes to `dev` to
+  <https://levcarlo.github.io/SeisForge/>. Publishing needs GitHub Pages
+  enabled once: repository Settings -> Pages -> Build and deployment ->
+  Source: GitHub Actions.
 - The API reference pages (`docs/api/`) are generated from docstrings by
   mkdocstrings, reading `src/` statically (the package does not need to be
   importable). To document a new public function, add it to the `members`

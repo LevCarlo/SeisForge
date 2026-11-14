@@ -1,16 +1,5 @@
-/* The readthedocs theme's content column is hard-capped at 800px
-   (.wy-nav-content { max-width: 800px }), a holdover from the original Sphinx
-   "wy" theme's narrow-prose design.  On anything wider than a laptop this
-   leaves most of the window empty.  Widen it -- 1200px keeps prose lines from
-   getting unreadably long while giving the wide tables and figures in these
-   docs (margin sweeps, the box-geometry diagram, cost charts) real room. */
-.wy-nav-content {
-  max-width: 1200px;
-}
-
-/* Figures should never exceed the (now wider) column, and shouldn't force
-   horizontal scrolling of their own on narrower screens. */
-.wy-nav-content img {
+/* Figures never exceed the content column. */
+.md-typeset img {
   max-width: 100%;
   height: auto;
 }

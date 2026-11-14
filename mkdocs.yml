@@ -1,22 +1,44 @@
 site_name: SeisForge
 site_description: Python toolkit for ambient-noise, receiver-function, HVSR, and surface-wave inversion workflows
+site_url: https://levcarlo.github.io/SeisForge/
 repo_url: https://github.com/LevCarlo/SeisForge
-edit_uri: blob/main/docs/
+repo_name: LevCarlo/SeisForge
+edit_uri: edit/dev/docs/
 site_dir: site
 docs_dir: docs
 dev_addr: 127.0.0.1:8000
 strict: true
 validation:
   links:
+    not_found: warn
     anchors: warn
 
 theme:
-  name: readthedocs
-  locale: en
-  navigation_depth: 3
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Light mode
 
 extra_css:
   - css/extra.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
 
 nav:
   - Home: index.md
@@ -63,11 +85,14 @@ plugins:
 
 markdown_extensions:
   - tables
-  - fenced_code
   - admonition
   - toc:
       permalink: true
+  - pymdownx.highlight
   - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.arithmatex:
+      generic: true
   - pymdownx.snippets:
       base_path: ["."]
       check_paths: true

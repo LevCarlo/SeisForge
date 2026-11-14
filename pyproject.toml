@@ -50,6 +50,7 @@ gmt = [
 ]
 docs = [
     "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5",
     "mkdocstrings[python]>=1.0,<2",
     "pymdown-extensions",
 ]
