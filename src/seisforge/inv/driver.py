@@ -424,6 +424,8 @@ def _log_run_header(
     setup: InversionSetup,
     output_dir: Path,
 ) -> None:
+    for name, value in software_provenance().items():
+        logger.info("%s: %s", name, value)
     logger.info("inversion kind: %s", inversion_input.kind)
     logger.info("inv: %s", inversion_input.inv_file)
     if inversion_input.obs_file is not None:

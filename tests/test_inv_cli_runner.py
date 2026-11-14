@@ -197,9 +197,11 @@ def test_disp_hv_driver_writes_xarray_outputs(tmp_path, assert_provenance):
         assert_provenance(dataset.attrs)
     with xr.open_dataset(result.posterior_vs) as dataset:
         assert_provenance(dataset.attrs)
+    log_text = result.log_file.read_text()
+    assert "seisforge_version: " in log_text and "seisforge_git_commit: " in log_text
     for name in ("resolved_config.yaml", "resolved_inv.yaml", "resolved_obs.yaml"):
         resolved = yaml.safe_load((output / name).read_text())
-        assert_provenance(resolved["Run"])
+        assert_provenance(resolved["run"])
 
 
 def test_disp_hv_driver_reads_split_inv_and_obs_configs(tmp_path):
