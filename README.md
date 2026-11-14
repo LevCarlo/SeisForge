@@ -1,9 +1,15 @@
 # SeisForge
 
 A Python toolkit for seismic processing and analysis, including:
-- Ambient Noise
-- Receiver Functions (QC, H-k stacking, synthetic P receiver functions)
-- Seafloor Compliance
+
+- Ambient noise: ZNE→ZRT CCF rotation, AFTAN group/phase dispersion
+  measurement, and Eikonal/Helmholtz surface-wave tomography.
+- Receiver functions: QC, sequential H-k stacking, and synthetic P receiver
+  functions for layered models.
+- HVSR: diffuse-field H/V forward modelling (native Python, optional f2py
+  Fortran extension).
+- Inversion: single-station Bayesian (MCMC) inversion of dispersion and H/V
+  for Vs(z).
 
 Released under the MIT License (see `LICENSE`).
 
@@ -22,6 +28,7 @@ native HVSR forward modelling need. Optional extras:
 - `hvsr-fortran`: build tools for the f2py HVSR extension
   (`python tools/build_hvsr_fortran.py`).
 - `gmt`: `pygmt`, for the GMT `surface` interpolator in Eikonal tomography.
+- `docs`: MkDocs and plugins, to build the documentation site.
 
 ## Development
 
@@ -31,7 +38,7 @@ python -m pytest -q
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same two commands on
-Python 3.10 and 3.12 for pushes to `main`/`modern` and for pull requests. The
+Python 3.10 and 3.12 for pushes to `dev` and `main` and for pull requests. The
 Fortran-extension and HVDFA regression tests are skipped unless the extension
 is built or `SEISFORGE_HVDFA_EXECUTABLE` is set.
 
@@ -47,6 +54,7 @@ seisforge rf hkseq -c examples/configs/hkseq.yml --mode both --plot
 seisforge ant rotate-ccf -c examples/configs/ccf_rotate.yml
 seisforge ant aftan -c examples/configs/aftan_station.yml
 seisforge ant eikonal -c examples/configs/eikonal.yml
+seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
 ```
 
 Legacy entry points are still available:
@@ -56,9 +64,12 @@ rfqc -c examples/configs/rf_qc.yml --plot
 hkseq -c examples/configs/hkseq.yml --mode both --plot
 ```
 
-## Examples And Docs
+## Examples
 
-Example YAML configs live in `examples/configs/`.
+Example YAML configs live in `examples/configs/`; `examples/AFTAN/` and
+`examples/STA001/` are small end-to-end examples. `scripts/personal/` holds the
+author's personal processing scripts kept as a backup; they are not examples
+and are not tested (see `scripts/personal/README.md`).
 
 ## Documentation
 
@@ -69,7 +80,7 @@ python -m pip install -e ".[docs]"
 mkdocs serve   # http://127.0.0.1:8000
 ```
 
-Pushes to `main` publish the site to GitHub Pages
+Pushes to `dev` publish the site to GitHub Pages
 (`.github/workflows/docs.yml`; enable Pages with **Source: GitHub Actions**).
 
 Single-station inversion:

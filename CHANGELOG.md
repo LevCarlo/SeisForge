@@ -4,7 +4,7 @@ Changes that matter for users, newest first. **Changed results** lists changes
 that alter numbers produced by an existing configuration; each names the
 switch that restores the old behaviour where one exists.
 
-## Unreleased (branch `modern`, version 0.2.0)
+## Unreleased (branch `dev`, version 0.2.0)
 
 ### Changed results
 

@@ -2,8 +2,8 @@
 #
 # Run one wide dispersion inversion per Slurm array task.
 # Submit from the parent of INV, or provide ROOT_DIR explicitly:
-#   sbatch scripts/run_disp_wide_array.sbatch
-#   sbatch --export=ALL,ROOT_DIR=/public2/home/user38/Guangxi.Data/INV.DATA/INV scripts/run_disp_wide_array.sbatch
+#   sbatch scripts/personal/run_disp_wide_array.sbatch
+#   sbatch --export=ALL,ROOT_DIR=/public2/home/user38/Guangxi.Data/INV.DATA/INV scripts/personal/run_disp_wide_array.sbatch
 #
 # The 232 station directories are bc000 through bc231. At most 16 tasks run
 # concurrently; each task receives six CPUs for its six concurrent chains.
