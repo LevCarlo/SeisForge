@@ -1,5 +1,9 @@
+from importlib import metadata
+
 import seisforge
 
 
-def test_package_has_version():
-    assert seisforge.__version__ == "0.2.0"
+def test_package_version_comes_from_distribution_metadata():
+    # pyproject.toml is the single source; __version__ reads the installed
+    # distribution metadata.
+    assert seisforge.__version__ == metadata.version("seisforge")

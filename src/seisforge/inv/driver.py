@@ -25,6 +25,7 @@ from seisforge.inv.io import (
 from seisforge.inv.predictive import extract_prediction_ensemble_from_result
 from seisforge.inv.prior import evaluate_prior_samples
 from seisforge.inv.setup import InversionSetup, build_inversion_setup
+from seisforge.provenance import software_provenance
 
 
 @dataclass(frozen=True)
@@ -388,6 +389,7 @@ def _run_attrs(
                 "hv_noise_parameter": hv.noise_parameter or "none",
             }
         )
+    attrs.update(software_provenance())
     return attrs
 
 

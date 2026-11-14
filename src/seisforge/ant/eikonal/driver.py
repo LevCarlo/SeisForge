@@ -9,6 +9,8 @@ from joblib import Parallel, delayed
 import numpy as np
 import xarray as xr
 
+from seisforge.provenance import software_provenance
+
 from .config import load_eikonal_config
 from .field import compute_event_field
 from .grid import build_geographic_grid
@@ -49,6 +51,7 @@ def build_event_fields(config: EikonalRunConfig) -> list[Path]:
     grid = build_geographic_grid(config.grid)
     source_names = np.unique(measurements["source_station"].values.astype(str))
     output_paths: list[Path] = []
+    _append_log(config, f"fields software: {_provenance_text()}")
     _append_log(
         config,
         f"fields start: periods={len(config.input.periods_s)}, "
@@ -88,6 +91,7 @@ def build_event_fields(config: EikonalRunConfig) -> list[Path]:
 
 def stack_eikonal_fields(config: EikonalRunConfig) -> Path:
     """Read period-scoped event fields and write one stacked Dataset."""
+    _append_log(config, f"stack software: {_provenance_text()}")
     period_datasets: list[xr.Dataset] = []
     for period_s in config.input.periods_s:
         path = _event_field_path(config, period_s)
@@ -128,6 +132,7 @@ def stack_eikonal_fields(config: EikonalRunConfig) -> Path:
             "input_dataset": str(config.input.dataset),
             "helmholtz_enabled": int(config.helmholtz.enabled),
             "config_yaml": config_yaml(config),
+            **software_provenance(),
         }
     )
     output_path = write_netcdf(
@@ -218,3 +223,7 @@ def _append_log(config: EikonalRunConfig, message: str) -> None:
         "a", encoding="utf-8"
     ) as stream:
         stream.write(f"[{timestamp}] {message}\n")
+
+
+def _provenance_text() -> str:
+    return ", ".join(f"{key}={value}" for key, value in software_provenance().items())

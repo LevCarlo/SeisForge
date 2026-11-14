@@ -70,5 +70,22 @@ input and grid conventions must match
   requested (`io.overwrite`, `--overwrite`).
 - Random-number seeds are configuration values (`Sampler.seed`) and are
   recorded with the run.
+- Every output records the software that made it, as string attributes from
+  `seisforge.provenance.software_provenance()`: `seisforge_version`,
+  `seisforge_git_commit`, `seisforge_git_dirty` (`true`/`false`; untracked
+  files ignored), `python_version`, and `numpy_version`, `scipy_version`,
+  `obspy_version`, `xarray_version`, `disba_version`, `numba_version`. The git
+  fields are `unknown` when SeisForge is not imported from its own git
+  checkout (for example a wheel install) or `git` is unavailable; a missing
+  dependency is `not installed`. They appear in NetCDF attrs (inversion
+  `*_mcmc.nc`, `*_vs.nc`, `*_predictive.nc`; AFTAN `*.basic_ftan.nc`,
+  `*.vph.nc` and their PMF variants; Eikonal event fields and `stack.nc`; the
+  per-RF H-k datasets in `*_Hk_results*.joblib`), in the `Run` section of the
+  inversion's `resolved_*.yaml`, as `# key: value` lines in AFTAN `.dat` and
+  H-k `*_Hk_QC.dat` headers, and in the logs (`aftan.log`, `eikonal.log`,
+  `rotate_ccf.log`, `*_hkSeq.log`, `*_RF_QC.log`). Rotated CCF SAC files carry
+  no provenance; their log does. `seisforge.__version__` is read from the
+  installed package metadata, so `pyproject.toml` holds the only copy of the
+  version number.
 - Behaviour kept only to reproduce old results is isolated and labelled as
   compatibility, for example `aftan.time_taper.mode: legacy_edge_fraction`.

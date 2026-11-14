@@ -8,6 +8,7 @@ from seisforge.rf.hk_core import (
     velocities_from_vpvs_ratio,
 )
 from seisforge.rf.traces import RFtrace
+from seisforge.provenance import software_provenance
 import numpy as np
 import xarray as xr
 from scipy.ndimage import gaussian_filter
@@ -91,8 +92,15 @@ def _estimate_hk_summary(hk_results, mask):
     return h_best, k_best, h_uncert, k_uncert
 
 
+def _with_provenance(hk_results, provenance):
+    """Copies of the per-RF H-k datasets with software provenance attrs."""
+    return [res.assign_attrs(provenance) for res in hk_results]
+
+
 def _write_qc_table(path, hk_results, mask):
     with open(path, "w", encoding="utf-8") as file:
+        for key, value in software_provenance().items():
+            file.write(f"# {key}: {value}\n")
         file.write("# filename H_best k_best Hk_energy\n")
         for res, keep in zip(hk_results, mask):
             if not keep:
@@ -735,6 +743,9 @@ def hkSeq(Params, mode="both", plot=False, overwrite=None):
 
 def _run_hkseq(Params, mode, plot, HighFreq_RF_dir, LowFreq_RF_dir, savedir, figdir, net, sta):
     logger.info(f"Starting H-k analysis for {net}.{sta}")
+    provenance = software_provenance()
+    for key, value in provenance.items():
+        logger.info(f"{key}: {value}")
 
     if mode in ["both", "high"]:
         # High Frequency RF analysis
@@ -771,6 +782,7 @@ def _run_hkseq(Params, mode, plot, HighFreq_RF_dir, LowFreq_RF_dir, savedir, fig
         HFreq_results = Parallel(n_jobs=-1)(
             delayed(hk_func)(rf) for rf in tqdm(HighFreq_RF_list)
         )
+        HFreq_results = _with_provenance(HFreq_results, provenance)
         HFreq_QC_params = Params['QC']['HighFreq']
         HFreq_QC = HkQController(HFreq_results, HFreq_QC_params)
 
@@ -890,6 +902,7 @@ def _run_hkseq(Params, mode, plot, HighFreq_RF_dir, LowFreq_RF_dir, savedir, fig
         LFreq_results = Parallel(n_jobs=-1)(
             delayed(hk_func)(rf) for rf in tqdm(LowFreq_RF_list)
         )
+        LFreq_results = _with_provenance(LFreq_results, provenance)
         LFreq_QC_params = Params['QC']['LowFreq']
         LFreq_QC = HkQController(LFreq_results, LFreq_QC_params)
         mask0, _ = LFreq_QC.hk_energy_select(return_mask_only=True)
