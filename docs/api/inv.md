@@ -57,6 +57,20 @@
         - evaluate_joint_likelihood
         - gaussian_observable_fit
 
+## Posterior target
+
+::: seisforge.inv.posterior
+    options:
+      members:
+        - JointInversionTarget
+        - JointPosteriorResult
+        - CountingTarget
+        - ForwardFailureCounter
+        - ForwardFailureReport
+        - ForwardFailureSummary
+        - forward_failure_summary
+        - FORWARD_FAILURE_WARNING_RATE
+
 ## Sampler
 
 ::: seisforge.inv.samplers
@@ -68,6 +82,7 @@
         - run_tempered_chain
         - geometric_temperatures
         - draw_valid_initial_thetas
+        - ChainLocalTarget
         - ChainResult
         - MCMCResult
 

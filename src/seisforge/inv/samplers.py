@@ -21,14 +21,30 @@ leaves the product of the tempered posteriors invariant, so the ``T = 1``
 replica, the only one stored, samples the posterior, while hot replicas cross
 between modes the cold one cannot leave. Without ``temperatures`` a chain
 draws exactly the random numbers it drew before tempering existed.
+
+Failure policy: a target signals an invalid point by returning ``-inf`` (or
+NaN, read as ``-inf``). Floating-point overflow raised during an evaluation
+(``FloatingPointError``, ``OverflowError``) also counts as ``-inf``; every
+other exception propagates and stops the run, so a programming error in a
+target is never mistaken for a rejected proposal.
+
+Per-chain evaluation reports: a target may provide ``chain_evaluator()``
+returning a fresh callable with a ``report()`` method (see
+`ChainLocalTarget`). Each chain then evaluates through its own evaluator, one
+per replica of a tempered ladder, and stores the reports in
+`ChainResult.target_reports`. The evaluators are created inside the worker, so
+no state is shared between threads and reports come back with the chain
+result from a worker process. The sampler does not read the reports and the
+evaluators must return the same values as the target itself, so random
+numbers and log probabilities are unchanged.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, replace
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -37,6 +53,28 @@ LogTarget = Callable[[np.ndarray], float]
 SplitLogTarget = Callable[[np.ndarray], tuple[float, float]]
 ProgressCallback = Callable[[int, int, float, float], None]
 ExecutorKind = Literal["serial", "process", "thread"]
+
+
+class ReportingEvaluator(Protocol):
+    """A log target that also reports what happened during its evaluations."""
+
+    def __call__(self, theta: np.ndarray) -> Any: ...
+
+    def report(self) -> Any: ...
+
+
+@runtime_checkable
+class ChainLocalTarget(Protocol):
+    """A log target that gives every chain (replica) its own evaluator.
+
+    ``chain_evaluator()`` must return a new `ReportingEvaluator` that returns
+    exactly what ``target(theta)`` returns. Calling the target directly (for
+    example to draw starting points) is not reported.
+    """
+
+    def __call__(self, theta: np.ndarray) -> Any: ...
+
+    def chain_evaluator(self) -> ReportingEvaluator: ...
 
 
 @dataclass(frozen=True)
@@ -106,6 +144,9 @@ class ChainResult:
     seed: int | None = None
     chain_id: int = 0
     swap_acceptance: np.ndarray | None = None  # per adjacent temperature pair
+    # ``report()`` of each chain-local evaluator, one per replica in ladder
+    # order (one for a plain chain); None unless the target is a ChainLocalTarget.
+    target_reports: tuple | None = None
 
     @property
     def n_steps(self) -> int:
@@ -209,7 +250,7 @@ def run_metropolis_chain(
 
 
 def run_tempered_chain(
-    split_target: SplitLogTarget,
+    split_target: SplitLogTarget | Sequence[SplitLogTarget],
     theta0,
     config: MetropolisConfig,
     *,
@@ -226,6 +267,10 @@ def run_tempered_chain(
     the step stays independent of the state, so detailed balance holds). All
     replicas start at ``theta0``. ``accepted`` and the acceptance rate refer to
     the cold replica; ``swap_acceptance`` lists the rate per adjacent pair.
+    ``split_target`` may also be a sequence with one callable per temperature
+    (all returning the same values): replica ``i`` then evaluates its
+    proposals with entry ``i``, and the starting point is evaluated with the
+    first.
     """
     if config.temperatures is None:
         raise ValueError("run_tempered_chain needs config.temperatures.")
@@ -234,8 +279,14 @@ def run_tempered_chain(
     bounds = None if config.bounds is None else _bounds(config.bounds, theta.size)
     rng = np.random.default_rng(seed)
     temperatures = np.asarray(config.temperatures)
+    if callable(split_target):
+        replica_targets = [split_target] * len(temperatures)
+    else:
+        replica_targets = list(split_target)
+        if len(replica_targets) != len(temperatures):
+            raise ValueError("Need one split target per temperature.")
 
-    current = _safe_split_target(split_target, theta)
+    current = _safe_split_target(replica_targets[0], theta)
     if not np.isfinite(current[0] + current[1]):
         raise ValueError("Initial theta has non-finite log probability.")
     states = [theta.copy() for _ in temperatures]
@@ -256,7 +307,7 @@ def run_tempered_chain(
             if bounds is not None and not _within_bounds(proposal, bounds):
                 proposed = (-np.inf, -np.inf)
             else:
-                proposed = _safe_split_target(split_target, proposal)
+                proposed = _safe_split_target(replica_targets[i], proposal)
             log_alpha = (proposed[0] - values[i][0]) + (proposed[1] - values[i][1]) / temperature
             if np.isfinite(log_alpha) and (log_alpha >= 0 or np.log(rng.random()) < log_alpha):
                 states[i], values[i] = proposal, proposed
@@ -387,7 +438,12 @@ def draw_valid_initial_thetas(
 def _run_chain_worker(args) -> ChainResult:
     log_target, theta0, config, seed, chain_id, progress_callback, progress_every = args
     runner = run_metropolis_chain if config.temperatures is None else run_tempered_chain
-    return runner(
+    evaluators = None
+    if isinstance(log_target, ChainLocalTarget):
+        n_replicas = 1 if config.temperatures is None else len(config.temperatures)
+        evaluators = [log_target.chain_evaluator() for _ in range(n_replicas)]
+        log_target = evaluators[0] if config.temperatures is None else evaluators
+    result = runner(
         log_target,
         theta0,
         config,
@@ -396,6 +452,9 @@ def _run_chain_worker(args) -> ChainResult:
         progress_callback=progress_callback,
         progress_every=progress_every,
     )
+    if evaluators is None:
+        return result
+    return replace(result, target_reports=tuple(e.report() for e in evaluators))
 
 
 def _propose(
@@ -429,7 +488,7 @@ def _accept(
 def _safe_log_target(log_target: LogTarget, theta: np.ndarray) -> float:
     try:
         value = float(log_target(theta))
-    except (FloatingPointError, OverflowError, ValueError):
+    except (FloatingPointError, OverflowError):
         return -np.inf
     if np.isnan(value):
         return -np.inf
@@ -440,7 +499,7 @@ def _safe_split_target(split_target: SplitLogTarget, theta: np.ndarray) -> tuple
     try:
         log_prior, log_likelihood = split_target(theta)
         log_prior, log_likelihood = float(log_prior), float(log_likelihood)
-    except (FloatingPointError, OverflowError, ValueError):
+    except (FloatingPointError, OverflowError):
         return -np.inf, -np.inf
     if not np.isfinite(log_prior):
         return -np.inf, -np.inf

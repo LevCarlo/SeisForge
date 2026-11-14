@@ -127,7 +127,15 @@ from seisforge.inv.transitions import (
     transition_weight,
 )
 from seisforge.inv.plotting import layer_stairs, model_property_stairs, plot_vs_layering
-from seisforge.inv.posterior import JointInversionTarget, JointPosteriorResult
+from seisforge.inv.posterior import (
+    CountingTarget,
+    ForwardFailureCounter,
+    ForwardFailureReport,
+    ForwardFailureSummary,
+    JointInversionTarget,
+    JointPosteriorResult,
+    forward_failure_summary,
+)
 from seisforge.inv.predictive import (
     JointPredictionEnsemble,
     ObservablePredictionEnsemble,
@@ -149,6 +157,7 @@ from seisforge.inv.soft_priors import (
     soft_priors_from_config,
 )
 from seisforge.inv.samplers import (
+    ChainLocalTarget,
     ChainResult,
     MCMCResult,
     MetropolisConfig,
@@ -193,7 +202,13 @@ __all__ = [
     "BoundaryNonDecreasingVsConstraint",
     "BSplineFit",
     "BSplineVs",
+    "ChainLocalTarget",
     "ChainResult",
+    "CountingTarget",
+    "ForwardFailureCounter",
+    "ForwardFailureReport",
+    "ForwardFailureSummary",
+    "forward_failure_summary",
     "ConstantVs",
     "ConstraintEvaluation",
     "ConstraintSuite",

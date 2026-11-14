@@ -3,6 +3,44 @@
 The public functions accept SeisForge model objects and hide disba-specific
 details. This keeps likelihoods and samplers independent from the forward
 solver implementation.
+
+Failure policy: a candidate model for which the solver cannot produce the
+requested values raises `ForwardError`; the likelihood turns it into ``-inf``.
+Any other exception (wrong input types, unsorted periods, a missing disba,
+programming errors) propagates, so it stops a run instead of silently
+rejecting every proposal.
+
+How disba 0.7 fails (read from its source and checked with probe models):
+
+- ``disba.DispersionError`` "failed to find root for fundamental mode" from
+  ``PhaseDispersion``/``GroupDispersion`` when the fundamental-mode root search
+  does not bracket a root. In 3000 random valid models (2-5 layers, Vs
+  0.1-4.5 km/s in any order, Vp/Vs 1.0001-3, periods 0.05-60 s) 467 raised
+  it and no other exception occurred; 454 of the 467 had a half-space slower
+  than an overlying layer, the rest a layer with Vp/Vs < 1.2. None of 500
+  models with Vs increasing downwards and Vp/Vs 1.5-2.2 failed
+  (``tools/probe_disba_failures.py``). Also raised for periods of 1e4-1e5 s
+  and for NaN velocities. Caught here.
+- ``ZeroDivisionError`` from the numba-compiled solvers when a denominator
+  vanishes; observed for a zero period (excluded by request validation).
+  Treated as numerical breakdown for that model and caught here.
+- Silent truncation, no exception: periods where a higher mode does not exist
+  are dropped from the result, group velocities of models with a strong
+  low-velocity layer can be cut short, and ``Ellipticity`` stops at the first
+  period whose eigenproblem fails (it catches ``DispersionError`` itself).
+  The likelihood detects the period mismatch and raises `ForwardError`.
+- Non-finite values without an exception (an infinite layer thickness gives
+  NaN ellipticity): `_check_finite` raises `ForwardError`.
+- ``ValueError`` "period axis must be sorted" (phase and group) and bare
+  ``TypeError``/``ValueError`` from disba's input checks (array lengths,
+  algorithm name, ``dc``/``dt`` not float): caller errors, not caught.
+- A layer with Vp < Vs made the phase-velocity search run for more than
+  90 s without returning; `LayeredModel` rejects such models before any
+  solver call.
+
+Strong low-velocity layers, thin layers (1e-6 km), Vp/Vs = 20, very short
+periods (1e-4 s) and a water layer (Vs = 0) solved without error in the
+probes.
 """
 
 from __future__ import annotations
@@ -19,6 +57,17 @@ ArrayLike = float | np.ndarray
 
 class ForwardError(RuntimeError):
     """Raised when a forward calculation fails for a candidate model."""
+
+
+def _solver_failures() -> tuple[type[Exception], ...]:
+    """Exceptions of the disba solvers that mean "no solution for this model".
+
+    See the module docstring; every other exception propagates. disba is
+    imported lazily, as everywhere in SeisForge, to keep imports fast.
+    """
+    from disba import DispersionError
+
+    return (DispersionError, ZeroDivisionError)
 
 
 def _as_periods(periods: ArrayLike, *, name: str = "periods") -> np.ndarray:
@@ -147,7 +196,7 @@ def predict_dispersion(
             solver = Dispersion(
                 *model.as_disba(),
                 algorithm=request.algorithm,
-                dc=request.dc,
+                dc=float(request.dc),  # disba requires a Python float
             )
         else:
             from disba import GroupDispersion as Dispersion
@@ -155,12 +204,12 @@ def predict_dispersion(
             solver = Dispersion(
                 *model.as_disba(),
                 algorithm=request.algorithm,
-                dc=request.dc,
-                dt=request.dt,
+                dc=float(request.dc),  # disba requires a Python float
+                dt=float(request.dt),
             )
 
         result = solver(request.periods, mode=request.mode, wave=request.wave)
-    except Exception as exc:
+    except _solver_failures() as exc:
         raise ForwardError(f"Dispersion prediction failed: {exc}") from exc
 
     return DispersionPrediction(
@@ -183,10 +232,10 @@ def predict_rayleigh_hv(
         solver = Ellipticity(
             *model.as_disba(),
             algorithm=request.algorithm,
-            dc=request.dc,
+            dc=float(request.dc),  # disba requires a Python float
         )
         result = solver(request.periods, mode=request.mode)
-    except Exception as exc:
+    except _solver_failures() as exc:
         raise ForwardError(f"Rayleigh HV prediction failed: {exc}") from exc
 
     return RayleighHVPrediction(

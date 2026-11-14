@@ -23,6 +23,7 @@ from seisforge.inv.model_config import (
     scaling_from_config,
 )
 from seisforge.inv.predictive import JointPredictionEnsemble, ObservablePredictionEnsemble
+from seisforge.inv.posterior import ForwardFailureSummary
 from seisforge.inv.prior import PriorSampleDiagnostics
 from seisforge.inv.samplers import MCMCResult
 
@@ -179,9 +180,16 @@ def mcmc_result_to_xarray(
     prior_diagnostics: PriorSampleDiagnostics | None = None,
     log_likelihood: np.ndarray | None = None,
     convergence: ConvergenceDiagnostics | None = None,
+    forward_failures: ForwardFailureSummary | None = None,
     attrs: dict | None = None,
 ) -> xr.Dataset:
-    """Convert MCMC samples and diagnostics to an xarray dataset."""
+    """Convert MCMC samples and diagnostics to an xarray dataset.
+
+    ``forward_failures`` adds per-chain ``forward_attempts``,
+    ``forward_failures`` and ``forward_failure_rate`` (and ``*_cold`` for the
+    ``T = 1`` replica when tempering); prior-only runs have no forward solver
+    and pass None, so these variables are absent.
+    """
 
     parameter_names = tuple(parameter_names)
     if result.samples.shape[-1] != len(parameter_names):
@@ -239,6 +247,8 @@ def mcmc_result_to_xarray(
         dataset["swap_acceptance"] = (("chain", "temperature_pair"), np.stack(swap))
         dataset.attrs["temperatures"] = ", ".join(f"{t:.6g}" for t in result.config.temperatures)
         dataset.attrs["swap_interval"] = int(result.config.swap_interval)
+    if forward_failures is not None:
+        _add_forward_failures(dataset, forward_failures)
     if convergence is not None:
         dataset["split_rhat"] = (("parameter",), convergence.rhat)
         dataset["effective_sample_size"] = (("parameter",), convergence.ess)
@@ -250,6 +260,42 @@ def mcmc_result_to_xarray(
             }
         )
     return dataset
+
+
+def _add_forward_failures(dataset: xr.Dataset, summary: ForwardFailureSummary) -> None:
+    scope = (
+        "summed over all temperature replicas of the chain"
+        if summary.n_replicas > 1
+        else "of the chain"
+    )
+    definition = (
+        "evaluations inside the hard prior support (forward solver run): "
+        "the starting point and every such proposal"
+    )
+    variables = {
+        "forward_attempts": (summary.attempts, f"Forward attempts {scope}: {definition}."),
+        "forward_failures": (
+            summary.failures,
+            f"Forward attempts {scope} whose forward solver failed (log likelihood -inf, proposal rejected).",
+        ),
+        "forward_failure_rate": (summary.failure_rate, "forward_failures / forward_attempts (0 without attempts)."),
+    }
+    if summary.n_replicas > 1:
+        variables |= {
+            "forward_attempts_cold": (summary.attempts_cold, f"Forward attempts of the T = 1 replica: {definition}."),
+            "forward_failures_cold": (summary.failures_cold, "Forward failures of the T = 1 replica."),
+            "forward_failure_rate_cold": (
+                summary.failure_rate_cold,
+                "forward_failures_cold / forward_attempts_cold (0 without attempts).",
+            ),
+        }
+    for name, (values, description) in variables.items():
+        dataset[name] = (("chain",), np.asarray(values))
+        dataset[name].attrs["description"] = description
+    common = summary.most_common_errors(2)
+    dataset.attrs["forward_failure_top_errors"] = "; ".join(
+        f"{message} (x{count})" for message, count in common
+    ) or "none"
 
 
 def _add_prior_diagnostics(

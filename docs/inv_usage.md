@@ -432,10 +432,10 @@ For `disp-hv` (other kinds use their own prefix):
 
 | file | content |
 |---|---|
-| `disp_hv_mcmc.nc` | `theta(chain, draw, parameter)`, `log_prob`, `log_prior`, `log_parameter_prior`, `log_physical_hard_prior`, `log_soft_prior`, `log_likelihood`, acceptance, initial and final theta; `vs_curvature_rms` with the curvature prior; convergence diagnostics `split_rhat(parameter)`, `effective_sample_size(parameter)`, and attrs `max_split_rhat`, `min_effective_sample_size`, `lagging_chains`; with tempering, `swap_acceptance(chain, temperature_pair)` and attr `temperatures` |
+| `disp_hv_mcmc.nc` | `theta(chain, draw, parameter)`, `log_prob`, `log_prior`, `log_parameter_prior`, `log_physical_hard_prior`, `log_soft_prior`, `log_likelihood`, acceptance, initial and final theta; `vs_curvature_rms` with the curvature prior; convergence diagnostics `split_rhat(parameter)`, `effective_sample_size(parameter)`, and attrs `max_split_rhat`, `min_effective_sample_size`, `lagging_chains`; with tempering, `swap_acceptance(chain, temperature_pair)` and attr `temperatures`; forward-solver failures `forward_attempts(chain)`, `forward_failures(chain)`, `forward_failure_rate(chain)` (with tempering also `*_cold`) and attr `forward_failure_top_errors` |
 | `disp_hv_vs.nc` | Vs(z) per sample and depth-wise `mean`, `std`, `minimum`, `maximum`, `p01`...`p99`, `median`, `best_vs` |
 | `disp_hv_predictive.nc` | predicted dispersion and H/V per sample, their percentiles, and the observed values and sigmas |
-| `disp_hv.log` | settings, acceptance rates, best theta, output paths |
+| `disp_hv.log` | settings, acceptance rates, forward failures, best theta, output paths |
 | `resolved_inv.yaml`, `resolved_obs.yaml` | input snapshots |
 | `resolved_config.yaml` | merged internal configuration without observation arrays |
 
@@ -457,6 +457,34 @@ They need at least two chains and four stored draws per chain.
   hundred.
 - A lagging chain is reported, never dropped. Rerun with more steps, more
   chains, or parallel tempering before trusting the posterior.
+
+### Forward-solver failures
+
+disba cannot solve every model inside the prior: its fundamental-mode root
+search fails mostly when the half-space is slower than a layer above it or a
+layer has Vp/Vs close to 1, and higher modes or H/V can stop short of the
+longest periods. Such a proposal gets a log likelihood of `-inf` and is
+rejected, which removes that part of the prior from the posterior. The
+posterior `*_mcmc.nc` therefore records, per chain:
+
+- `forward_attempts`: evaluations inside the hard prior support, i.e. forward
+  solver runs (the starting point and every proposal that passed the prior);
+- `forward_failures`: attempts whose forward solver failed;
+- `forward_failure_rate`: their ratio.
+
+With parallel tempering these count every replica of the chain; the
+`*_cold` variables count the `T = 1` replica alone, the one whose samples are
+stored. `attrs["forward_failure_top_errors"]` lists the two most frequent
+error messages. The log repeats the counts and warns when a chain's rate
+exceeds 1 % (an assumed threshold, `FORWARD_FAILURE_WARNING_RATE`), quoting
+those messages. A few failures are harmless; a high rate means the stored
+posterior is the prior truncated by the solver: tighten the constraints that
+allow such models (for example require Vs to increase into the half-space) or
+drop the periods or modes that fail. Prior-only runs call no solver and have
+no such variables, and posterior predictive files are not counted.
+
+Errors that are not solver failures (wrong input types, unsorted periods,
+programming errors) stop the run with the original exception.
 
 ## Tuning a configuration
 

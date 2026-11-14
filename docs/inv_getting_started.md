@@ -116,6 +116,10 @@ What to check:
   1.01 for final results) and `mcmc.effective_sample_size` at least a few
   hundred; `mcmc.attrs["lagging_chains"]` lists chains stuck in a lower mode.
   The log file repeats these and warns when they fail.
+- **Forward failures.** `mcmc.forward_failure_rate` is the fraction of
+  proposals inside the prior for which disba found no solution (rejected).
+  It should be near 0; the log warns above 1 % and names the most frequent
+  error. See [forward-solver failures](inv_usage.md#forward-solver-failures).
 
 !!! warning "The example run has not converged"
     With the example's 4 chains x 5000 steps, the shallow parameters are
