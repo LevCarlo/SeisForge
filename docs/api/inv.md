@@ -69,6 +69,10 @@
         - ChainResult
         - MCMCResult
 
+## Convergence diagnostics
+
+::: seisforge.inv.diagnostics
+
 ## Running an inversion
 
 ::: seisforge.inv.setup

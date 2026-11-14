@@ -31,6 +31,13 @@ from seisforge.inv.config import (
     observations_from_config,
     rayleigh_hv_observation_from_config,
 )
+from seisforge.inv.diagnostics import (
+    ConvergenceDiagnostics,
+    convergence_diagnostics,
+    effective_sample_size,
+    lagging_chains,
+    split_rhat,
+)
 from seisforge.inv.driver import InversionRunResult, run_inversion
 from seisforge.inv.ensemble import (
     VsEnsemble,
@@ -157,6 +164,11 @@ from seisforge.inv.setup import (
 )
 
 __all__ = [
+    "ConvergenceDiagnostics",
+    "convergence_diagnostics",
+    "effective_sample_size",
+    "lagging_chains",
+    "split_rhat",
     "ReceiverFunctionPrediction",
     "ReceiverFunctionRequest",
     "predict_receiver_function",

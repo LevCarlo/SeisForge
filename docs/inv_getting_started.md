@@ -112,8 +112,20 @@ What to check:
   predictive band, given their error bars. A systematic offset points to a
   model space that cannot fit the data (too narrow bounds, too strict
   constraints, too few B-spline coefficients) rather than to the sampler.
-- **Chains.** `mcmc.theta` has a `chain` dimension; compare chains, for
-  example `mcmc.theta.mean("draw")`, to see whether they agree.
+- **Convergence.** `mcmc.split_rhat` should be close to 1 (below 1.1, and
+  1.01 for final results) and `mcmc.effective_sample_size` at least a few
+  hundred; `mcmc.attrs["lagging_chains"]` lists chains stuck in a lower mode.
+  The log file repeats these and warns when they fail.
+
+!!! warning "The example run has not converged"
+    With the example's 4 chains x 5000 steps, the shallow parameters are
+    fine (sediment and `crust.c0`-`c1`: R-hat 1.02-1.03, ESS 130-320), but the
+    deeper B-spline coefficients mix far too slowly: `crust.c4`-`c6` have
+    R-hat 1.34-1.77 and an ESS of 4-9. The deeper part of the posterior band
+    in the figure is therefore not a result, only an illustration of the
+    workflow. No chain is lagging, so this is slow mixing within one mode,
+    not a stuck chain: longer chains (or larger, better-tuned steps for the
+    deep coefficients) are needed before reading the deep structure.
 
 ## 5. Next steps
 

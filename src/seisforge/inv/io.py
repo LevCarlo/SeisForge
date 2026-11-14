@@ -9,6 +9,7 @@ import numpy as np
 import xarray as xr
 import yaml
 
+from seisforge.inv.diagnostics import ConvergenceDiagnostics
 from seisforge.inv.ensemble import VsEnsemble
 from seisforge.inv.forward import DispersionRequest, RayleighHVRequest
 from seisforge.inv.model import (
@@ -177,6 +178,7 @@ def mcmc_result_to_xarray(
     parameter_names: Sequence[str],
     prior_diagnostics: PriorSampleDiagnostics | None = None,
     log_likelihood: np.ndarray | None = None,
+    convergence: ConvergenceDiagnostics | None = None,
     attrs: dict | None = None,
 ) -> xr.Dataset:
     """Convert MCMC samples and diagnostics to an xarray dataset."""
@@ -232,6 +234,16 @@ def mcmc_result_to_xarray(
         if log_likelihood.shape != result.log_prob.shape:
             raise ValueError("log_likelihood must match result.log_prob shape.")
         dataset["log_likelihood"] = (sample_dims, log_likelihood)
+    if convergence is not None:
+        dataset["split_rhat"] = (("parameter",), convergence.rhat)
+        dataset["effective_sample_size"] = (("parameter",), convergence.ess)
+        dataset.attrs.update(
+            {
+                "max_split_rhat": convergence.max_rhat,
+                "min_effective_sample_size": convergence.min_ess,
+                "lagging_chains": ", ".join(str(c) for c in convergence.lagging_chains),
+            }
+        )
     return dataset
 
 

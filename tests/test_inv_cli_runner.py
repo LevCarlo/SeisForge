@@ -186,6 +186,9 @@ def test_disp_hv_driver_writes_xarray_outputs(tmp_path):
         np.testing.assert_allclose(
             dataset["log_prob"], dataset["log_prior"] + dataset["log_likelihood"]
         )
+        assert dataset["split_rhat"].dims == ("parameter",)
+        assert dataset["effective_sample_size"].dims == ("parameter",)
+        assert "max_split_rhat" in dataset.attrs and "lagging_chains" in dataset.attrs
     with xr.open_dataset(result.posterior_predictive) as dataset:
         assert "dispersion_predicted_velocity" in dataset
         assert "hv_predicted_hv" in dataset

@@ -354,7 +354,7 @@ For `disp-hv` (other kinds use their own prefix):
 
 | file | content |
 |---|---|
-| `disp_hv_mcmc.nc` | `theta(chain, draw, parameter)`, `log_prob`, `log_prior`, `log_parameter_prior`, `log_physical_hard_prior`, `log_soft_prior`, `log_likelihood`, acceptance, initial and final theta; `vs_curvature_rms` with the curvature prior |
+| `disp_hv_mcmc.nc` | `theta(chain, draw, parameter)`, `log_prob`, `log_prior`, `log_parameter_prior`, `log_physical_hard_prior`, `log_soft_prior`, `log_likelihood`, acceptance, initial and final theta; `vs_curvature_rms` with the curvature prior; convergence diagnostics `split_rhat(parameter)`, `effective_sample_size(parameter)`, and attrs `max_split_rhat`, `min_effective_sample_size`, `lagging_chains` |
 | `disp_hv_vs.nc` | Vs(z) per sample and depth-wise `mean`, `std`, `minimum`, `maximum`, `p01`...`p99`, `median`, `best_vs` |
 | `disp_hv_predictive.nc` | predicted dispersion and H/V per sample, their percentiles, and the observed values and sigmas |
 | `disp_hv.log` | settings, acceptance rates, best theta, output paths |
@@ -363,6 +363,22 @@ For `disp-hv` (other kinds use their own prefix):
 
 Prior-only runs write `disp_hv_prior_mcmc.nc` and `disp_hv_prior_vs.nc` and no
 predictive file.
+
+### Convergence diagnostics
+
+Every run reports, per parameter, the split R-hat (Gelman et al. 2013) and the
+multi-chain effective sample size (Vehtari et al. 2021), and lists *lagging
+chains*: chains whose log posterior stays wholly below that of the best chain
+(their 95th percentile under its 5th), i.e. chains stuck in a lower mode.
+They need at least two chains and four stored draws per chain.
+
+- R-hat near 1 means the chains sample the same distribution. The log warns
+  above 1.1; use 1.01 for final results.
+- The ESS counts how many independent draws the correlated chains are worth.
+  The log warns below 100; percentiles of the Vs ensemble need several
+  hundred.
+- A lagging chain is reported, never dropped. Rerun with more steps, more
+  chains, or parallel tempering before trusting the posterior.
 
 ## Tuning a configuration
 

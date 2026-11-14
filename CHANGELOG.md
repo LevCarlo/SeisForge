@@ -33,6 +33,9 @@ switch that restores the old behaviour where one exists.
 
 ### Added
 
+- **MCMC convergence diagnostics** (`seisforge.inv.diagnostics`): split
+  R-hat, effective sample size, and lagging (stuck) chains, written to
+  `*_mcmc.nc` and the run log, with warnings for clearly unconverged runs.
 - **Inversion interfaces:** `Interface(depth_km, width_km, shape)` with
   sampled absolute depths and gradational (sigmoid or smootherstep)
   transitions; per-segment Vp/rho scaling; Gardner density; normal and

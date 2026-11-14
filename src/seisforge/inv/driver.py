@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from seisforge.inv.config import InversionInput, InversionKind, load_inversion_input
+from seisforge.inv.diagnostics import convergence_diagnostics
 from seisforge.inv.ensemble import extract_vs_ensemble_from_result
 from seisforge.inv.io import (
     dump_yaml,
@@ -133,10 +134,12 @@ def _write_prior_outputs(
     prefix = result.prefix
     mcmc_file = result.output_dir / f"{prefix}_prior_mcmc.nc"
     vs_file = result.output_dir / f"{prefix}_prior_vs.nc"
+    convergence = _convergence(prior_result, setup, logger, stage="prior")
     mcmc_result_to_xarray(
         prior_result,
         parameter_names=setup.parameterization.names,
         prior_diagnostics=evaluate_prior_samples(prior_result.samples, setup.prior),
+        convergence=convergence,
         attrs=attrs,
     ).to_netcdf(mcmc_file, engine="h5netcdf")
     vs = extract_vs_ensemble_from_result(
@@ -174,11 +177,13 @@ def _write_posterior_outputs(
     vs_file = result.output_dir / f"{prefix}_vs.nc"
     predictive_file = result.output_dir / f"{prefix}_predictive.nc"
     prior_diagnostics = evaluate_prior_samples(posterior_result.samples, setup.prior)
+    convergence = _convergence(posterior_result, setup, logger, stage="posterior")
     mcmc_result_to_xarray(
         posterior_result,
         parameter_names=setup.parameterization.names,
         prior_diagnostics=prior_diagnostics,
         log_likelihood=posterior_result.log_prob - prior_diagnostics.log_prior,
+        convergence=convergence,
         attrs=attrs,
     ).to_netcdf(mcmc_file, engine="h5netcdf")
     vs = extract_vs_ensemble_from_result(
@@ -210,6 +215,15 @@ def _write_posterior_outputs(
         prior_vs=result.prior_vs,
         log_file=result.log_file,
     )
+
+
+def _convergence(result, setup: InversionSetup, logger: logging.Logger, *, stage: str):
+    convergence = convergence_diagnostics(result.samples, result.log_prob)
+    logger.info("%s max split R-hat: %.4g", stage, convergence.max_rhat)
+    logger.info("%s min effective sample size: %.4g", stage, convergence.min_ess)
+    for message in convergence.warnings(setup.parameterization.names):
+        logger.warning("%s convergence: %s", stage, message)
+    return convergence
 
 
 def _prepare_output_dir(output: str | Path, *, overwrite: bool) -> Path:
