@@ -69,6 +69,7 @@ from seisforge.inv.forward import (
 )
 from seisforge.inv.io import (
     adaptation_attrs,
+    discretization_attrs,
     discretization_from_config,
     dispersion_request_from_config,
     dump_yaml,
@@ -199,6 +200,7 @@ from seisforge.inv.setup import (
 __all__ = [
     "AdaptationConfig",
     "adaptation_attrs",
+    "discretization_attrs",
     "adaptive_proposal_covariance",
     "adaptation_warnings",
     "recent_history_covariance",

@@ -175,7 +175,9 @@ Every forward solver sees only the `LayeredModel`, so the conversion
 1. A hard interface is always a layer boundary, at its exact depth, whatever
    `dz` is. No layer straddles a velocity jump.
 2. The part of each segment outside interface supports is split into layers by
-   `dz`, or by a fixed count per segment (`layers_per_segment`).
+   `dz`, or by a fixed count per segment (`layers_per_segment`). `dz` can
+   grow with depth (`dz_growth_ratio`, `dz_max`; see
+   [graded layering](inv_usage.md#graded-layering)).
 3. The support of each gradational interface gets `transition_layers` equal
    layers.
 4. Each layer takes Vs, Vp, and rho from the continuous model at its midpoint

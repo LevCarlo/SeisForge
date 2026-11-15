@@ -112,6 +112,7 @@
       members:
         - mcmc_result_to_xarray
         - adaptation_attrs
+        - discretization_attrs
 
 ::: seisforge.inv.diagnostics
 

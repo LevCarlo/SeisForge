@@ -237,6 +237,91 @@ discretization:
 | `layers_per_segment` | none | layers per segment: one integer, or a mapping from segment name to count. Recommended when interface depths are sampled |
 | `transition_layers` | 16 | equal layers across each gradational interface support (minimum 2) |
 | `layer_value` | `midpoint` | `midpoint` or `mean` (depth average) |
+| `dz_growth_ratio` | 1 | layer thickness growth with depth (see below); 1 is uniform `dz`, bit-for-bit as before |
+| `dz_max` | none | largest layer thickness in km for the graded layering; at least `dz` |
+
+#### Graded layering
+
+With `dz_growth_ratio` r > 1 the target thickness at depth z (km, from the
+surface) is
+
+    h(z) = min(dz_max, dz + (r - 1) z),
+
+so layers stacked from the surface are `dz`, `dz r`, `dz r^2`, ... until they
+reach `dz_max`. Each segment is split into the fewest layers that keep every
+layer at most `h` (equal steps of the stretched coordinate
+`integral dz / h`, formula in `seisforge.inv.layering`). Segment boundaries,
+interfaces, transition supports, `force_depths` and `zmax` are kept exactly as
+with uniform `dz`; transition supports still get `transition_layers` and
+segments with a `layers_per_segment` count are not graded.
+
+```yaml
+discretization:
+  dz: 0.0625          # first-layer thickness, km
+  dz_growth_ratio: 1.1
+  dz_max: 1.0
+  zmax: 15.0
+```
+
+Forward cost (dominated by disba's ellipticity) grows linearly with the number
+of layers, while the error of piecewise-constant layers is set by thickness
+where velocity changes fastest, which is usually near the surface. Graded
+layering spends layers there.
+
+#### Choosing a layering
+
+**Rule:** the change in predicted observables caused by the layering should be
+well below the data noise. As a working level take a maximum of **0.2 sigma**
+over the period range for models that the posterior can reach (assumed value,
+not from a source: 0.2 sigma on every datum shifts chi^2 by at most
+0.04 per datum).
+
+Check it with `layering_observable_error`, which compares the predicted phase
+velocity and ellipticity of the configured layering with a fine uniform
+reference layering (default `dz / 4`; give a smaller `reference_dz_km` to be
+sure the reference itself has converged):
+
+```python
+from seisforge.inv.config import load_inversion_input
+from seisforge.inv.layering import layering_observable_error
+from seisforge.inv.setup import build_inversion_setup
+
+inp = load_inversion_input(kind="disp_hv", inv_file="inv.yaml", obs_file="obs.yaml")
+setup = build_inversion_setup(inp.run_config)
+model = setup.parameterization.vector_to_model(setup.parameterization.theta0())
+error = layering_observable_error(
+    model,
+    setup.prior.discretization,
+    dispersion=setup.target.dispersion,
+    hv=setup.target.hv,
+    reference_dz_km=0.03125,
+)
+print(error.summary())   # max differences in data units and in sigma
+```
+
+Run it for a few representative models (for example prior draws from
+`seisforge.inv.samplers.draw_valid_initial_thetas`), not only the initial
+one. Every posterior run writes the same check for the initial model to the
+log and to the `discretization_*` attributes of the output files.
+
+STA001 example (truth model plus 15 prior draws, 14 periods 0.8-7 s,
+reference uniform 1/32 km; data noise 0.03 km/s and 0.02):
+
+| layering | layers | max abs d c (km/s) | max abs d H/V |
+|---|---|---|---|
+| uniform `dz: 0.25` (example setting) | 61 | 0.0056 (0.19 sigma) | 0.036 (1.8 sigma) |
+| uniform `dz: 0.125` | 121 | 0.0017 (0.06 sigma) | 0.0096 (0.48 sigma) |
+| `dz: 0.0625`, r 1.1, `dz_max: 1.0` | 35 | 0.0020 (0.07 sigma) | 0.0023 (0.12 sigma) |
+| `dz: 0.0625`, r 1.2, `dz_max: 1.0` | 27 | 0.0050 (0.17 sigma) | 0.0048 (0.24 sigma) |
+| `dz: 0.125`, r 1.2, `dz_max: 1.0` | 23 | 0.0078 (0.26 sigma) | 0.0095 (0.48 sigma) |
+| `dz: 0.0625`, r 1.5, `dz_max: 1.0` | 21 | 0.024 (0.80 sigma) | 0.019 (0.95 sigma) |
+
+The H/V error comes almost entirely from the 0-1 km sediment gradient and
+falls about fourfold per halving of the layer thickness there; a thin first
+layer matters more than the deep layers. The uniform 0.25 km of the example
+is above the 0.2 sigma level for H/V (the example data were computed with the
+same layering, so the example is self-consistent but not converged with
+respect to the continuous model).
 
 ### constraints
 

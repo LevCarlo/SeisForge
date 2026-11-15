@@ -115,6 +115,18 @@ switch that restores the old behaviour where one exists.
   copies; `clear_bspline_basis_cache` empties it). Results are bit-for-bit
   unchanged; the STA001 prior evaluation drops from about 1.0 to 0.4 ms.
 
+- **Graded layering** (`discretization.dz_growth_ratio`, `dz_max`): layer
+  thickness grows with depth, `h(z) = min(dz_max, dz + (r - 1) z)`, keeping
+  segment boundaries, transition supports and `force_depths`. The default
+  (`dz_growth_ratio: 1`) is the uniform `dz` layering, bit-for-bit. For
+  STA001, `dz: 0.0625, dz_growth_ratio: 1.1, dz_max: 1.0` uses 35 layers
+  instead of 61 with a smaller layering error (see `docs/inv_usage.md`).
+- **Layering error check** (`seisforge.inv.layering.layering_observable_error`):
+  difference in predicted phase velocity and ellipticity between the
+  configured layering and a fine uniform reference, in data units and in
+  sigma. Posterior runs write it for the initial model, with the layering
+  choice, to the log and to `discretization_*` output attributes.
+
 ### Changed
 
 - `disba` and `numba` are core dependencies.
