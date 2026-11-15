@@ -1,0 +1,17 @@
+# Synthetic Rayleigh H/V of the truth model (tools/make_example_full_chain.py);
+# Gaussian noise sigma 0.02, numpy default_rng(20261115) after the CCF noise.
+# period_s  rayleigh_hv  sigma
+0.80 0.7354 0.020
+1.20 0.8245 0.020
+1.60 0.9140 0.020
+2.00 0.9619 0.020
+2.50 0.9661 0.020
+3.00 0.9750 0.020
+3.50 0.9812 0.020
+4.00 0.9316 0.020
+4.50 0.9894 0.020
+5.00 0.9614 0.020
+5.50 0.9601 0.020
+6.00 0.9553 0.020
+7.00 0.9678 0.020
+8.00 0.9098 0.020
