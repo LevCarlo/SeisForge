@@ -17,6 +17,7 @@ from seisforge.inv.config import InversionInput, InversionKind, load_inversion_i
 from seisforge.inv.diagnostics import convergence_diagnostics
 from seisforge.inv.ensemble import extract_vs_ensemble_from_result
 from seisforge.inv.io import (
+    adaptation_attrs,
     dump_yaml,
     mcmc_result_to_xarray,
     prediction_ensemble_to_xarray,
@@ -151,6 +152,7 @@ def _write_prior_outputs(
     )
     vs_ensemble_to_xarray(vs, attrs=attrs).to_netcdf(vs_file, engine="h5netcdf")
     logger.info("prior acceptance rates: %s", prior_result.acceptance_rates)
+    _log_frozen_proposals(prior_result, setup, logger, stage="prior")
     logger.info("prior mean acceptance: %.6g", prior_result.mean_acceptance_rate)
     logger.info("wrote %s", mcmc_file)
     logger.info("wrote %s", vs_file)
@@ -203,6 +205,7 @@ def _write_posterior_outputs(
     prediction_ensemble_to_xarray(prediction, attrs=attrs).to_netcdf(predictive_file, engine="h5netcdf")
     best_theta = vs.best_theta
     logger.info("posterior acceptance rates: %s", posterior_result.acceptance_rates)
+    _log_frozen_proposals(posterior_result, setup, logger, stage="posterior")
     if posterior_result.config.temperatures is not None:
         swap = [chain.swap_acceptance for chain in posterior_result.chains]
         logger.info("tempering ladder: %s", posterior_result.config.temperatures)
@@ -232,6 +235,20 @@ def _convergence(result, setup: InversionSetup, logger: logging.Logger, *, stage
     for message in convergence.warnings(setup.parameterization.names):
         logger.warning("%s convergence: %s", stage, message)
     return convergence
+
+
+def _log_frozen_proposals(result, setup: InversionSetup, logger: logging.Logger, *, stage: str) -> None:
+    if result.config.adaptation is None:
+        return
+    names = setup.parameterization.names
+    for chain in result.chains:
+        sd = chain.proposal_sd
+        logger.info(
+            "%s chain %d frozen proposal sd: %s",
+            stage,
+            chain.chain_id,
+            ", ".join(f"{n}={v:.4g}" for n, v in zip(names, sd, strict=True)),
+        )
 
 
 def _log_forward_failures(result, logger: logging.Logger):
@@ -386,6 +403,16 @@ def _run_attrs(
             else ", ".join(f"{t:.6g}" for t in setup.sampler.config.temperatures)
         ),
     }
+    attrs.update(
+        {
+            f"sampler_{key}": value
+            for key, value in adaptation_attrs(
+                setup.sampler.config.adaptation,
+                burn_in=setup.sampler.config.burn_in,
+                n_parameters=len(setup.parameterization.names),
+            ).items()
+        }
+    )
     if setup.target is not None:
         attrs["dispersion_weight"] = float(setup.target.dispersion_weight)
         attrs["hv_weight"] = float(setup.target.hv_weight)
@@ -446,6 +473,12 @@ def _log_run_header(
         setup.sampler.config.thin,
         setup.sampler.executor,
     )
+    for key, value in adaptation_attrs(
+        setup.sampler.config.adaptation,
+        burn_in=setup.sampler.config.burn_in,
+        n_parameters=len(setup.parameterization.names),
+    ).items():
+        logger.info("sampler %s: %s", key, value)
 
 
 def _constraint_names(setup: InversionSetup) -> str:
