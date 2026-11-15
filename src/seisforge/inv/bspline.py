@@ -1,8 +1,27 @@
-"""B-spline basis utilities for 1-D Vs parameterizations."""
+"""B-spline basis utilities for 1-D Vs parameterizations.
+
+Basis cache
+-----------
+During sampling the same basis matrix is needed again and again: the depth
+samples (layer midpoints, constraint grids) and the knot vector stay fixed
+whenever interface depths are not sampled, and only the coefficients change.
+`evaluate_bspline` therefore reuses the basis matrix through a bounded
+least-recently-used cache (`BSPLINE_BASIS_CACHE_SIZE` entries) keyed on the
+exact bytes of the normalized depth samples and on every argument that defines
+the knots. A hit returns the very array a miss would have computed, so results
+are bit-for-bit identical with and without the cache.
+
+- Cached arrays are read-only; `bspline_basis` returns a writable copy, so no
+  caller can change a cached matrix.
+- `functools.lru_cache` is thread safe; with the process executor every
+  worker process holds its own cache.
+- `clear_bspline_basis_cache` empties it (for timing or memory tests).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 from scipy.interpolate import BSpline
@@ -10,6 +29,12 @@ from scipy.optimize import lsq_linear
 
 
 ArrayLike = float | np.ndarray
+
+# Entries kept by the basis cache. One entry per distinct (depth samples, knots)
+# combination; a STA001-like model uses about ten (layer midpoints, half-space
+# depth, constraint grids). Assumed value: large enough for several segments
+# and constraint grids, small enough (a few MB at most) to never matter.
+BSPLINE_BASIS_CACHE_SIZE = 256
 
 
 @dataclass(frozen=True)
@@ -75,29 +100,70 @@ def bspline_basis(
         ``basis`` has shape ``(len(z), n_coefficients)``. ``knots`` is the
         normalized open clamped knot vector used to build the basis.
     """
+    basis, knots = _basis_and_knots(
+        z,
+        n_coefficients=n_coefficients,
+        degree=degree,
+        domain=domain,
+        spacing=spacing,
+        alpha=alpha,
+    )
+    return basis.copy(), knots.copy()
+
+
+def clear_bspline_basis_cache() -> None:
+    """Empty the B-spline basis cache (see the module docstring)."""
+    _cached_basis.cache_clear()
+
+
+def _basis_and_knots(
+    z: ArrayLike,
+    *,
+    n_coefficients: int,
+    degree: int,
+    domain: tuple[float, float] | None,
+    spacing: str,
+    alpha: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Read-only cached basis and knots; validation runs on every call."""
     z = _as_1d_array(z, name="z")
     zmin, zmax = _domain_from_z(z, domain)
     x = (z - zmin) / (zmax - zmin)
     if np.any((x < -1e-12) | (x > 1.0 + 1e-12)):
         raise ValueError("z samples must fall inside domain.")
     x = np.clip(x, 0.0, 1.0)
-
+    if n_coefficients <= 0:
+        raise ValueError("n_coefficients must be positive.")
     degree = _effective_degree(n_coefficients, degree)
+    return _cached_basis(
+        x.tobytes(), int(n_coefficients), degree, str(spacing), float(alpha)
+    )
+
+
+@lru_cache(maxsize=BSPLINE_BASIS_CACHE_SIZE)
+def _cached_basis(
+    x_bytes: bytes,
+    n_coefficients: int,
+    degree: int,
+    spacing: str,
+    alpha: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    x = np.frombuffer(x_bytes, dtype=float)
     knots = bspline_knots(
         n_coefficients,
         degree=degree,
         spacing=spacing,
         alpha=alpha,
     )
-    basis = np.empty((len(z), n_coefficients), dtype=float)
-    for i in range(n_coefficients):
-        coefficients = np.zeros(n_coefficients, dtype=float)
-        coefficients[i] = 1.0
-        spline = BSpline(knots, coefficients, degree, extrapolate=False)
-        basis[:, i] = spline(x)
-
+    # One spline with identity coefficients evaluates every basis function at
+    # once; each column equals the single-coefficient spline exactly (sums of
+    # B_j(x) times 0 or 1), pinned against that construction in the tests.
+    spline = BSpline(knots, np.eye(n_coefficients), degree, extrapolate=False)
+    basis = np.ascontiguousarray(spline(x), dtype=float)
     if np.any(~np.isfinite(basis)):
         raise ValueError("B-spline basis evaluation produced non-finite values.")
+    basis.setflags(write=False)
+    knots.setflags(write=False)
     return basis, knots
 
 
@@ -112,7 +178,7 @@ def evaluate_bspline(
 ) -> np.ndarray:
     """Evaluate a B-spline profile from coefficients."""
     coefficients = _as_1d_array(coefficients, name="coefficients")
-    basis, _ = bspline_basis(
+    basis, _ = _basis_and_knots(
         z,
         n_coefficients=len(coefficients),
         degree=degree,

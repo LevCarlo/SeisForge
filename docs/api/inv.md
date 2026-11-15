@@ -15,6 +15,10 @@
         - DiscretizationConfig
         - LayeredModel
 
+## B-splines
+
+::: seisforge.inv.bspline
+
 ## Transitions
 
 ::: seisforge.inv.transitions

@@ -4,6 +4,7 @@ from seisforge.inv.bspline import (
     BSplineFit,
     bspline_basis,
     bspline_knots,
+    clear_bspline_basis_cache,
     evaluate_bspline,
     fit_bspline_coefficients,
 )
@@ -284,6 +285,7 @@ __all__ = [
     "VsSegment",
     "bspline_basis",
     "bspline_knots",
+    "clear_bspline_basis_cache",
     "build_inversion_setup",
     "config_with_observations",
     "INV_SECTION_RENAMES",

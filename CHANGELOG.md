@@ -109,6 +109,12 @@ switch that restores the old behaviour where one exists.
   post-burn-in acceptance rate of every chain with a note when it is below
   0.1 or above 0.6 (assumed).
 
+- **Cached B-spline basis** (`seisforge.inv.bspline`): the basis matrix for
+  a given set of depth samples and knots is computed once and reused from a
+  bounded LRU cache (256 entries, read-only arrays; `bspline_basis` returns
+  copies; `clear_bspline_basis_cache` empties it). Results are bit-for-bit
+  unchanged; the STA001 prior evaluation drops from about 1.0 to 0.4 ms.
+
 ### Changed
 
 - `disba` and `numba` are core dependencies.
