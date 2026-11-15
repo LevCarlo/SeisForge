@@ -16,13 +16,17 @@ from pathlib import Path
 from seisforge.inv.config import InversionInput, InversionKind, load_inversion_input
 from seisforge.inv.diagnostics import acceptance_notes, convergence_diagnostics
 from seisforge.inv.ensemble import extract_vs_ensemble_from_result
+from seisforge.inv.forward import ForwardError
 from seisforge.inv.io import (
     adaptation_attrs,
+    discretization_attrs,
     dump_yaml,
     mcmc_result_to_xarray,
     prediction_ensemble_to_xarray,
     vs_ensemble_to_xarray,
 )
+from seisforge.inv.layering import layering_observable_error
+from seisforge.inv.model import DiscretizationConfig
 from seisforge.inv.posterior import forward_failure_summary
 from seisforge.inv.predictive import extract_prediction_ensemble_from_result
 from seisforge.inv.prior import evaluate_prior_samples
@@ -85,7 +89,9 @@ def run_inversion(
         attrs=attrs,
     )
     _write_input_snapshots(output_dir, inversion_input=inversion_input, attrs=attrs)
-    _log_run_header(logger, inversion_input=inversion_input, setup=setup, output_dir=output_dir)
+    _log_run_header(
+        logger, inversion_input=inversion_input, setup=setup, output_dir=output_dir, attrs=attrs
+    )
 
     show_progress = _should_show_progress(progress)
     if show_progress and setup.sampler.executor == "process":
@@ -423,6 +429,7 @@ def _run_attrs(
             ).items()
         }
     )
+    attrs.update(_layering_attrs(setup))
     if setup.target is not None:
         attrs["dispersion_weight"] = float(setup.target.dispersion_weight)
         attrs["hv_weight"] = float(setup.target.hv_weight)
@@ -454,12 +461,38 @@ def _run_attrs(
     return attrs
 
 
+def _layering_attrs(setup: InversionSetup) -> dict:
+    """Layering choice and, with observations, its predicted-data error at theta0."""
+    config = setup.prior.discretization or DiscretizationConfig()
+    attrs = {f"discretization_{k}": v for k, v in discretization_attrs(config).items()}
+    try:
+        model = setup.parameterization.vector_to_model(setup.parameterization.theta0())
+        if setup.target is None:
+            attrs["discretization_n_layers_at_initial"] = int(
+                model.to_layered_model(config).n_layers
+            )
+            return attrs
+        error = layering_observable_error(
+            model, config, dispersion=setup.target.dispersion, hv=setup.target.hv
+        )
+    except (ForwardError, ValueError) as exc:
+        attrs["discretization_layering_error_at_initial"] = f"not computed: {exc}"
+        return attrs
+    attrs["discretization_n_layers_at_initial"] = error.n_layers
+    attrs["discretization_layering_error_at_initial"] = error.summary()
+    for label, item in (("dispersion", error.dispersion), ("hv", error.hv)):
+        if item is not None and item.sigma_ratio is not None:
+            attrs[f"discretization_{label}_layering_error_sigma_ratio"] = item.sigma_ratio
+    return attrs
+
+
 def _log_run_header(
     logger: logging.Logger,
     *,
     inversion_input: InversionInput,
     setup: InversionSetup,
     output_dir: Path,
+    attrs: dict,
 ) -> None:
     for name, value in software_provenance().items():
         logger.info("%s: %s", name, value)
@@ -495,6 +528,9 @@ def _log_run_header(
         n_parameters=len(setup.parameterization.names),
     ):
         logger.warning("sampler adaptation: %s", message)
+    for key, value in attrs.items():
+        if key.startswith("discretization_"):
+            logger.info("%s: %s", key.replace("_", " ", 1), value)
 
 
 def _constraint_names(setup: InversionSetup) -> str:

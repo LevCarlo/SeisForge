@@ -95,7 +95,20 @@ def discretization_from_config(config: dict | None) -> DiscretizationConfig:
         layers_per_segment=layers_per_segment,
         transition_layers=int(config.get("transition_layers", 16)),
         layer_value=str(config.get("layer_value", "midpoint")),
+        dz_growth_ratio=float(config.get("dz_growth_ratio", 1.0)),
+        dz_max=None if config.get("dz_max") is None else float(config["dz_max"]),
     )
+
+
+def discretization_attrs(discretization: DiscretizationConfig) -> dict:
+    """Layering choices as flat output attributes (units in the names)."""
+    return {
+        "dz_km": float(discretization.dz),
+        "dz_growth_ratio": float(discretization.dz_growth_ratio),
+        "dz_max_km": "none" if discretization.dz_max is None else float(discretization.dz_max),
+        "zmax_km": "none" if discretization.zmax is None else float(discretization.zmax),
+        "layering": "uniform" if discretization.dz_growth_ratio == 1.0 else "graded",
+    }
 
 
 def discretization_to_config(discretization: DiscretizationConfig) -> dict:
@@ -112,6 +125,10 @@ def discretization_to_config(discretization: DiscretizationConfig) -> dict:
         config["transition_layers"] = int(discretization.transition_layers)
     if discretization.layer_value != "midpoint":
         config["layer_value"] = discretization.layer_value
+    if discretization.dz_growth_ratio != 1.0:
+        config["dz_growth_ratio"] = float(discretization.dz_growth_ratio)
+    if discretization.dz_max is not None:
+        config["dz_max"] = float(discretization.dz_max)
     return config
 
 

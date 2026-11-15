@@ -4,6 +4,7 @@ from seisforge.inv.bspline import (
     BSplineFit,
     bspline_basis,
     bspline_knots,
+    clear_bspline_basis_cache,
     evaluate_bspline,
     fit_bspline_coefficients,
 )
@@ -68,6 +69,7 @@ from seisforge.inv.forward import (
 )
 from seisforge.inv.io import (
     adaptation_attrs,
+    discretization_attrs,
     discretization_from_config,
     dispersion_request_from_config,
     dump_yaml,
@@ -112,10 +114,16 @@ from seisforge.inv.model import (
 )
 from seisforge.inv.layering import (
     LayerGeometry,
+    LayeringObservableError,
     LayeringReport,
+    ObservableDifference,
+    graded_layer_boundaries,
     layer_geometry,
     layered_model_from_parameterized,
+    layering_observable_error,
     layering_report,
+    reference_discretization,
+    target_layer_thickness_km,
 )
 from seisforge.inv.model_config import (
     parameterized_model_from_config,
@@ -192,6 +200,7 @@ from seisforge.inv.setup import (
 __all__ = [
     "AdaptationConfig",
     "adaptation_attrs",
+    "discretization_attrs",
     "adaptive_proposal_covariance",
     "adaptation_warnings",
     "recent_history_covariance",
@@ -211,12 +220,18 @@ __all__ = [
     "HalfNormalPrior",
     "Interface",
     "LayerGeometry",
+    "LayeringObservableError",
     "LayeringReport",
     "NormalPrior",
+    "ObservableDifference",
     "TRANSITION_SHAPES",
     "layer_geometry",
     "layered_model_from_parameterized",
+    "graded_layer_boundaries",
+    "layering_observable_error",
     "layering_report",
+    "reference_discretization",
+    "target_layer_thickness_km",
     "parameterized_model_from_config",
     "parameterized_model_to_config",
     "prior_from_config",
@@ -284,6 +299,7 @@ __all__ = [
     "VsSegment",
     "bspline_basis",
     "bspline_knots",
+    "clear_bspline_basis_cache",
     "build_inversion_setup",
     "config_with_observations",
     "INV_SECTION_RENAMES",

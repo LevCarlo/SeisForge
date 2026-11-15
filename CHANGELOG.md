@@ -120,6 +120,24 @@ switch that restores the old behaviour where one exists.
   post-burn-in acceptance rate of every chain with a note when it is below
   0.1 or above 0.6 (assumed).
 
+- **Cached B-spline basis** (`seisforge.inv.bspline`): the basis matrix for
+  a given set of depth samples and knots is computed once and reused from a
+  bounded LRU cache (256 entries, read-only arrays; `bspline_basis` returns
+  copies; `clear_bspline_basis_cache` empties it). Results are bit-for-bit
+  unchanged; the STA001 prior evaluation drops from about 1.0 to 0.4 ms.
+
+- **Graded layering** (`discretization.dz_growth_ratio`, `dz_max`): layer
+  thickness grows with depth, `h(z) = min(dz_max, dz + (r - 1) z)`, keeping
+  segment boundaries, transition supports and `force_depths`. The default
+  (`dz_growth_ratio: 1`) is the uniform `dz` layering, bit-for-bit. For
+  STA001, `dz: 0.0625, dz_growth_ratio: 1.1, dz_max: 1.0` uses 35 layers
+  instead of 61 with a smaller layering error (see `docs/inv_usage.md`).
+- **Layering error check** (`seisforge.inv.layering.layering_observable_error`):
+  difference in predicted phase velocity and ellipticity between the
+  configured layering and a fine uniform reference, in data units and in
+  sigma. Posterior runs write it for the initial model, with the layering
+  choice, to the log and to `discretization_*` output attributes.
+
 ### Changed
 
 - `disba` and `numba` are core dependencies.

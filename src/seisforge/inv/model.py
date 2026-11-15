@@ -306,10 +306,20 @@ class DiscretizationConfig:
     # How a layer takes its value from the continuous model:
     # "midpoint" (value at layer centre) or "mean" (depth average).
     layer_value: str = "midpoint"
+    # Depth-dependent layering (see `seisforge.inv.layering`): target layer
+    # thickness h(z) = min(dz_max, dz + (dz_growth_ratio - 1) * z), z the
+    # absolute depth in km. 1 keeps the uniform dz layering bit-for-bit.
+    dz_growth_ratio: float = 1.0
+    # Largest target thickness in km for the graded layering; None: no cap.
+    dz_max: float | None = None
 
     def __post_init__(self):
         if self.dz <= 0:
             raise ValueError("Discretization dz must be positive.")
+        if not np.isfinite(self.dz_growth_ratio) or self.dz_growth_ratio < 1.0:
+            raise ValueError("dz_growth_ratio must be finite and at least 1.")
+        if self.dz_max is not None and not self.dz_max >= self.dz:
+            raise ValueError("dz_max must be at least dz when provided.")
         if self.zmax is not None and self.zmax <= 0:
             raise ValueError("zmax must be positive when provided.")
         if self.transition_layers < 2:
@@ -456,7 +466,8 @@ def layer_values_from_depth_profile(
 
     Pass `boundaries` for variable layer spacing, for example dense shallow
     layers and coarser deep layers. If omitted, `config.dz` builds a regular
-    grid from 0 to `config.zmax` or the deepest input depth.
+    grid from 0 to `config.zmax` or the deepest input depth (graded when
+    `config.dz_growth_ratio` > 1, see `seisforge.inv.layering`).
     """
     z, values = _validate_depth_profile(
         z,
@@ -467,7 +478,18 @@ def layer_values_from_depth_profile(
     config = config or DiscretizationConfig()
     zmax = z[-1] if config.zmax is None else min(config.zmax, z[-1])
 
-    if boundaries is None:
+    if boundaries is None and config.dz_growth_ratio != 1.0:
+        from seisforge.inv.layering import graded_layer_boundaries
+
+        boundaries = graded_layer_boundaries(
+            0.0,
+            float(zmax),
+            dz_km=config.dz,
+            growth_ratio=config.dz_growth_ratio,
+            max_thickness_km=config.dz_max,
+            force_depths=config.force_depths,
+        )
+    elif boundaries is None:
         boundaries = _segment_boundaries(
             0.0,
             float(zmax),
