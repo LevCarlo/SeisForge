@@ -1,0 +1,6 @@
+# Layered model for the H/V forward example (assumed values: one soft layer
+# over stiffer rock). One row per layer, top down; the last row is the
+# half-space (thickness 0). Fundamental resonance f0 = Vs1 / (4 H1) = 0.2 / (4 * 0.05) = 1 Hz.
+# thickness_km  vp_km_s  vs_km_s  density_g_cm3
+0.05  0.6  0.2  1.8
+0.00  2.0  1.0  2.2
