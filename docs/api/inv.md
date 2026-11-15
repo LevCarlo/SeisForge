@@ -90,6 +90,8 @@
         - update_running_moments
         - running_covariance
         - adaptive_proposal_covariance
+        - recent_history_covariance
+        - adaptation_warnings
         - run_metropolis
         - run_metropolis_chain
         - run_tempered_chain

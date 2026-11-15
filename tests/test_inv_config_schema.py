@@ -291,6 +291,7 @@ def test_resolved_yaml_files_are_read_back(tmp_path):
     inv["sampler"].update(
         n_steps=3, burn_in=0, thin=1, n_chains=1, initial_strategy="theta0", global_jump_interval=None
     )
+    inv["sampler"].pop("adaptation", None)  # needs a burn-in; a 3-step run has none
     inv_path = inputs / "inv.yaml"
     dump_yaml(inv, inv_path)
     output = tmp_path / "run"

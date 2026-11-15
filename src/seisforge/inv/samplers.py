@@ -44,6 +44,28 @@ one fixed symmetric Gaussian kernel, whose stationary distribution is the
 target whatever ``C`` is: adaptation only changes how fast the chain mixes,
 and no ergodicity argument for a continuously adapted chain is needed.
 
+Leaving the early history out (``adaptation.discard_early_history_fraction``,
+``f``, default 0 = the whole history as above). A chain started far from the
+high-probability region first drifts towards it; those transient states
+inflate ``Cov(x_0, ..., x_t)`` along the drift direction, so the learned
+steps come out too wide and post-burn-in acceptance too low (seen on the
+STA001 example: acceptance about 0.11). With ``0 <= f < 1`` the update after
+``n`` completed steps uses only the most recent states,
+
+    C_n = s_d * (Cov(x_k, ..., x_n) + eps * diag(sigma**2)),  k = floor(f * (n + 1)),
+
+i.e. the earliest fraction ``f`` of the ``n + 1`` states so far is left out
+and the window grows with the chain (``f = 0.5``: the most recent half, the
+"discard the first half" rule of thumb also used for burn-in itself, e.g.
+Gelman et al. 2013, Bayesian Data Analysis, Sec. 11.4). Every state still
+enters some window, so as burn-in lengthens the estimate converges to the
+target covariance as in Haario et al.; the frozen-after-burn-in argument
+above is unchanged. The covariance of the window is the two-pass sample
+covariance of the stored burn-in states (`recent_history_covariance`); with
+``f = 0`` the running moments are used exactly as before, so ``f = 0``
+reproduces earlier adaptive runs bit for bit. The window at the first update
+must hold more than ``d`` states (checked when a chain starts).
+
 ``eps`` is ``adaptation.regularization_fraction`` (default
 ``DEFAULT_REGULARIZATION_FRACTION = 1e-4``, assumed) times the starting
 variance of each parameter, not times the identity as in Haario et al.:
@@ -155,11 +177,16 @@ class AdaptationConfig:
     regularization_fraction
         ``eps``: fraction of the starting variance added to the empirical
         covariance of each parameter.
+    discard_early_history_fraction
+        ``f`` in ``[0, 1)``: the earliest fraction of the states so far left
+        out of each covariance estimate (module docstring). 0 (default) uses
+        the whole history, as before this option existed.
     """
 
     initial_diagonal_steps: int
     update_interval_steps: int
     regularization_fraction: float = DEFAULT_REGULARIZATION_FRACTION
+    discard_early_history_fraction: float = 0.0
 
     def __post_init__(self):
         if self.initial_diagonal_steps < 1:
@@ -168,6 +195,17 @@ class AdaptationConfig:
             raise ValueError("adaptation.update_interval_steps must be positive.")
         if not (np.isfinite(self.regularization_fraction) and self.regularization_fraction > 0):
             raise ValueError("adaptation.regularization_fraction must be positive and finite.")
+        f = self.discard_early_history_fraction
+        if not (np.isfinite(f) and 0.0 <= f < 1.0):
+            raise ValueError("adaptation.discard_early_history_fraction must be in [0, 1).")
+
+    def history_window_start(self, n_completed_steps: int) -> int:
+        """``k = floor(f * (n + 1))``: index of the first state ``x_k`` used after ``n`` steps."""
+        return int(np.floor(self.discard_early_history_fraction * (n_completed_steps + 1)))
+
+    def history_window_size(self, n_completed_steps: int) -> int:
+        """Number of states ``x_k, ..., x_n`` in the covariance window after ``n`` steps."""
+        return n_completed_steps + 1 - self.history_window_start(n_completed_steps)
 
     def update_steps(self, burn_in: int) -> tuple[int, ...]:
         """Completed step counts after which the proposal is recomputed.
@@ -300,6 +338,11 @@ class MCMCResult:
     @property
     def mean_acceptance_rate(self) -> float:
         return float(np.mean(self.acceptance_rates))
+
+    @property
+    def post_burn_in_acceptance_rates(self) -> np.ndarray:
+        """Acceptance rate of each chain over the steps after ``burn_in``."""
+        return self.accepted[:, self.config.burn_in :].mean(axis=1)
 
 
 def run_metropolis_chain(
@@ -614,6 +657,64 @@ def adaptive_proposal_covariance(
     return scale * (np.asarray(sample_covariance, dtype=float) + regularization_fraction * np.diag(reference_sigma**2))
 
 
+def recent_history_covariance(history: np.ndarray, discard_early_history_fraction: float) -> np.ndarray:
+    """Sample covariance of the most recent states ``x_k, ..., x_n`` of ``history``.
+
+    ``history`` holds the ``n + 1`` states ``x_0, ..., x_n`` (rows);
+    ``k = floor(f * (n + 1))`` with ``f = discard_early_history_fraction``.
+    Two-pass unbiased covariance (``numpy.cov``), symmetrized.
+    """
+    history = np.asarray(history, dtype=float)
+    f = float(discard_early_history_fraction)
+    if not 0.0 <= f < 1.0:
+        raise ValueError("discard_early_history_fraction must be in [0, 1).")
+    window = history[int(np.floor(f * len(history))) :]
+    if len(window) < 2:
+        raise ValueError("Need at least two points for a covariance.")
+    covariance = np.atleast_2d(np.cov(window.T))
+    return 0.5 * (covariance + covariance.T)
+
+
+# Assumed thresholds for `adaptation_warnings`: at least as many adapted
+# burn-in steps as diagonal ones, and at least ADAPTATION_STATES_PER_PARAMETER
+# states per parameter in the window of the last update. Chain states are
+# strongly autocorrelated (ESS often 1-10 % of the states), so 100 d states
+# give only some d to 10 d effectively independent ones for d (d + 1) / 2
+# covariance entries.
+ADAPTATION_MIN_ADAPTED_TO_DIAGONAL_RATIO = 1.0
+ADAPTATION_STATES_PER_PARAMETER = 100
+
+
+def adaptation_warnings(adaptation: AdaptationConfig | None, *, burn_in: int, n_parameters: int) -> list[str]:
+    """Warnings when ``burn_in`` is short for the adaptation it has to hold.
+
+    Thresholds are assumed (`ADAPTATION_MIN_ADAPTED_TO_DIAGONAL_RATIO`,
+    `ADAPTATION_STATES_PER_PARAMETER`); no warning means only that these
+    rough checks passed.
+    """
+    if adaptation is None:
+        return []
+    messages = []
+    t0 = adaptation.initial_diagonal_steps
+    adapted = burn_in - t0
+    if adapted < ADAPTATION_MIN_ADAPTED_TO_DIAGONAL_RATIO * t0:
+        messages.append(
+            f"burn_in ({burn_in}) leaves {adapted} adapted steps after initial_diagonal_steps ({t0}); "
+            "fewer than the diagonal steps (assumed threshold), so the frozen proposal rests on few "
+            "updates. Lengthen burn_in."
+        )
+    last = adaptation.update_steps(burn_in)[-1]
+    window = adaptation.history_window_size(last)
+    needed = ADAPTATION_STATES_PER_PARAMETER * n_parameters
+    if window < needed:
+        messages.append(
+            f"the last proposal update (after step {last}) uses {window} states for {n_parameters} "
+            f"parameters, fewer than {needed} ({ADAPTATION_STATES_PER_PARAMETER} per parameter, assumed "
+            "threshold); the frozen covariance may be noisy. Lengthen burn_in."
+        )
+    return messages
+
+
 class _ProposalAdapter:
     """Running moments and the current proposal of one chain (or replica)."""
 
@@ -623,6 +724,13 @@ class _ProposalAdapter:
                 f"adaptation.initial_diagonal_steps ({adaptation.initial_diagonal_steps}) must exceed "
                 f"the number of parameters ({theta0.size}) to estimate a covariance."
             )
+        first_window = adaptation.history_window_size(adaptation.initial_diagonal_steps)
+        if first_window <= theta0.size:
+            raise ValueError(
+                f"The first covariance window ({first_window} states after leaving out the earliest "
+                f"fraction {adaptation.discard_early_history_fraction}) must exceed the number of "
+                f"parameters ({theta0.size}); raise initial_diagonal_steps."
+            )
         self._settings = adaptation
         self._sigma = sigma
         self._updates = frozenset(adaptation.update_steps(burn_in))
@@ -630,6 +738,12 @@ class _ProposalAdapter:
         self._count, self._mean, self._scatter = update_running_moments(
             0, np.zeros(theta0.size), np.zeros((theta0.size, theta0.size)), theta0
         )
+        # The windowed estimate needs the states themselves; f = 0 keeps the
+        # running moments only, exactly as before the option existed.
+        self._history: np.ndarray | None = None
+        if adaptation.discard_early_history_fraction > 0:
+            self._history = np.empty((self._last_update + 1, theta0.size))
+            self._history[0] = theta0
         self._cholesky: np.ndarray | None = None
         self._covariance = np.diag(sigma**2)
 
@@ -642,12 +756,21 @@ class _ProposalAdapter:
         """Record the state after ``step`` (0-based); update the proposal on schedule."""
         if step >= self._last_update:  # frozen: nothing more to record
             return
-        self._count, self._mean, self._scatter = update_running_moments(
-            self._count, self._mean, self._scatter, theta
-        )
+        if self._history is None:
+            self._count, self._mean, self._scatter = update_running_moments(
+                self._count, self._mean, self._scatter, theta
+            )
+        else:
+            self._history[step + 1] = theta
         if step + 1 in self._updates:
+            if self._history is None:
+                sample_covariance = running_covariance(self._count, self._scatter)
+            else:
+                sample_covariance = recent_history_covariance(
+                    self._history[: step + 2], self._settings.discard_early_history_fraction
+                )
             self._covariance = adaptive_proposal_covariance(
-                running_covariance(self._count, self._scatter),
+                sample_covariance,
                 self._sigma,
                 self._settings.regularization_fraction,
             )

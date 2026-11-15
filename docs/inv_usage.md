@@ -389,7 +389,7 @@ sampler:
 | `use_parameter_bounds` | true | keep proposals inside the prior bounds |
 | `global_jump_interval` | none | every N steps propose uniformly over the bounds |
 | `tempering` | none | parallel tempering: `{}` for the default ladder, `{n_temperatures, max_temperature}`, or `{temperatures: [...]}`; plus `swap_interval` (below) |
-| `adaptation` | none (off) | adaptive proposal covariance during burn-in: `{initial_diagonal_steps, update_interval_steps}`, optional `regularization_fraction` (below) |
+| `adaptation` | none (off) | adaptive proposal covariance during burn-in: `{initial_diagonal_steps, update_interval_steps}`, optional `regularization_fraction` and `discard_early_history_fraction` (below) |
 
 **Executor.** `thread` is usually best on one machine: disba and the RF kernel
 release the GIL, so chains run in parallel (four threads ran disba about 3.6x
@@ -461,6 +461,7 @@ sampler:
     initial_diagonal_steps: 2000   # steps with proposal.sigma before the first update
     update_interval_steps: 200     # steps between updates
     # regularization_fraction: 1.0e-4
+    # discard_early_history_fraction: 0.5   # default 0: the whole history
 ```
 
 - For the first `initial_diagonal_steps` steps the chain uses the diagonal
@@ -481,6 +482,23 @@ sampler:
   and leave several updates after it: a covariance estimated from the
   transient start is too wide or wrongly tilted. Keep `proposal.sigma`
   sensible, because it still drives the start.
+- `discard_early_history_fraction` $f$ (default 0, the whole history) leaves
+  the earliest fraction of the states so far out of every update: after $n$
+  steps the covariance uses $x_k, \dots, x_n$ with
+  $k = \lfloor f\,(n+1) \rfloor$, so the window grows with the chain and
+  $f = 0.5$ uses the most recent half. This removes the drift from a distant
+  start, which otherwise makes the learned steps too wide and the
+  post-burn-in acceptance low. On a 4-parameter Gaussian started 30 standard
+  deviations away (`tests/test_inv_adaptive_proposal.py`), $f = 0.5$ brought
+  the frozen covariance within 6-43 % of the true one (whole history: off by
+  a factor of about 150), post-burn-in acceptance from 0.01-0.05 to
+  0.19-0.36, and ESS up 6-21 times. It needs a longer `burn_in`, because each
+  update rests on fewer states.
+- The log warns when `burn_in` looks short for the adaptation (assumed
+  thresholds): fewer adapted steps than `initial_diagonal_steps`, or fewer
+  than 100 states per parameter in the window of the last update. It also
+  prints the acceptance rate of each chain after burn-in, where the proposal
+  is fixed, with a note below 0.1 or above 0.6 (assumed).
 - Each chain adapts on its own history only, so chains stay independent and
   the executors give the same result. With tempering each temperature adapts
   its own covariance from the states it held, swaps included. Global jumps

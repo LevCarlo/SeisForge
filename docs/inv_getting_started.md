@@ -2,7 +2,9 @@
 
 This page runs the example in `examples/STA001` from start to finish: a
 Bayesian (MCMC) inversion of Rayleigh phase velocity and Rayleigh H/V for
-Vs(z) in the upper 15 km. It takes about two minutes on one core.
+Vs(z) in the upper 15 km. The data are synthetic, computed from a known
+model, so the result can be compared with the truth. The posterior run takes
+about 7 minutes on one core (400 s measured), the prior run about 30 s.
 
 The [model guide](model.md) explains the model space, and the
 [configuration reference](inv_usage.md) lists every key.
@@ -15,6 +17,7 @@ examples/STA001/
   inv.yaml        model, priors, constraints, likelihood, sampler
   vph_disp.dat    period_s  phase_velocity_km_s  sigma_km_s
   hv.dat          period_s  rayleigh_hv  sigma
+  true_model.dat  the layered truth model the data were computed from
 ```
 
 The two YAML files have separate jobs. `obs.yaml` is usually written once per
@@ -28,6 +31,28 @@ parameters:
 
 ```text
 sediment.vs_top, sediment.vs_bottom, crust.c0 ... crust.c7
+```
+
+**The data are synthetic.** `tools/make_sta001_synthetic.py` sets these ten
+parameters to a truth model, forwards it with the same discretization and
+disba settings as the inversion, and adds Gaussian noise (seed 20261115):
+
+| | truth (km/s) |
+|---|---|
+| sediment, 0-1 km | Vs 1.70 at the surface to 2.60 at 1 km, linear |
+| crust, 1-15 km (B-spline coefficients `c0`...`c7`) | 2.65, 2.85, 3.05, 3.20, 3.30, 3.45, 3.60, 3.70 |
+| Vp, density | from Vs by Brocher (2005) |
+
+Noise: standard deviation 0.03 km/s on the phase velocity (about 1 %) and
+0.02 on the H/V ratio, at 14 periods from 0.8 to 7 s; the files list these as
+the uncertainties. All values are assumed, not taken from a real station. The
+truth lies inside the prior, and it uses the inversion's own parameterization,
+so the model space can represent it exactly (an optimistic test: real Earth
+structure is never exactly a B-spline). To regenerate the data, from the
+repository root:
+
+```bash
+PYTHONPATH=src python tools/make_sta001_synthetic.py --overwrite
 ```
 
 ## 2. Sample the prior first
@@ -67,44 +92,38 @@ The output directory contains:
 
 ## 4. Look at the result
 
+From inside the copied station folder, draw the figure below (prior and posterior Vs
+bands with the truth, and the posterior predictive data):
+
+```bash
+python /path/to/SeisForge/tools/plot_sta001_result.py -o sta001_result.png
+```
+
+and read the diagnostics:
+
 ```python
-import matplotlib.pyplot as plt
 import xarray as xr
 
-prior = xr.open_dataset("run_prior/disp_hv_prior_vs.nc")
-post = xr.open_dataset("run_disp_hv/disp_hv_vs.nc")
-pred = xr.open_dataset("run_disp_hv/disp_hv_predictive.nc")
 mcmc = xr.open_dataset("run_disp_hv/disp_hv_mcmc.nc")
-print("acceptance per chain:", mcmc.acceptance_rate.values)
-
-fig, (ax_vs, ax_c, ax_hv) = plt.subplots(1, 3, figsize=(11, 4))
-for ds, color, label in ((prior, "0.6", "prior"), (post, "C3", "posterior")):
-    # Use ds["median"], not ds.median: the latter is the xarray method.
-    ax_vs.fill_betweenx(ds["depth"], ds["p05"], ds["p95"], color=color, alpha=0.3, lw=0,
-                        label=f"{label} 5-95%")
-    ax_vs.plot(ds["median"], ds["depth"], color=color, lw=1)
-ax_vs.set(xlabel="Vs (km/s)", ylabel="Depth (km)", ylim=(15, 0))
-ax_vs.legend(loc="lower left")
-
-for ax, name, obs, unit in ((ax_c, "dispersion", "observed_velocity", "phase velocity (km/s)"),
-                            (ax_hv, "hv", "observed_hv", "Rayleigh H/V")):
-    period = pred[f"{name}_period"]
-    ax.fill_between(period, pred[f"{name}_p05"], pred[f"{name}_p95"], color="C3", alpha=0.3, lw=0,
-                    label="posterior predictive 5-95%")
-    ax.errorbar(period, pred[f"{name}_{obs}"], pred[f"{name}_sigma"], fmt="k.", label="observed")
-    ax.set(xlabel="Period (s)", ylabel=unit)
-ax_c.legend(loc="lower right")
-fig.tight_layout()
-plt.show()
+burn_in = mcmc.attrs["sampler_burn_in"]
+print("acceptance after burn-in:", mcmc["accepted"].isel(step=slice(burn_in, None)).mean("step").values)
+print("split R-hat:", mcmc.split_rhat.values.round(3))
+print("ESS:", mcmc.effective_sample_size.values.round())
 ```
 
 ![STA001 prior and posterior Vs ensembles and posterior predictive data](img/sta001_result.png)
 
 What to check:
 
-- **Acceptance** (about 0.17 here). Roughly 0.15-0.4 is healthy for random-walk
-  Metropolis. Much lower means `proposal.sigma` is too large; much higher
-  means it is too small and the chains move slowly.
+- **Acceptance** after burn-in (0.18-0.20 per chain here; the log prints it
+  as `post-burn-in acceptance rates`). Roughly 0.15-0.4 is healthy for
+  random-walk Metropolis. Much lower means the steps are too large; much
+  higher means they are too small and the chains move slowly. The log adds a
+  note below 0.1 or above 0.6.
+- **Truth.** The truth (black) lies inside the posterior 5-95 % band at every
+  depth of the output grid. The band is about a tenth of the prior width at
+  the surface and a third at 2-8 km, and widens below 10 km (two thirds of the
+  prior width at 14 km), where the 7 s maximum period loses sensitivity.
 - **Posterior vs prior.** Where the posterior band is as wide as the prior
   band, the data do not constrain that depth range. Compare the bottom of the
   model with the period range of the data before interpreting it.
@@ -115,21 +134,28 @@ What to check:
 - **Convergence.** `mcmc.split_rhat` should be close to 1 (below 1.1, and
   1.01 for final results) and `mcmc.effective_sample_size` at least a few
   hundred; `mcmc.attrs["lagging_chains"]` lists chains stuck in a lower mode.
-  The log file repeats these and warns when they fail.
+  The log file repeats these and warns when they fail. In this run split
+  R-hat is 1.001-1.006 and the ESS 673-959 for all ten parameters (3200
+  stored draws), with no lagging chain. The prior run reaches R-hat <= 1.012
+  and ESS >= 397.
 - **Forward failures.** `mcmc.forward_failure_rate` is the fraction of
   proposals inside the prior for which disba found no solution (rejected).
   It should be near 0; the log warns above 1 % and names the most frequent
   error. See [forward-solver failures](inv_usage.md#forward-solver-failures).
 
-!!! warning "The example run has not converged"
-    With the example's 4 chains x 5000 steps, the shallow parameters are
-    fine (sediment and `crust.c0`-`c1`: R-hat 1.02-1.03, ESS 130-320), but the
-    deeper B-spline coefficients mix far too slowly: `crust.c4`-`c6` have
-    R-hat 1.34-1.77 and an ESS of 4-9. The deeper part of the posterior band
-    in the figure is therefore not a result, only an illustration of the
-    workflow. No chain is lagging, so this is slow mixing within one mode,
-    not a stuck chain: longer chains (or larger, better-tuned steps for the
-    deep coefficients) are needed before reading the deep structure.
+**How the example converges.** Neighbouring B-spline coefficients trade off
+against each other, so `inv.yaml` turns on adaptive proposals
+(`sampler.adaptation`, see [the sampler reference](inv_usage.md#sampler)):
+4 chains x 16000 steps, the first 5000 burn-in; 1500 steps with the diagonal
+`proposal.sigma`, then a covariance update every 250 steps from the most
+recent half of the chain so far (`discard_early_history_fraction: 0.5`).
+With the whole history (`discard_early_history_fraction: 0`) the steps
+learned from the drift away from the random starting points were wider and
+the run mixed worse: on 4 x 20000 steps (burn-in 8000, updates every 200
+steps after 2000), ESS 447-803 against 800-969 and
+post-burn-in acceptance 0.10-0.15 against 0.17-0.20. The earlier fixed-step
+settings (4 x 5000 steps, no adaptation) did not converge on the previous
+example data (R-hat up to 1.77).
 
 ## 5. Next steps
 

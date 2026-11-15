@@ -19,7 +19,13 @@
   reported, never dropped: deciding that a mode carries no posterior mass
   needs tempering or many more chains.
 
-Adapted from ComplyBay (same author, MIT).
+- Acceptance notes (`acceptance_notes`): random-walk Metropolis mixes best
+  at an acceptance of about 0.23 in many dimensions and 0.44 in one
+  (Roberts, Gelman & Gilks 1997, Ann. Appl. Probab. 7, 110-120); rates far
+  outside, below `LOW_ACCEPTANCE_NOTE` or above `HIGH_ACCEPTANCE_NOTE`
+  (assumed), mean steps far too wide or too narrow.
+
+Adapted from ComplyBay (same author, MIT); acceptance notes are new.
 """
 
 from __future__ import annotations
@@ -33,6 +39,32 @@ import numpy as np
 # results). The looser values flag runs that are clearly not converged.
 RHAT_WARNING = 1.1
 ESS_WARNING = 100.0
+# Assumed bounds for acceptance notes, well outside the 0.15-0.5 range in
+# which random-walk efficiency stays near its optimum (Roberts et al. 1997).
+LOW_ACCEPTANCE_NOTE = 0.1
+HIGH_ACCEPTANCE_NOTE = 0.6
+
+
+def acceptance_notes(acceptance_rates) -> list[str]:
+    """Notes for chains whose acceptance rate is very low or very high.
+
+    Pass rates over the stored (post-burn-in) steps, where the proposal is
+    fixed. Thresholds: `LOW_ACCEPTANCE_NOTE`, `HIGH_ACCEPTANCE_NOTE` (assumed).
+    """
+    notes = []
+    for chain, rate in enumerate(np.asarray(acceptance_rates, dtype=float)):
+        if rate < LOW_ACCEPTANCE_NOTE:
+            notes.append(
+                f"chain {chain} accepts {rate:.3f} of post-burn-in steps (< {LOW_ACCEPTANCE_NOTE}): "
+                "steps are too wide; with adaptation, the burn-in history may include the transient "
+                "start (try sampler.adaptation.discard_early_history_fraction or a longer burn_in)."
+            )
+        elif rate > HIGH_ACCEPTANCE_NOTE:
+            notes.append(
+                f"chain {chain} accepts {rate:.3f} of post-burn-in steps (> {HIGH_ACCEPTANCE_NOTE}): "
+                "steps are too narrow and the chain moves slowly."
+            )
+    return notes
 
 
 @dataclass(frozen=True)

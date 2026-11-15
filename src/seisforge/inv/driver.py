@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from seisforge.inv.config import InversionInput, InversionKind, load_inversion_input
-from seisforge.inv.diagnostics import convergence_diagnostics
+from seisforge.inv.diagnostics import acceptance_notes, convergence_diagnostics
 from seisforge.inv.ensemble import extract_vs_ensemble_from_result
 from seisforge.inv.io import (
     adaptation_attrs,
@@ -26,6 +26,7 @@ from seisforge.inv.io import (
 from seisforge.inv.posterior import forward_failure_summary
 from seisforge.inv.predictive import extract_prediction_ensemble_from_result
 from seisforge.inv.prior import evaluate_prior_samples
+from seisforge.inv.samplers import adaptation_warnings
 from seisforge.inv.setup import InversionSetup, build_inversion_setup
 from seisforge.provenance import software_provenance
 
@@ -154,6 +155,7 @@ def _write_prior_outputs(
     logger.info("prior acceptance rates: %s", prior_result.acceptance_rates)
     _log_frozen_proposals(prior_result, setup, logger, stage="prior")
     logger.info("prior mean acceptance: %.6g", prior_result.mean_acceptance_rate)
+    _log_post_burn_in_acceptance(prior_result, logger, stage="prior")
     logger.info("wrote %s", mcmc_file)
     logger.info("wrote %s", vs_file)
     return InversionRunResult(
@@ -211,6 +213,7 @@ def _write_posterior_outputs(
         logger.info("tempering ladder: %s", posterior_result.config.temperatures)
         logger.info("swap acceptance per adjacent pair, per chain: %s", swap)
     logger.info("posterior mean acceptance: %.6g", posterior_result.mean_acceptance_rate)
+    _log_post_burn_in_acceptance(posterior_result, logger, stage="posterior")
     if best_theta is not None:
         logger.info("best theta: %s", best_theta)
     logger.info("wrote %s", mcmc_file)
@@ -235,6 +238,13 @@ def _convergence(result, setup: InversionSetup, logger: logging.Logger, *, stage
     for message in convergence.warnings(setup.parameterization.names):
         logger.warning("%s convergence: %s", stage, message)
     return convergence
+
+
+def _log_post_burn_in_acceptance(result, logger: logging.Logger, *, stage: str) -> None:
+    rates = result.post_burn_in_acceptance_rates
+    logger.info("%s post-burn-in acceptance rates: %s", stage, ", ".join(f"{r:.4g}" for r in rates))
+    for note in acceptance_notes(rates):
+        logger.info("%s note: %s", stage, note)
 
 
 def _log_frozen_proposals(result, setup: InversionSetup, logger: logging.Logger, *, stage: str) -> None:
@@ -479,6 +489,12 @@ def _log_run_header(
         n_parameters=len(setup.parameterization.names),
     ).items():
         logger.info("sampler %s: %s", key, value)
+    for message in adaptation_warnings(
+        setup.sampler.config.adaptation,
+        burn_in=setup.sampler.config.burn_in,
+        n_parameters=len(setup.parameterization.names),
+    ):
+        logger.warning("sampler adaptation: %s", message)
 
 
 def _constraint_names(setup: InversionSetup) -> str:
