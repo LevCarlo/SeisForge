@@ -40,6 +40,7 @@ from seisforge.inv.config import (
 )
 from seisforge.inv.diagnostics import (
     ConvergenceDiagnostics,
+    acceptance_notes,
     convergence_diagnostics,
     effective_sample_size,
     lagging_chains,
@@ -170,12 +171,14 @@ from seisforge.inv.samplers import (
     ChainResult,
     MCMCResult,
     MetropolisConfig,
+    adaptation_warnings,
     adaptive_proposal_covariance,
     draw_valid_initial_thetas,
     geometric_temperatures,
     run_metropolis,
     run_metropolis_chain,
     run_tempered_chain,
+    recent_history_covariance,
     running_covariance,
     update_running_moments,
 )
@@ -190,6 +193,9 @@ __all__ = [
     "AdaptationConfig",
     "adaptation_attrs",
     "adaptive_proposal_covariance",
+    "adaptation_warnings",
+    "recent_history_covariance",
+    "acceptance_notes",
     "running_covariance",
     "update_running_moments",
     "geometric_temperatures",

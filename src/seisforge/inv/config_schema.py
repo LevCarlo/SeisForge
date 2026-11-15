@@ -132,7 +132,14 @@ SAMPLER_KEYS = frozenset(
     }
 )
 # sampler.adaptation: adaptive Metropolis during burn-in (see inv/samplers.py).
-ADAPTATION_KEYS = frozenset({"initial_diagonal_steps", "update_interval_steps", "regularization_fraction"})
+ADAPTATION_KEYS = frozenset(
+    {
+        "initial_diagonal_steps",
+        "update_interval_steps",
+        "regularization_fraction",
+        "discard_early_history_fraction",
+    }
+)
 TEMPERING_KEYS = frozenset({"temperatures", "n_temperatures", "max_temperature", "swap_interval"})
 
 # Observations: ``hv`` and ``rayleigh_hv`` are aliases. An observation entry

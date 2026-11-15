@@ -349,3 +349,33 @@ def test_inv_cli_help_runs(capsys):
 
     assert exc_info.value.code == 0
     assert "disp-hv" in capsys.readouterr().out
+
+
+def test_driver_records_discarded_history_and_acceptance(tmp_path):
+    config = _config()
+    inv_config = dict(config)
+    inv_config.pop("observations", None)
+    inv_config["sampler"] = dict(
+        config["sampler"],
+        n_steps=14,
+        burn_in=10,
+        n_chains=2,
+        adaptation={"initial_diagonal_steps": 6, "update_interval_steps": 2, "discard_early_history_fraction": 0.5},
+    )
+    inv_file = tmp_path / "inv.yaml"
+    obs_file = tmp_path / "obs.yaml"
+    dump_yaml(inv_config, inv_file)
+    dump_yaml(_obs_config(), obs_file)
+    _write_observations(tmp_path, config)
+    result = run_inversion(
+        kind="disp_hv", inv_file=inv_file, obs_file=obs_file, output=tmp_path / "recent", progress=False
+    )
+    with xr.open_dataset(result.posterior_mcmc) as dataset:
+        assert dataset.attrs["adaptation_discard_early_history_fraction"] == 0.5
+        assert dataset.attrs["sampler_adaptation_discard_early_history_fraction"] == 0.5
+    log = result.log_file.read_text()
+    assert "sampler adaptation_discard_early_history_fraction: 0.5" in log
+    # A 10-step burn-in for 3 parameters is far too short: both warnings.
+    assert "sampler adaptation: burn_in (10) leaves 4 adapted steps" in log
+    assert "fewer than 300 (100 per parameter" in log
+    assert "posterior post-burn-in acceptance rates: " in log

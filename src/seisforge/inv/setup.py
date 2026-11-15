@@ -262,7 +262,8 @@ def _adaptation_from_config(config: dict | None) -> AdaptationConfig | None:
     """``sampler.adaptation``: adaptive Metropolis during burn-in; absent or null is off.
 
     ``{initial_diagonal_steps: 1000, update_interval_steps: 100}`` plus an
-    optional ``regularization_fraction``; both step counts are required, since
+    optional ``regularization_fraction`` and ``discard_early_history_fraction``
+    (default 0, the whole history); both step counts are required, since
     they must fit inside ``burn_in``.
     """
     if config is None:
@@ -278,6 +279,8 @@ def _adaptation_from_config(config: dict | None) -> AdaptationConfig | None:
     }
     if config.get("regularization_fraction") is not None:
         kwargs["regularization_fraction"] = float(config["regularization_fraction"])
+    if config.get("discard_early_history_fraction") is not None:
+        kwargs["discard_early_history_fraction"] = float(config["discard_early_history_fraction"])
     return AdaptationConfig(**kwargs)
 
 

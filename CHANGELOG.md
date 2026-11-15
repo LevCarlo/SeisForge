@@ -86,6 +86,18 @@ switch that restores the old behaviour where one exists.
   (`proposal_covariance`, with tempering also `proposal_covariance_tempered`)
   and the settings to its attrs and the log. Off by default; without it
   chains are bit-for-bit those of earlier versions.
+- **Leaving the early burn-in history out of the adaptive proposal**
+  (`sampler.adaptation.discard_early_history_fraction`, default 0): each
+  covariance update uses only the most recent `1 - f` of the states so far,
+  so the drift from a distant start no longer widens the learned steps. On a
+  Gaussian started 30 sd away, `f = 0.5` gave a frozen covariance within
+  6-43 % of the true one instead of about 150 times too large and 6-21 times
+  the ESS. Recorded in `*_mcmc.nc` attrs and the log. The default keeps
+  earlier adaptive runs bit for bit.
+- **Burn-in and acceptance checks in the run log:** warnings when `burn_in`
+  is short for `sampler.adaptation` (assumed thresholds), and the
+  post-burn-in acceptance rate of every chain with a note when it is below
+  0.1 or above 0.6 (assumed).
 
 ### Changed
 

@@ -3,7 +3,9 @@
 Independent checks: the running moments against ``numpy.cov``; sample mean
 and covariance against the analytic moments of Gaussian targets; ESS against
 the best fixed isotropic step; the frozen covariance against a run that stops
-right after burn-in. The bit-for-bit check with adaptation off is in
+right after burn-in; with the early history left out, the frozen covariance
+against the analytic one and ESS against the whole-history run on a far
+start. The bit-for-bit check with adaptation off is in
 `test_inv_sampler_baseline.py`.
 """
 
@@ -12,13 +14,15 @@ import math
 import numpy as np
 import pytest
 
-from seisforge.inv.diagnostics import effective_sample_size
+from seisforge.inv.diagnostics import acceptance_notes, effective_sample_size
 from seisforge.inv.samplers import (
     OPTIMAL_RW_SCALE,
     AdaptationConfig,
     MetropolisConfig,
     _ProposalAdapter,
+    adaptation_warnings,
     adaptive_proposal_covariance,
+    recent_history_covariance,
     run_metropolis,
     running_covariance,
     update_running_moments,
@@ -336,3 +340,145 @@ def test_adaptive_chain_matches_fixed_chain_before_first_update():
     # Steps 0-299 use the diagonal proposal; the first update follows step 299.
     np.testing.assert_array_equal(fixed.accepted[0, :300], adaptive.accepted[0, :300])
     assert fixed.accepted[0, :300].sum() > 50
+
+
+# --- leaving the early history out (discard_early_history_fraction) -------
+
+
+def test_recent_history_covariance_uses_the_most_recent_states():
+    rng = np.random.default_rng(11)
+    history = rng.normal(size=(21, 3)) * np.array([1e-3, 1.0, 1e3])
+    # 21 states, f = 0.5: k = floor(10.5) = 10, states x_10 .. x_20.
+    np.testing.assert_array_equal(recent_history_covariance(history, 0.5), np.cov(history[10:].T))
+    np.testing.assert_array_equal(recent_history_covariance(history, 0.0), np.cov(history.T))
+    adaptation = AdaptationConfig(5, 5, discard_early_history_fraction=0.5)
+    assert adaptation.history_window_start(20) == 10
+    assert adaptation.history_window_size(20) == 11
+    with pytest.raises(ValueError, match="two points"):
+        recent_history_covariance(history[:2], 0.5)
+    for f in (-0.1, 1.0, float("nan")):
+        with pytest.raises(ValueError, match="discard_early_history_fraction"):
+            AdaptationConfig(5, 5, discard_early_history_fraction=f)
+
+
+def test_adapter_with_discarded_history_matches_numpy_on_the_window():
+    rng = np.random.default_rng(12)
+    adaptation = AdaptationConfig(initial_diagonal_steps=8, update_interval_steps=6, discard_early_history_fraction=0.25)
+    assert adaptation.update_steps(burn_in=20) == (8, 14, 20)
+    sigma = np.array([0.5, 2.0])
+    adapter = _ProposalAdapter(adaptation, 20, np.zeros(2), sigma)
+    states = rng.normal(size=(30, 2))
+    for step, state in enumerate(states[:20]):
+        adapter.observe(step, state)
+    history = np.vstack([np.zeros(2), states[:20]])  # x_0 .. x_20
+    window = history[int(np.floor(0.25 * 21)) :]  # k = 5
+    expected = adaptive_proposal_covariance(np.cov(window.T), sigma, adaptation.regularization_fraction)
+    # Same two-pass formula on the same states: rounding only.
+    np.testing.assert_allclose(adapter.covariance(), expected, rtol=1e-12)
+    frozen = adapter.covariance()
+    for step, state in enumerate(states[20:], start=20):
+        adapter.observe(step, state)
+    np.testing.assert_array_equal(adapter.covariance(), frozen)
+    # The first window must hold more than d states: 3 steps, f = 0.5 -> 2 states.
+    with pytest.raises(ValueError, match="first covariance window"):
+        _ProposalAdapter(AdaptationConfig(3, 1, discard_early_history_fraction=0.5), 10, np.zeros(2), sigma)
+
+
+def test_zero_discard_fraction_is_the_whole_history_bit_for_bit():
+    common = dict(n_steps=1500, proposal_sigma=0.2, burn_in=600)
+    plain = run_metropolis(
+        correlated_log_target, np.ones((2, 2)), MetropolisConfig(adaptation=AdaptationConfig(200, 50), **common), seeds=3
+    )
+    explicit = run_metropolis(
+        correlated_log_target,
+        np.ones((2, 2)),
+        MetropolisConfig(adaptation=AdaptationConfig(200, 50, discard_early_history_fraction=0.0), **common),
+        seeds=3,
+    )
+    np.testing.assert_array_equal(plain.samples, explicit.samples)
+    for a, b in zip(plain.chains, explicit.chains, strict=True):
+        np.testing.assert_array_equal(a.proposal_covariance, b.proposal_covariance)
+
+
+# A 4-parameter Gaussian (sd 0.5-2, correlation 0.6) started 30 sd from the
+# mode with steps 10x too small: the chain spends much of the early burn-in
+# drifting in.
+FAR_SD = np.array([1.0, 2.0, 0.5, 1.0])
+FAR_COVARIANCE = FAR_SD[:, None] * (np.full((4, 4), 0.6) + 0.4 * np.eye(4)) * FAR_SD[None, :]
+_FAR_PRECISION = np.linalg.inv(FAR_COVARIANCE)
+
+
+def far_log_target(theta) -> float:
+    return float(-0.5 * theta @ _FAR_PRECISION @ theta)
+
+
+def _far_run(fraction: float):
+    config = MetropolisConfig(
+        n_steps=4000,
+        proposal_sigma=0.1 * FAR_SD,
+        burn_in=1500,
+        adaptation=AdaptationConfig(300, 50, discard_early_history_fraction=fraction),
+    )
+    return run_metropolis(far_log_target, np.tile(30 * FAR_SD, (4, 1)), config, seeds=0)
+
+
+def test_discarding_the_early_history_recovers_the_target_covariance_from_a_far_start():
+    whole, recent = _far_run(0.0), _far_run(0.5)
+    scale = OPTIMAL_RW_SCALE**2 / 4
+
+    def error(chain):  # relative Frobenius error of C / s_d against the target
+        return np.linalg.norm(chain.proposal_covariance[0] / scale - FAR_COVARIANCE) / np.linalg.norm(FAR_COVARIANCE)
+
+    whole_error = np.array([error(c) for c in whole.chains])
+    recent_error = np.array([error(c) for c in recent.chains])
+    # Seeds 0-4: whole history 136-160 (the drift dominates), most recent
+    # half 0.06-0.43 (about 750 autocorrelated states). Require every chain
+    # to improve and the recent-half estimate to be within 0.6.
+    assert np.all(recent_error < whole_error), (recent_error, whole_error)
+    assert np.all(recent_error < 0.6), recent_error
+    # Seeds 0-4: ESS 28-91 vs 534-672 (ratio >= 6); require 3.
+    ess_whole = effective_sample_size(whole.samples).min()
+    ess_recent = effective_sample_size(recent.samples).min()
+    assert ess_recent > 3 * ess_whole, (ess_recent, ess_whole)
+    # Post-burn-in acceptance: 0.01-0.05 with the drift, 0.19-0.36 without
+    # (the Gaussian optimum for d = 4 is about 0.3).
+    assert np.all(whole.post_burn_in_acceptance_rates < 0.1)
+    assert np.all((recent.post_burn_in_acceptance_rates > 0.15) & (recent.post_burn_in_acceptance_rates < 0.45))
+    # And the frozen kernel samples the target.
+    mean_tol, cov_tol = _moments_tolerance(ess_recent)
+    draws = recent.samples.reshape(-1, 4) / FAR_SD
+    np.testing.assert_allclose(draws.mean(axis=0), 0.0, atol=mean_tol)
+    np.testing.assert_allclose(np.cov(draws.T), FAR_COVARIANCE / np.outer(FAR_SD, FAR_SD), atol=cov_tol)
+
+
+def test_discard_fraction_from_config():
+    config = _base_config()
+    config["sampler"].update(
+        n_steps=200,
+        burn_in=50,
+        adaptation={"initial_diagonal_steps": 20, "update_interval_steps": 10, "discard_early_history_fraction": 0.5},
+    )
+    adaptation = build_inversion_setup(config).sampler.config.adaptation
+    assert adaptation == AdaptationConfig(20, 10, discard_early_history_fraction=0.5)
+    config["sampler"]["adaptation"]["discard_early_history_fraction"] = 1.0
+    with pytest.raises(ValueError, match="discard_early_history_fraction"):
+        build_inversion_setup(config)
+
+
+def test_adaptation_warnings_for_short_burn_in():
+    assert adaptation_warnings(None, burn_in=0, n_parameters=3) == []
+    # 10 parameters, 1000 burn-in states, half kept: 500 < 100 * 10.
+    messages = adaptation_warnings(AdaptationConfig(400, 100, discard_early_history_fraction=0.5), burn_in=1000, n_parameters=10)
+    assert len(messages) == 1 and "fewer than 1000" in messages[0]
+    # Adapted steps (300) fewer than diagonal steps (700).
+    messages = adaptation_warnings(AdaptationConfig(700, 100), burn_in=1000, n_parameters=2)
+    assert len(messages) == 1 and "leaves 300 adapted steps" in messages[0]
+    assert adaptation_warnings(AdaptationConfig(1000, 200, discard_early_history_fraction=0.5), burn_in=4000, n_parameters=10) == []
+
+
+def test_acceptance_notes():
+    notes = acceptance_notes([0.05, 0.25, 0.7])
+    assert len(notes) == 2
+    assert notes[0].startswith("chain 0 accepts 0.050") and "too wide" in notes[0]
+    assert notes[1].startswith("chain 2 accepts 0.700") and "too narrow" in notes[1]
+    assert acceptance_notes([0.1, 0.6]) == []  # bounds themselves are fine

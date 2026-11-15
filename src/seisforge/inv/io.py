@@ -300,6 +300,7 @@ def adaptation_attrs(adaptation: AdaptationConfig | None, *, burn_in: int, n_par
         "adaptation_initial_diagonal_steps": int(adaptation.initial_diagonal_steps),
         "adaptation_update_interval_steps": int(adaptation.update_interval_steps),
         "adaptation_regularization_fraction": float(adaptation.regularization_fraction),
+        "adaptation_discard_early_history_fraction": float(adaptation.discard_early_history_fraction),
         "adaptation_scale_factor": float(OPTIMAL_RW_SCALE**2 / n_parameters),
         "adaptation_last_update_step": int(adaptation.update_steps(burn_in)[-1]),
     }
