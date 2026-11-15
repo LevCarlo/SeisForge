@@ -91,7 +91,16 @@ PRIOR_KEYS = {
 }
 
 DISCRETIZATION_KEYS = frozenset(
-    {"dz", "zmax", "force_depths", "layers_per_segment", "transition_layers", "layer_value"}
+    {
+        "dz",
+        "zmax",
+        "force_depths",
+        "layers_per_segment",
+        "transition_layers",
+        "layer_value",
+        "dz_growth_ratio",
+        "dz_max",
+    }
 )
 
 CONSTRAINTS_SECTION_KEYS = frozenset({"constraints"})

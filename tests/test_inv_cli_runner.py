@@ -379,3 +379,28 @@ def test_driver_records_discarded_history_and_acceptance(tmp_path):
     assert "sampler adaptation: burn_in (10) leaves 4 adapted steps" in log
     assert "fewer than 300 (100 per parameter" in log
     assert "posterior post-burn-in acceptance rates: " in log
+
+
+def test_driver_records_graded_layering_in_attrs_and_log(tmp_path):
+    config = _config()
+    config["discretization"] = {"dz": 0.25, "zmax": 3.0, "dz_growth_ratio": 1.3, "dz_max": 1.0}
+    inv_config = dict(config)
+    inv_config.pop("observations", None)
+    inv_file = tmp_path / "inv.yaml"
+    obs_file = tmp_path / "obs.yaml"
+    dump_yaml(inv_config, inv_file)
+    dump_yaml(_obs_config(), obs_file)
+    _write_observations(tmp_path, config)
+
+    result = run_inversion(
+        kind="disp_hv", inv_file=inv_file, obs_file=obs_file, output=tmp_path / "out", progress=False
+    )
+    with xr.open_dataset(result.posterior_mcmc) as dataset:
+        assert dataset.attrs["discretization_layering"] == "graded"
+        assert dataset.attrs["discretization_dz_growth_ratio"] == 1.3
+        assert dataset.attrs["discretization_dz_max_km"] == 1.0
+        assert dataset.attrs["discretization_n_layers_at_initial"] > 0
+        assert dataset.attrs["discretization_hv_layering_error_sigma_ratio"] >= 0.0
+    log = result.log_file.read_text()
+    assert "discretization dz_growth_ratio: 1.3" in log
+    assert "discretization layering_error_at_initial:" in log
