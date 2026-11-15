@@ -1,0 +1,26 @@
+# Step 2: H-k stacking of the RFs that passed QC (run with --mode low: crust only).
+# No defaults: every key below must be present. Reference: examples/reference_configs/rf_hkseq.yml
+IO:
+  ROOT: .
+  HighFreq_RF: output/Gauss_5.0_CLEAN
+  LowFreq_RF: output/Gauss_2.5_CLEAN
+  SAVE: output/hkSeq
+  FIGURE: output/figures
+  LOG: output/logs
+Meta: {station: RF01, network: XX}               # change this
+Model:
+  Sediment:                                      # used only with --mode both/high
+    H: {min: 0.0, max: 5.0, delta: 0.05}
+    k: {min: 1.5, max: 3.0, delta: 0.01}
+    Vp: null
+    Vs: 2.5
+    weight: [0.5, 0.2, 0.3]
+  Crust:
+    H: {min: 25.0, max: 50.0, delta: 0.2}        # change this: Moho depth search range (km)
+    k: {min: 1.6, max: 2.0, delta: 0.01}         # change this: Vp/Vs search range
+    Vp: 6.3                                      # change this: assumed average crustal Vp (km/s)
+    Vs: null
+    weight: [0.5, 0.2, 0.3]                      # weights of Ps, PpPs, PsPs
+QC:
+  HighFreq: &hkqc {energy_threshold: 0.6, ell_mad_sigma: 2.0, mahalanobis_dist_threshold: 1.0}
+  LowFreq: *hkqc
