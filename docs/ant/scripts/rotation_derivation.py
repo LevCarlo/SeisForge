@@ -179,6 +179,25 @@ display(Math(r"\text{in general: } (C_{RR}+C_{TT}) - (C_{NN}+C_{EE}) = "
              + sp.latex(sp.simplify(Hp.trace() - H.trace()))))
 
 # %% [markdown]
+# ## Angle errors leak energy into the mixed components
+#
+# Differentiating with respect to the angles gives exact identities. An error
+# $\delta\psi$ moves $\delta\psi\,\partial_\psi C'$ into each component, so
+# with zero true RT the measured RT is $-\delta\psi\,C_{RR}$ to first order
+# (and likewise for the source angle $\theta$).
+
+# %%
+leaks = {
+    "d/dpsi RT = -RR": sp.diff(Cp[1, 2], psi) + Cp[1, 1],
+    "d/dpsi ZT = -ZR": sp.diff(Cp[0, 2], psi) + Cp[0, 1],
+    "d/dtheta TR = -RR": sp.diff(Cp[2, 1], theta) + Cp[1, 1],
+    "d/dtheta TZ = -RZ": sp.diff(Cp[2, 0], theta) + Cp[1, 0],
+}
+for name, expr in leaks.items():
+    assert sp.simplify(expr) == 0, name
+    print(name)
+
+# %% [markdown]
 # ## Where the radial axes point
 #
 # With $\hat x = (\cos\theta, \sin\theta)$ the unit vector from A towards B
