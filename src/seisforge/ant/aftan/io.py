@@ -164,3 +164,48 @@ def _resolve_path(path, base_dir: Path | None) -> Path:
 def _read_yaml(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as file:
         return yaml.safe_load(file) or {}
+
+
+_ZRT_CODES = frozenset(
+    first + second for first in "ZRT" for second in "ZRT"
+)
+
+
+def _component_from_sac(path: Path, trace: Trace) -> tuple[str | None, str]:
+    """ZRT component of a CCF file, from the SAC header or else the file name.
+
+    Order: SAC ``kcmpnm`` when it is a two-letter ZRT code (as written by
+    ``seisforge ant rotate-ccf``); otherwise the one distinct ZRT code among
+    the tokens of the file stem split on ``_``, ``.`` and ``-`` (the
+    ``*_{component}.SAC`` naming of the rotation output). Returns
+    ``(component, how)``; ``component`` is None when neither source gives a
+    single code, and ``how`` then says why. A header and a file name that
+    name different codes raise ValueError.
+    """
+    sac = getattr(trace.stats, "sac", None)
+    header = None
+    if sac is not None and "kcmpnm" in sac:
+        value = str(sac["kcmpnm"]).strip().upper()
+        if value in _ZRT_CODES:
+            header = value
+    tokens = [token.upper() for token in _split_stem(path)]
+    named = sorted({token for token in tokens if token in _ZRT_CODES})
+    if header is not None:
+        if named and header not in named:
+            raise ValueError(
+                f"{path.name}: SAC kcmpnm {header} disagrees with the component "
+                f"{'/'.join(named)} in the file name."
+            )
+        return header, "sac_kcmpnm"
+    if len(named) == 1:
+        return named[0], "file_name"
+    if named:
+        return None, f"file name has several ZRT codes ({', '.join(named)})"
+    return None, "no ZRT code in SAC kcmpnm or the file name"
+
+
+def _split_stem(path: Path) -> list[str]:
+    stem = path.name
+    if stem.upper().endswith(".SAC"):
+        stem = stem[:-4]
+    return [token for token in stem.replace(".", "_").replace("-", "_").split("_") if token]

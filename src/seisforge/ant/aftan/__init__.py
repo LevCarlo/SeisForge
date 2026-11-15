@@ -26,6 +26,7 @@ from .models import (
 )
 from .phase import (
     automatic_pi_over_4,
+    phase_constant_warning,
     physical_branch_for_branch,
     physical_component_for_branch,
     physical_station_pair_for_branch,
@@ -55,6 +56,7 @@ __all__ = [
     "infer_dispersion_dat_path",
     "override_phase_cycle",
     "automatic_pi_over_4",
+    "phase_constant_warning",
     "physical_branch_for_branch",
     "physical_component_for_branch",
     "physical_station_pair_for_branch",

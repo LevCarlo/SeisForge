@@ -67,7 +67,8 @@ def write_ccfs(directory: Path, *, kcmpnm: bool = False) -> None:
         trace = Trace(data=np.asarray(data[component], dtype=np.float32))
         trace.stats.delta = DELTA_S
         trace.stats.sac = {"b": float(time[0]), "dist": DISTANCE_KM}
-        if kcmpnm:
+        if kcmpnm:  # as `seisforge ant rotate-ccf` writes it (ObsPy maps channel to kcmpnm)
+            trace.stats.channel = component
             trace.stats.sac["kcmpnm"] = component
         trace.write(str(directory / sac_name(component)), format="SAC")
     np.savetxt(

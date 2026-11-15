@@ -55,6 +55,19 @@ switch that restores the old behaviour where one exists.
 
 ### Added
 
+- **Diffuse-field Rayleigh CCFs.** `seisforge.ant.synthetic.synthetic_rayleigh_ccf_zne`
+  builds nine ZNE CCFs from plane Rayleigh waves (retrograde, any H/V),
+  checked against Bessel closed forms after the package rotation; it does not
+  use the AFTAN `pi_over_4` table.
+- **AFTAN phase-constant warning.** `seisforge.ant.aftan.phase_constant_warning`;
+  AFTAN writes `phase_velocity_warning` to the `.dat` header and `aftan.log`
+  when `pi_over_4` does not match the independently checked value for the
+  stored component, or the component is ZR/RZ or unknown (station mode reads
+  it from SAC `kcmpnm` or the file name only for this check). No number
+  changes. Regression baseline `tests/data/aftan_component_baseline.npz`
+  (ZZ/ZR/RZ/RR/TT, pair and station mode, both branches;
+  `tools/make_aftan_component_baseline.py`).
+
 - **Runnable examples with a known answer.** `examples/01_ccf_rotate`,
   `02_aftan`, `03_eikonal`, `04_rf_qc_hk`, `05_hvsr_forward`,
   `06_inversion` and `full_chain` (CCFs -> AFTAN -> collect-dispersion ->
@@ -224,6 +237,14 @@ switch that restores the old behaviour where one exists.
 
 - `examples/configs/joint_inversion.yml` (no longer loadable;
   `examples/STA001` replaces it).
+
+### Known issues
+
+- **AFTAN ZR/RZ phase velocities are wrong** in some cases (0.25-0.6 km/s at
+  150 km on synthetics; group velocity unaffected): the automatic RZ value
+  (-1, should be -3), the pair-mode negative-branch ZR <-> RZ swap, and station
+  mode's fixed -1 for ZR (should be +1) and RZ. ZZ, RR and TT are right.
+  Details and the planned fix: `docs/aftan_phase_constants.md`.
 
 ## 0.1.0 (branch `main`)
 
