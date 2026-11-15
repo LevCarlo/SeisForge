@@ -1,5 +1,11 @@
 # AFTAN Dispersion Measurement
 
+!!! tip "Runnable example"
+    `examples/02_aftan` runs this workflow on synthetic data with a known answer
+    (`bash run.sh`); see the [examples overview](examples.md). The commands below
+    use the full reference config in `examples/reference_configs/`.
+
+
 Use one station-pair config per run:
 
 ```bash

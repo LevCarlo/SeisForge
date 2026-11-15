@@ -66,9 +66,24 @@ hkseq -c examples/reference_configs/rf_hkseq.yml --mode both --plot
 
 ## Examples
 
-Each folder under `examples/` is a self-contained example with data,
-config, `run.sh` and README; full commented configs are in
-`examples/reference_configs/`. `scripts/personal/` holds the
+Each folder under `examples/` is a self-contained example on synthetic data
+with a known answer: data, config, `run.sh`, README and the expected figure.
+Copy a folder anywhere and run `bash run.sh`; its README says what the
+result should be and which config lines to change for your own data.
+
+| folder | workflow |
+|---|---|
+| `01_ccf_rotate` | rotate ZNE cross-correlations to ZRT |
+| `02_aftan` | group and phase velocity with AFTAN |
+| `03_eikonal` | Eikonal phase-velocity maps |
+| `04_rf_qc_hk` | receiver-function QC and H-k stacking |
+| `05_hvsr_forward` | diffuse-field H/V of a layered model |
+| `06_inversion` | Bayesian Vs(z) from phase velocity and H/V |
+| `full_chain` | CCFs to Vs(z), all steps |
+
+`seisforge init <workflow> [directory]` copies an example's config to start
+your own project. Full commented configs are in `examples/reference_configs/`;
+`examples/benchmarks/` holds validation material. `scripts/personal/` holds the
 author's personal processing scripts kept as a backup; they are not examples
 and are not tested (see `scripts/personal/README.md`).
 

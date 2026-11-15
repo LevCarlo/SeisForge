@@ -41,8 +41,8 @@ commands take their few choices as options:
 | `seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run` | single-station MCMC inversion | [Inversion](inv_getting_started.md) |
 
 Each folder under `examples/` is a self-contained example with data,
-config, `run.sh` and README; full commented configs are in
-`examples/reference_configs/`.
+config, `run.sh` and README: see the [examples overview](examples.md).
+`seisforge init <workflow>` copies an example's config.
 
 ## Where to start
 

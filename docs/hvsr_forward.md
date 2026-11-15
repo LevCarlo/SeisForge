@@ -1,5 +1,10 @@
 # Diffuse-field H/V forward modelling
 
+!!! tip "Runnable example"
+    `examples/05_hvsr_forward` runs this workflow on synthetic data with a known answer
+    (`bash run.sh`); see the [examples overview](examples.md).
+
+
 `seisforge.hvsr` provides an array-based forward interface without a CLI or a
 configuration-file layer. Models use SeisForge units: thickness in km,
 velocities in km/s, and density in g/cm³. The final property entry is the

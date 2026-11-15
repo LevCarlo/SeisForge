@@ -73,6 +73,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Full example runs (minutes) are opt-in: python -m pytest -m slow
+addopts = "-m 'not slow'"
+markers = ["slow: full example runs, see tests/test_examples.py"]
 # No pythonpath: tests import the installed package (pip install -e ".[dev]"),
 # so packaging gaps show up as test failures.
 

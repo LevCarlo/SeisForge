@@ -1,5 +1,11 @@
 # Receiver Function Workflows
 
+!!! tip "Runnable example"
+    `examples/04_rf_qc_hk` runs this workflow on synthetic data with a known answer
+    (`bash run.sh`); see the [examples overview](examples.md). The commands below
+    use the full reference config in `examples/reference_configs/`.
+
+
 SeisForge exposes two receiver-function workflows through the unified CLI
 (QC and sequential H-k stacking) and a synthetic P receiver function forward
 model in Python ([below](#synthetic-p-receiver-functions)):

@@ -25,8 +25,13 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
       - name: Lint
-        run: python -m ruff check src tests
+        run: python -m ruff check src tests tools
       - name: Test
         # The f2py HVSR extension and the HVDFA regression are skipped unless
         # built/configured; everything else runs.
         run: python -m pytest -q
+      - name: Full example runs
+        # The two inversion examples with their documented chain lengths
+        # (a few minutes); the default suite runs them with short chains.
+        if: matrix.python-version == '3.12'
+        run: python -m pytest -q -m slow tests/test_examples.py

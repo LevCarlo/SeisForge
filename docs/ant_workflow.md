@@ -1,5 +1,11 @@
 # Ambient-Noise Workflows
 
+!!! tip "Runnable example"
+    `examples/01_ccf_rotate` runs this workflow on synthetic data with a known answer
+    (`bash run.sh`); see the [examples overview](examples.md). The commands below
+    use the full reference config in `examples/reference_configs/`.
+
+
 ## Rotate CCFs From ZNE To ZRT
 
 Use the grouped CLI:

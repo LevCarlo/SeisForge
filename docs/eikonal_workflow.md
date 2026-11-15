@@ -1,5 +1,11 @@
 # Surface-Wave Eikonal and Helmholtz Tomography
 
+!!! tip "Runnable example"
+    `examples/03_eikonal` runs this workflow on synthetic data with a known answer
+    (`bash run.sh`); see the [examples overview](examples.md). The commands below
+    use the full reference config in `examples/reference_configs/`.
+
+
 SeisForge builds local phase-slowness maps from directed virtual-source travel
 time fields and stacks them with azimuth-balanced event weights. The workflow
 implements isotropic ambient-noise Eikonal tomography and optional Helmholtz

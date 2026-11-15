@@ -55,6 +55,26 @@ switch that restores the old behaviour where one exists.
 
 ### Added
 
+- **Runnable examples with a known answer.** `examples/01_ccf_rotate`,
+  `02_aftan`, `03_eikonal`, `04_rf_qc_hk`, `05_hvsr_forward`,
+  `06_inversion` and `full_chain` (CCFs -> AFTAN -> collect-dispersion ->
+  Eikonal -> station curve -> inversion), each with small synthetic data,
+  a minimal config (lines to edit marked `# change this`), `run.sh`, an
+  expected figure and a README with the same five sections. Data scripts
+  `tools/make_example_*.py` (fixed seeds, `tools/example_truth.py` shares the
+  06 truth model). Overview: `docs/examples.md`. Smoke tests
+  `tests/test_examples.py`; the full-length inversion runs and `full_chain` are marked `slow`
+  (`pytest -m slow`, a separate CI step).
+- **`seisforge init <workflow> [directory]`** copies an example's config
+  template (package `seisforge.templates`, kept identical to `examples/` by
+  `tools/sync_templates.py` and a test); refuses to overwrite without
+  `--overwrite`.
+- **`seisforge.ant.synthetic`**: symmetric synthetic CCF of one mode from a
+  phase-velocity curve (`synthetic_ccf`, phase convention shared with
+  AFTAN's `pi_over_4`), `group_velocity_from_phase`. Checked against an
+  analytic non-dispersive pulse, the envelope arrival at r/U, and AFTAN.
+- **`seisforge.ant.rotation.rotate_zrt_ccf_to_zne`**: inverse of the CCF
+  rotation (round-trip tested), used to build synthetic ZNE input.
 - **Glue commands between AFTAN, Eikonal and the inversion.**
   `seisforge ant collect-dispersion` gathers AFTAN `.dat` files into the
   Eikonal `(path, period)` input dataset (negative branch = reversed pair,
@@ -152,6 +172,17 @@ switch that restores the old behaviour where one exists.
 
 ### Changed
 
+- **Examples reorganised.** `examples/configs/` moved to
+  `examples/reference_configs/` (`aftan_station.yml` -> `aftan.yml`,
+  `hkseq.yml` -> `rf_hkseq.yml`, `interface_model.yml` ->
+  `inversion_interface_model.yml`); `examples/STA001/` became
+  `examples/06_inversion/` (data in `data/`, short `inv.yaml`/`obs.yaml`
+  that load to the same setup as the full `reference_configs/inversion_inv.yaml`
+  and `inversion_obs.yaml`; same samples); `examples/AFTAN/` moved unchanged
+  to `examples/benchmarks/aftan_vs_fortran/` with a README stating the data
+  source (USArray TA, DOI 10.7914/SN/TA). `tools/make_sta001_synthetic.py`
+  -> `tools/make_example_06_inversion.py`, `tools/plot_sta001_result.py` ->
+  `examples/06_inversion/plot_result.py`.
 - `disba` and `numba` are core dependencies.
 - `seisforge rf hkseq` no longer deletes its output directory, refuses an
   output directory that overlaps its inputs, and writes only the requested
