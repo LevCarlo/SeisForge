@@ -1,4 +1,4 @@
-# Truth model of the STA001 synthetic data (tools/make_sta001_synthetic.py), in the
+# Truth model of the STA001 synthetic data (tools/make_example_06_inversion.py), in the
 # uniform 0.03125 km layers used for the forward calculation (not the
 # inversion layering); last row is the half-space (thickness 0).
 # truth = sediment.vs_top=1.70, sediment.vs_bottom=2.60, crust.c0=2.65, crust.c1=2.85, crust.c2=3.05, crust.c3=3.20, crust.c4=3.30, crust.c5=3.45, crust.c6=3.60, crust.c7=3.70;

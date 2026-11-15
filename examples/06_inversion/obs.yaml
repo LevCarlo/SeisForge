@@ -1,0 +1,9 @@
+# Observation files: three columns "period  value  one_sigma", '#' comments allowed.
+# Full explanation: examples/reference_configs/inversion_obs.yaml.
+# Not listed here = defaults: fundamental-mode Rayleigh phase velocity,
+# disba "dunkin" with dc 0.005 km/s (and dt 0.025 for dispersion).
+observations:
+  dispersion:
+    file: data/vph_disp.dat            # change this
+  hv:
+    file: data/hv.dat                  # change this

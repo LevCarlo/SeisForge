@@ -5,7 +5,7 @@
 Use the grouped CLI:
 
 ```bash
-seisforge ant rotate-ccf -c examples/configs/ccf_rotate.yml
+seisforge ant rotate-ccf -c examples/reference_configs/ccf_rotate.yml
 ```
 
 The rotation workflow keeps the numerical rotation in

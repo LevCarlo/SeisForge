@@ -122,7 +122,7 @@ resolved from the YAML file's folder.
 Numbers anywhere in `model` may be literals or parameter references
 `{parameter: name}` defined in `inversion.parameters`.
 
-**Segment layout** (fixed boundaries; `examples/STA001`):
+**Segment layout** (fixed boundaries; `examples/06_inversion`):
 
 ```yaml
 model:
@@ -142,7 +142,7 @@ model:
 | `segments[].name` | optional name, used by `layers_per_segment` |
 
 **Interface layout** (sampled interface depths and widths;
-`examples/configs/interface_model.yml`,
+`examples/reference_configs/inversion_interface_model.yml`,
 [model guide, section 3](model.md#3-interfaces)):
 
 | key | meaning |

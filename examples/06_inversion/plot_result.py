@@ -1,12 +1,14 @@
-"""Plot the STA001 example result: prior and posterior Vs(z) with the truth, and the data fit.
+"""Plot the inversion example result: prior and posterior Vs(z) with the truth, and the data fit.
 
-Run from the example folder after the runs of `docs/inv_getting_started.md`:
+Run from the example folder after `run.sh` (which calls it):
 
-    python /path/to/SeisForge/tools/plot_sta001_result.py [--prior run_prior] \
-        [--posterior run_disp_hv] [--truth true_model.dat] [-o sta001_result.png]
+    python plot_result.py [--prior output/prior] [--posterior output/posterior] \
+        [--truth data/true_model.dat] [-o result.png]
 
-The figure in the docs, `docs/img/sta001_result.png`, is drawn with this
-script. Only plotting is done here; the quantiles come from the run outputs.
+It also prints the convergence numbers that README.md asks you to check.
+`expected_result.png` and the docs figure `docs/img/sta001_result.png` are
+drawn with this script. Only plotting and printing are done here; the
+quantiles and diagnostics come from the run outputs.
 """
 
 from __future__ import annotations
@@ -67,13 +69,29 @@ def plot(prior_dir: Path, posterior_dir: Path, truth: Path | None, output: Path)
 
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--prior", type=Path, default=Path("run_prior"))
-    parser.add_argument("--posterior", type=Path, default=Path("run_disp_hv"))
-    parser.add_argument("--truth", type=Path, default=Path("true_model.dat"), help="omit the truth if missing")
-    parser.add_argument("-o", "--output", type=Path, default=Path("sta001_result.png"))
+    parser.add_argument("--prior", type=Path, default=Path("output/prior"))
+    parser.add_argument("--posterior", type=Path, default=Path("output/posterior"))
+    parser.add_argument("--truth", type=Path, default=Path("data/true_model.dat"), help="omit the truth if missing")
+    parser.add_argument("-o", "--output", type=Path, default=Path("result.png"))
     args = parser.parse_args(argv)
     truth = args.truth if args.truth.exists() else None
     plot(args.prior, args.posterior, truth, args.output)
+    print_summary(args.posterior, truth)
+
+
+def print_summary(posterior_dir: Path, truth: Path | None) -> None:
+    """Print the numbers README.md lists under "How to tell the result is right"."""
+    mcmc = xr.open_dataset(posterior_dir / "disp_hv_mcmc.nc")
+    vs = xr.open_dataset(posterior_dir / "disp_hv_vs.nc")
+    print(f"max split R-hat: {float(mcmc.split_rhat.max()):.3f}")
+    print(f"min effective sample size: {float(mcmc.effective_sample_size.min()):.0f}")
+    print(f"lagging chains: {mcmc.attrs.get('lagging_chains', 'none') or 'none'}")
+    if truth is not None:
+        top, _thickness, _vp, vs_true, _rho = np.loadtxt(truth, comments="#", unpack=True)
+        depth = vs["depth"].values
+        layer = np.clip(np.searchsorted(top, depth, side="right") - 1, 0, top.size - 1)
+        inside = (vs_true[layer] >= vs["p05"].values) & (vs_true[layer] <= vs["p95"].values)
+        print(f"truth inside the posterior 5-95 % band at {inside.sum()} of {inside.size} depths")
 
 
 if __name__ == "__main__":

@@ -102,7 +102,7 @@ existing file without `--overwrite`.
 Start from the example configuration:
 
 ```bash
-seisforge ant eikonal -c examples/configs/eikonal.yml
+seisforge ant eikonal -c examples/reference_configs/eikonal.yml
 ```
 
 The two computational stages can be run independently:

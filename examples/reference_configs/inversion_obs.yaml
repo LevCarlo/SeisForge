@@ -1,17 +1,18 @@
-# Observation and forward-model settings for station STA001.
+# Full, commented observation and forward-model settings (reference for
+# examples/06_inversion/obs.yaml). Every key: docs/inv_usage.md.
 #
 # The .dat files use three columns:
 #   period  observed_value  one_sigma_uncertainty
 
 observations:
   dispersion:
-    file: vph_disp.dat
+    file: data/vph_disp.dat
     wave: rayleigh
     kind: phase
     mode: 0
 
   hv:
-    file: hv.dat
+    file: data/hv.dat
     wave: rayleigh
     mode: 0
 

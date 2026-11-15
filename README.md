@@ -49,25 +49,26 @@ SeisForge groups commands by scientific workflow:
 ```bash
 seisforge --help
 seisforge rf --help
-seisforge rf qc -c examples/configs/rf_qc.yml --plot
-seisforge rf hkseq -c examples/configs/hkseq.yml --mode both --plot
-seisforge ant rotate-ccf -c examples/configs/ccf_rotate.yml
-seisforge ant aftan -c examples/configs/aftan_station.yml
-seisforge ant eikonal -c examples/configs/eikonal.yml
+seisforge rf qc -c examples/reference_configs/rf_qc.yml --plot
+seisforge rf hkseq -c examples/reference_configs/rf_hkseq.yml --mode both --plot
+seisforge ant rotate-ccf -c examples/reference_configs/ccf_rotate.yml
+seisforge ant aftan -c examples/reference_configs/aftan.yml
+seisforge ant eikonal -c examples/reference_configs/eikonal.yml
 seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
 ```
 
 Legacy entry points are still available:
 
 ```bash
-rfqc -c examples/configs/rf_qc.yml --plot
-hkseq -c examples/configs/hkseq.yml --mode both --plot
+rfqc -c examples/reference_configs/rf_qc.yml --plot
+hkseq -c examples/reference_configs/rf_hkseq.yml --mode both --plot
 ```
 
 ## Examples
 
-Example YAML configs live in `examples/configs/`; `examples/AFTAN/` and
-`examples/STA001/` are small end-to-end examples. `scripts/personal/` holds the
+Each folder under `examples/` is a self-contained example with data,
+config, `run.sh` and README; full commented configs are in
+`examples/reference_configs/`. `scripts/personal/` holds the
 author's personal processing scripts kept as a backup; they are not examples
 and are not tested (see `scripts/personal/README.md`).
 
@@ -86,8 +87,8 @@ Pushes to `dev` publish the site to GitHub Pages
 Single-station inversion:
 
 ```bash
-cd examples/STA001
-seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
+cd examples/06_inversion
+bash run.sh
 ```
 
 See `docs/inv_getting_started.md` for a walkthrough of this example,

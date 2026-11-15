@@ -1,7 +1,9 @@
-# Inversion settings for station STA001.
+# Full, commented inversion settings (reference for examples/06_inversion/inv.yaml,
+# which keeps only the keys you must set). Loads to exactly the same setup.
 #
 # This file is meant to be edited often during experiments. Observation files,
-# wave type, mode number, and forward-model numerical settings live in obs.yaml.
+# wave type, mode number, and forward-model numerical settings live in obs.yaml
+# (reference: inversion_obs.yaml). Every key: docs/inv_usage.md.
 
 model:
   # Vs is the primary inverted variable. Vp and rho are derived for disba.

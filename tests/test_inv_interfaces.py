@@ -355,7 +355,7 @@ def test_example_interface_config_builds_a_valid_initial_model():
 
     from seisforge.inv import build_inversion_setup, load_yaml
 
-    path = Path(__file__).parents[1] / "examples" / "configs" / "interface_model.yml"
+    path = Path(__file__).parents[1] / "examples" / "reference_configs" / "inversion_interface_model.yml"
     setup = build_inversion_setup(load_yaml(path))
     theta0 = setup.parameterization.theta0()
     result = setup.prior.evaluate(theta0)

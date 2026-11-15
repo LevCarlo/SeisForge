@@ -35,8 +35,9 @@ from seisforge.inv.setup import build_inversion_setup
 
 ROOT = Path(__file__).parents[1]
 LEGACY = Path(__file__).parent / "data" / "legacy_inv_config"
-STA001 = ROOT / "examples" / "STA001"
-INTERFACE_MODEL = ROOT / "examples" / "configs" / "interface_model.yml"
+STA001 = ROOT / "examples" / "06_inversion"
+REFERENCE = ROOT / "examples" / "reference_configs"
+INTERFACE_MODEL = REFERENCE / "inversion_interface_model.yml"
 
 
 def _deprecation_warnings(record) -> list[warnings.WarningMessage]:
@@ -44,8 +45,9 @@ def _deprecation_warnings(record) -> list[warnings.WarningMessage]:
 
 
 def _copy_obs(tmp_path: Path, obs_yaml: Path) -> Path:
+    (tmp_path / "data").mkdir(exist_ok=True)
     for name in ("vph_disp.dat", "hv.dat"):
-        shutil.copy(STA001 / name, tmp_path / name)
+        shutil.copy(STA001 / "data" / name, tmp_path / "data" / name)
     target = tmp_path / "obs.yaml"
     shutil.copy(obs_yaml, target)
     return target
@@ -54,7 +56,7 @@ def _copy_obs(tmp_path: Path, obs_yaml: Path) -> Path:
 @pytest.mark.parametrize(
     ("legacy_inv", "current_inv"),
     [
-        (LEGACY / "STA001_inv.yaml", STA001 / "inv.yaml"),
+        (LEGACY / "STA001_inv.yaml", REFERENCE / "inversion_inv.yaml"),
         (LEGACY / "interface_model.yml", INTERFACE_MODEL),
     ],
 )
@@ -64,7 +66,7 @@ def test_legacy_example_loads_identically_with_one_warning(tmp_path, legacy_inv,
     legacy_dir.mkdir()
     current_dir.mkdir()
     legacy_obs = _copy_obs(legacy_dir, LEGACY / "STA001_obs.yaml")
-    current_obs = _copy_obs(current_dir, STA001 / "obs.yaml")
+    current_obs = _copy_obs(current_dir, REFERENCE / "inversion_obs.yaml")
 
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always")
@@ -113,7 +115,7 @@ def _rename(config, path, old, new):
 
 def test_example_with_every_section_is_valid():
     validate_inv_config(_example())
-    validate_obs_config(load_yaml(STA001 / "obs.yaml"))
+    validate_obs_config(load_yaml(REFERENCE / "inversion_obs.yaml"))
 
 
 @pytest.mark.parametrize(
@@ -171,7 +173,7 @@ def test_misspelled_inv_key_is_rejected_with_suggestion(path, old, new, where, s
     ],
 )
 def test_misspelled_obs_key_is_rejected_with_suggestion(path, old, new, where, suggestion):
-    config = load_yaml(STA001 / "obs.yaml")
+    config = load_yaml(REFERENCE / "inversion_obs.yaml")
     _rename(config, path, old, new)
 
     with pytest.raises(ValueError, match=f"did you mean {suggestion!r}") as excinfo:
@@ -180,7 +182,7 @@ def test_misspelled_obs_key_is_rejected_with_suggestion(path, old, new, where, s
 
 
 def test_forward_section_takes_only_numerical_settings():
-    config = load_yaml(STA001 / "obs.yaml")
+    config = load_yaml(REFERENCE / "inversion_obs.yaml")
     config["forward"]["hv"]["dt"] = 0.025  # dt is a dispersion-only setting
 
     with pytest.raises(ValueError, match=r"forward\.hv"):
@@ -234,7 +236,7 @@ def test_aliases_are_accepted():
 
 
 def test_legacy_aliases_data_and_physical_constraints_are_renamed():
-    obs = load_yaml(STA001 / "obs.yaml")
+    obs = load_yaml(REFERENCE / "inversion_obs.yaml")
     legacy_obs = {"Data": obs["observations"], "Forward": obs["forward"]}
     with pytest.warns(ConfigDeprecationWarning, match="Data -> observations"):
         assert prepare_obs_config(legacy_obs) == obs
@@ -258,7 +260,7 @@ def test_section_given_under_old_and_new_name_is_rejected(config):
 
 
 def test_observations_under_both_hv_names_are_rejected():
-    obs = load_yaml(STA001 / "obs.yaml")
+    obs = load_yaml(REFERENCE / "inversion_obs.yaml")
     obs["observations"]["rayleigh_hv"] = dict(obs["observations"]["hv"])
     with pytest.raises(ValueError, match="rayleigh_hv"):
         observation_specs_from_config(obs)
@@ -282,12 +284,12 @@ def test_check_keys_message_lists_allowed_keys():
 def test_resolved_yaml_files_are_read_back(tmp_path):
     inputs = tmp_path / "inputs"
     inputs.mkdir()
-    obs_path = _copy_obs(inputs, STA001 / "obs.yaml")
+    obs_path = _copy_obs(inputs, REFERENCE / "inversion_obs.yaml")
     obs = load_yaml(obs_path)
     for entry in obs["observations"].values():
         entry["file"] = str(inputs / entry["file"])  # resolved_obs.yaml moves folder
     dump_yaml(obs, obs_path)
-    inv = load_yaml(STA001 / "inv.yaml")
+    inv = load_yaml(REFERENCE / "inversion_inv.yaml")
     inv["sampler"].update(
         n_steps=3, burn_in=0, thin=1, n_chains=1, initial_strategy="theta0", global_jump_interval=None
     )

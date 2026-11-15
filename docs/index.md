@@ -40,13 +40,14 @@ commands take their few choices as options:
 | `seisforge rf hkseq -c hkseq.yml --mode both --plot` | sequential H-k stacking | [Receiver functions](rf_workflow.md#sequential-h-k-config) |
 | `seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run` | single-station MCMC inversion | [Inversion](inv_getting_started.md) |
 
-Example configs live in `examples/configs/`; `examples/AFTAN/` and
-`examples/STA001/` are small end-to-end examples.
+Each folder under `examples/` is a self-contained example with data,
+config, `run.sh` and README; full commented configs are in
+`examples/reference_configs/`.
 
 ## Where to start
 
 - New to the inversion: [getting started](inv_getting_started.md) runs
-  `examples/STA001` end to end.
+  `examples/06_inversion` end to end.
 - Units, sign conventions, and output policies shared by all workflows:
   [conventions](conventions.md).
 - Python functions and classes: [API reference](api/index.md).

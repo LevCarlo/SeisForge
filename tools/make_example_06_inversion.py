@@ -1,12 +1,12 @@
-"""Write the synthetic data of the STA001 example from a stated truth model.
+"""Write the synthetic data of the inversion example (station STA001) from a stated truth model.
 
 Run from the repository root:
 
-    PYTHONPATH=src python tools/make_sta001_synthetic.py [--overwrite]
+    PYTHONPATH=src python tools/make_example_06_inversion.py [--overwrite]
 
 Truth (all values assumed, chosen to look like a sedimentary basin over a
 crust whose Vs increases with depth; not taken from a real station): the
-parameters of `examples/STA001/inv.yaml` set to `TRUTH` below, i.e.
+parameters of `examples/06_inversion/inv.yaml` set to `TRUTH` below, i.e.
 
 - sediment, 0-1 km: Vs from 1.70 km/s at the surface to 2.60 km/s at 1 km
   (linear gradient);
@@ -31,7 +31,7 @@ ellipticity, at the 14 periods `PERIODS_S` (0.8-7 s), drawn with
 `numpy.random.default_rng(SEED)`, SEED = 20261115, dispersion first. The
 written sigma is the true noise standard deviation.
 
-Outputs (in `--out`, default `examples/STA001`): `vph_disp.dat`, `hv.dat`
+Outputs (in `--out`, default `examples/06_inversion/data`): `vph_disp.dat`, `hv.dat`
 (three columns: period, value, sigma) and `true_model.dat` (the finely layered
 truth model the data were computed from: top depth, thickness, Vp, Vs, density;
 the truth parameters in the header). Existing files are kept unless
@@ -55,9 +55,9 @@ from seisforge.inv.layering import layered_model_from_parameterized, reference_d
 from seisforge.inv.setup import build_inversion_setup
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples" / "STA001"
+EXAMPLE = ROOT / "examples" / "06_inversion"
 
-# Assumed truth, in the parameterization of examples/STA001/inv.yaml (km/s).
+# Assumed truth, in the parameterization of examples/06_inversion/inv.yaml (km/s).
 TRUTH = {
     "sediment.vs_top": 1.70,
     "sediment.vs_bottom": 2.60,
@@ -123,7 +123,7 @@ def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--inv", type=Path, default=EXAMPLE / "inv.yaml")
     parser.add_argument("--obs", type=Path, default=EXAMPLE / "obs.yaml")
-    parser.add_argument("--out", type=Path, default=EXAMPLE)
+    parser.add_argument("--out", type=Path, default=EXAMPLE / "data")
     parser.add_argument("--overwrite", action="store_true", help="replace existing output files")
     args = parser.parse_args(argv)
 
@@ -135,7 +135,7 @@ def main(argv=None) -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     source = [
-        "Synthetic data written by tools/make_sta001_synthetic.py (see its docstring);",
+        "Synthetic data written by tools/make_example_06_inversion.py (see its docstring);",
         f"truth = {', '.join(f'{n}={v:.2f}' for n, v in zip(setup.parameterization.names, theta, strict=True))};",
         f"forwarded in uniform {TRUTH_DZ_KM:g} km layers; Gaussian noise, numpy default_rng({SEED}), "
         f"sigma {DISPERSION_SIGMA_KM_S} km/s (dispersion), {HV_SIGMA} (H/V).",
@@ -160,7 +160,7 @@ def main(argv=None) -> None:
         fmt="%.6f",
         header=_header(
             [
-                "Truth model of the STA001 synthetic data (tools/make_sta001_synthetic.py), in the",
+                "Truth model of the STA001 synthetic data (tools/make_example_06_inversion.py), in the",
                 f"uniform {TRUTH_DZ_KM:g} km layers used for the forward calculation (not the",
                 "inversion layering); last row is the half-space (thickness 0).",
                 source[1],

@@ -1,6 +1,6 @@
 # Getting started: a single-station inversion
 
-This page runs the example in `examples/STA001` from start to finish: a
+This page runs the example in `examples/06_inversion` (station STA001) from start to finish: a
 Bayesian (MCMC) inversion of Rayleigh phase velocity and Rayleigh H/V for
 Vs(z) in the upper 15 km. The data are synthetic, computed from a known
 model, so the result can be compared with the truth. The posterior run takes
@@ -14,13 +14,19 @@ The [model guide](model.md) explains the model space, and the
 ## 1. The station folder
 
 ```text
-examples/STA001/
-  obs.yaml        what the data are, and how synthetics are computed
-  inv.yaml        model, priors, constraints, likelihood, sampler
-  vph_disp.dat    period_s  phase_velocity_km_s  sigma_km_s
-  hv.dat          period_s  rayleigh_hv  sigma
-  true_model.dat  the layered truth model the data were computed from
+examples/06_inversion/
+  obs.yaml              which data files to use
+  inv.yaml              model, priors, constraints, sampler
+  data/vph_disp.dat     period_s  phase_velocity_km_s  sigma_km_s
+  data/hv.dat           period_s  rayleigh_hv  sigma
+  data/true_model.dat   the layered truth model the data were computed from
+  run.sh                the commands of this page
+  plot_result.py        the figure below
 ```
+
+`inv.yaml` and `obs.yaml` keep only the keys you must set; the full,
+commented versions that load to exactly the same setup are
+`examples/reference_configs/inversion_inv.yaml` and `inversion_obs.yaml`.
 
 The two YAML files have separate jobs. `obs.yaml` is usually written once per
 station; `inv.yaml` is the file you edit while testing inversion strategies.
@@ -35,7 +41,7 @@ parameters:
 sediment.vs_top, sediment.vs_bottom, crust.c0 ... crust.c7
 ```
 
-**The data are synthetic.** `tools/make_sta001_synthetic.py` sets these ten
+**The data are synthetic.** `tools/make_example_06_inversion.py` sets these ten
 parameters to a truth model, forwards it with the disba settings of `obs.yaml`
 in uniform 1/32 km layers (much thinner than the inversion's layers, so the
 example does not hide the inversion's own layering error), and adds Gaussian
@@ -56,15 +62,16 @@ structure is never exactly a B-spline). To regenerate the data, from the
 repository root:
 
 ```bash
-PYTHONPATH=src python tools/make_sta001_synthetic.py --overwrite
+PYTHONPATH=src python tools/make_example_06_inversion.py --overwrite
 ```
 
 ## 2. Sample the prior first
 
-Copy the folder somewhere outside the repository and run, from inside it:
+Copy the folder somewhere outside the repository and run, from inside it
+(`bash run.sh` runs sections 2-4 in one go):
 
 ```bash
-seisforge inv disp-hv --inv inv.yaml -o run_prior --prior-only --progress
+seisforge inv disp-hv --inv inv.yaml -o output/prior --prior-only --progress
 ```
 
 `--prior-only` ignores the data. The chains sample the model space allowed by
@@ -75,7 +82,7 @@ plausible profile is outside this ensemble, no amount of data will recover it.
 ## 3. Run the posterior
 
 ```bash
-seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
+seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o output/posterior --progress
 ```
 
 `inv disp` and `inv hv` invert one data type; `inv disp-hv` inverts both.
@@ -117,7 +124,7 @@ From inside the copied station folder, draw the figure below (prior and posterio
 bands with the truth, and the posterior predictive data):
 
 ```bash
-python /path/to/SeisForge/tools/plot_sta001_result.py -o sta001_result.png
+python plot_result.py -o result.png
 ```
 
 and read the diagnostics:
@@ -125,7 +132,7 @@ and read the diagnostics:
 ```python
 import xarray as xr
 
-mcmc = xr.open_dataset("run_disp_hv/disp_hv_mcmc.nc")
+mcmc = xr.open_dataset("output/posterior/disp_hv_mcmc.nc")
 burn_in = mcmc.attrs["sampler_burn_in"]
 print("acceptance after burn-in:", mcmc["accepted"].isel(step=slice(burn_in, None)).mean("step").values)
 print("split R-hat:", mcmc.split_rhat.values.round(3))
@@ -186,7 +193,7 @@ example data (R-hat up to 1.77).
   The [model guide](model.md) explains how these define the prior.
 - Invert interface depths (sediment thickness, Moho depth) or a gradational
   interface: [model guide, section 3](model.md#3-interfaces).
-  `examples/configs/interface_model.yml` is a complete example.
+  `examples/reference_configs/inversion_interface_model.yml` is a complete example.
 - Inspect a model in Python before a long run:
   [model guide, section 6](model.md#6-inspect-a-model-before-sampling).
 - Drive a run from Python instead of the CLI:
@@ -195,5 +202,5 @@ example data (R-hat up to 1.77).
 from seisforge.inv import run_inversion
 
 result = run_inversion(kind="disp_hv", inv_file="inv.yaml", obs_file="obs.yaml",
-                       output="run_disp_hv", progress=True)
+                       output="output/posterior", progress=True)
 ```
