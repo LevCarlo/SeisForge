@@ -266,3 +266,168 @@ def test_collect_dispersion_cli_writes_and_refuses_overwrite(tmp_path, capsys):
     with pytest.raises(FileExistsError):
         main(argv)
     assert main([*argv, "--overwrite"]) == 0
+
+
+# --- Eikonal stack -> extract -> inversion reader ----------------------------
+
+
+def test_bilinear_sampling_matches_hand_computed_plane():
+    from seisforge.ant.glue import sample_grid
+
+    longitude = np.array([0.0, 1.0, 2.0])
+    latitude = np.array([0.0, 1.0])
+    lon, lat = np.meshgrid(longitude, latitude)
+    values = (1.0 + 2.0 * lon + 3.0 * lat)[None]  # bilinear interpolation is exact
+    valid = np.ones_like(values, dtype=bool)
+    # 1 + 2*1.25 + 3*0.5 = 5.0
+    assert sample_grid(longitude, latitude, values, valid, 1.25, 0.5)[0] == pytest.approx(5.0)
+    assert sample_grid(
+        longitude, latitude, values, valid, 1.25, 0.4, method="nearest"
+    )[0] == pytest.approx(1.0 + 2.0 * 1.0)
+    valid[0, 1, 2] = False  # a needed corner of the (1.25, 0.5) cell
+    assert np.isnan(sample_grid(longitude, latitude, values, valid, 1.25, 0.5)[0])
+    assert np.isfinite(sample_grid(longitude, latitude, values, valid, 0.5, 0.5)[0])
+    with pytest.raises(ValueError, match="outside the grid"):
+        sample_grid(longitude, latitude, values, valid, 2.5, 0.5)
+
+
+def _hand_stack(velocities_km_s):
+    """Stack of equal-weight single-source fields with known velocities."""
+    import xarray as xr
+
+    from seisforge.ant.eikonal import stack_event_fields
+    from seisforge.ant.eikonal.models import (
+        AzimuthWeightingConfig,
+        OutlierRejectionConfig,
+        StackingConfig,
+    )
+
+    velocities = np.asarray(velocities_km_s, dtype=float)
+    shape = (velocities.size, 2, 2)
+    slowness = np.broadcast_to((1.0 / velocities)[:, None, None], shape).copy()
+    fields = xr.Dataset(
+        data_vars={
+            "slowness_s_per_km": (("source", "latitude", "longitude"), slowness),
+            "great_circle_azimuth_deg": (
+                ("source", "latitude", "longitude"),
+                np.broadcast_to(
+                    np.linspace(0, 270, velocities.size)[:, None, None], shape
+                ).copy(),
+            ),
+            "rejection_reason": (
+                ("source", "latitude", "longitude"),
+                np.zeros(shape, dtype=np.uint8),
+            ),
+            "source_accepted": ("source", np.ones(velocities.size, dtype=bool)),
+        },
+        coords={"latitude": [0.0, 1.0], "longitude": [10.0, 11.0]},
+    )
+    config = StackingConfig(
+        min_raw_measurements_per_cell=1,
+        azimuth_weighting=AzimuthWeightingConfig(enabled=False),
+        outlier_rejection=OutlierRejectionConfig(enabled=False),
+    )
+    stack = stack_event_fields(fields, config, include_helmholtz=False)
+    stack = stack.expand_dims(period=[0]).assign_coords(
+        period_s=("period", np.array([20], dtype=np.int32))
+    )
+    stack.attrs["stage"] = "eikonal_isotropic_stack"
+    return stack
+
+
+def test_station_sigma_matches_hand_computed_standard_error():
+    from seisforge.ant.glue import StationCurveConfig, extract_station_curve
+
+    velocities = np.array([3.0, 3.2, 3.4, 3.6])
+    stack = _hand_stack(velocities)
+    # The stack's velocity_sem_km_s is the standard error of the mean:
+    # equal weights -> sample std (ddof=1) / sqrt(N), N = 4.
+    sem = np.std(velocities, ddof=1) / np.sqrt(velocities.size)
+    curve = extract_station_curve(
+        stack, 10.3, 0.6, StationCurveConfig(sigma_floor_km_s=0.0)
+    )
+    assert curve.sigma_km_s[0] == pytest.approx(sem, rel=1e-12)
+    # Mean is taken in slowness: v = 1 / mean(1/v_i).
+    assert curve.velocity_km_s[0] == pytest.approx(1.0 / np.mean(1.0 / velocities))
+    assert "standard error" in curve.header["sigma_definition"]
+
+    # 'std': spread of the single-source slowness, std_s / mean_s^2.
+    slowness = 1.0 / velocities
+    spread = np.std(slowness, ddof=1) / np.mean(slowness) ** 2
+    curve = extract_station_curve(
+        stack, 10.3, 0.6, StationCurveConfig(sigma_source="std", sigma_floor_km_s=0.0)
+    )
+    assert curve.sigma_km_s[0] == pytest.approx(spread, rel=1e-12)
+
+    # The floor replaces a smaller value and is reported in the header.
+    curve = extract_station_curve(
+        stack, 10.3, 0.6, StationCurveConfig(sigma_floor_km_s=1.0)
+    )
+    assert curve.sigma_km_s[0] == 1.0
+    assert curve.header["sigma_floored_periods_s"] == "20"
+
+
+def test_station_sigma_drops_period_without_standard_error():
+    from seisforge.ant.glue import StationCurveConfig, extract_station_curve
+
+    stack = _hand_stack([3.0, 3.2])
+    stack["velocity_sem_km_s"][:] = np.nan  # e.g. a single effective source
+    with pytest.raises(ValueError, match="no valid period"):
+        extract_station_curve(stack, 10.5, 0.5, StationCurveConfig())
+
+
+def test_extract_round_trip_is_read_by_inversion_loader(tmp_path, assert_provenance):
+    from test_ant_eikonal import _workflow_config_text, _workflow_measurement_dataset
+
+    from seisforge.ant.eikonal import run_eikonal_config
+    from seisforge.inv.io import read_dispersion_dat
+
+    measurement_path = tmp_path / "measurements.nc"
+    _workflow_measurement_dataset().to_netcdf(measurement_path, engine="h5netcdf")
+    config_path = tmp_path / "eikonal.yml"
+    config_path.write_text(
+        _workflow_config_text(measurement_path, tmp_path / "eikonal"), encoding="utf-8"
+    )
+    stack_path = run_eikonal_config(config_path)[-1]
+    stations = tmp_path / "stations.txt"
+    stations.write_text("R4 0.2 0.2\n")
+    output = tmp_path / "vph_disp.dat"
+
+    assert (
+        main(
+            [
+                "ant",
+                "extract-station-curve",
+                str(stack_path),
+                "-o",
+                str(output),
+                "--station",
+                "R4",
+                "--stations",
+                str(stations),
+            ]
+        )
+        == 0
+    )
+
+    observed = read_dispersion_dat(output)
+    assert observed["periods"].tolist() == [10.0]
+    # The synthetic medium is homogeneous at 3.5 km/s; the tolerance matches
+    # the Eikonal workflow test on the same data.
+    assert observed["velocity"][0] == pytest.approx(3.5, abs=0.1)
+    text = output.read_text()
+    assert "# sigma_source: sem" in text
+    assert "assumed value" in text
+    assert_provenance(text)
+    with pytest.raises(FileExistsError):
+        main(["ant", "extract-station-curve", str(stack_path), "-o", str(output),
+              "--longitude", "0.2", "--latitude", "0.2"])
+
+
+def test_station_curve_config_validates_choices():
+    from seisforge.ant.glue import StationCurveConfig
+
+    with pytest.raises(ValueError):
+        StationCurveConfig(sigma_source="mad")
+    with pytest.raises(ValueError):
+        StationCurveConfig(sigma_floor_km_s=-0.1)
