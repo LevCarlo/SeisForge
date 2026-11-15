@@ -18,6 +18,12 @@
         - run_aftan_file
         - run_station_aftan
 
+::: seisforge.ant.aftan.phase
+    options:
+      members:
+        - phase_constant_warning
+        - automatic_pi_over_4
+
 ::: seisforge.ant.aftan.taper
 
 ::: seisforge.ant.aftan.cycle

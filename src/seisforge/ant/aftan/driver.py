@@ -18,6 +18,7 @@ from .config import (
 )
 from .core import AFTANMeasurement
 from .io import (
+    _component_from_sac,
     _find_sac_files,
     _read_yaml,
     _snr_column_name,
@@ -26,6 +27,7 @@ from .io import (
 from .models import AFTANResult, BranchTrace, StationAFTANConfig
 from .phase import (
     automatic_pi_over_4,
+    phase_constant_warning,
     physical_branch_for_branch,
     physical_component_for_branch,
     physical_station_pair_for_branch,
@@ -94,6 +96,7 @@ def run_aftan_file(
     """Measure dispersion for one SAC file."""
     path = Path(path)
     trace = read(str(path))[0]
+    checked_component, component_note = _component_for_check(path, trace, input_component)
     branch_traces = _prepare_branch_traces(trace, config.aftan.branch)
 
     results = []
@@ -104,9 +107,25 @@ def run_aftan_file(
                 branch_trace,
                 config,
                 input_component=input_component,
+                checked_component=checked_component,
+                component_note=component_note,
             )
         )
     return results
+
+
+def _component_for_check(
+    path: Path,
+    trace,
+    input_component: str | None,
+) -> tuple[str | None, str]:
+    """Stored component used only for `phase_constant_warning`, never to measure."""
+    if input_component is not None:
+        return input_component, "config"
+    try:
+        return _component_from_sac(path, trace)
+    except ValueError as exc:
+        return None, str(exc)
 
 
 def _find_component_inputs(config: StationAFTANConfig) -> list[tuple[Path, str | None]]:
@@ -211,6 +230,8 @@ def _run_aftan_branch(
     config: StationAFTANConfig,
     *,
     input_component: str | None = None,
+    checked_component: str | None = None,
+    component_note: str = "",
 ) -> AFTANResult:
     branch_config, physical_component = _aftan_config_for_branch(
         config,
@@ -254,7 +275,13 @@ def _run_aftan_branch(
     measurement = AFTANMeasurement(branch_trace.trace, path, branch_config)
     measured = measurement.measure()
     qc = _period_qc(measured)
-    warnings = branch_trace.warnings + _qc_warnings(qc, branch_config.qc)
+    phase_warning = phase_constant_warning(
+        checked_component,
+        branch_config.pi_over_4,
+        component_note=component_note,
+    )
+    phase_warnings = (phase_warning,) if phase_warning else ()
+    warnings = branch_trace.warnings + phase_warnings + _qc_warnings(qc, branch_config.qc)
     _raise_short_branch_if_requested(qc, branch_config.qc, f"{path.name} [{branch_trace.name}]")
 
     output_dat.parent.mkdir(parents=True, exist_ok=True)
@@ -268,6 +295,7 @@ def _run_aftan_branch(
             branch_trace.name,
             branch_config,
             stage="basic",
+            phase_warning=phase_warning,
             taper_attrs=measurement.time_taper_attrs(),
             cycle_attrs=_phase_cycle_metadata(measured),
         ),
@@ -337,6 +365,7 @@ def _run_aftan_branch(
                 branch_trace.name,
                 branch_config,
                 stage="pmf",
+                phase_warning=phase_warning,
                 taper_attrs=measurement.time_taper_attrs(),
                 cycle_attrs=_phase_cycle_metadata(pmf_measured),
             ),
@@ -466,6 +495,7 @@ def _dat_metadata(
     branch_config,
     *,
     stage: str,
+    phase_warning: str | None = None,
     taper_attrs: dict[str, object] | None = None,
     cycle_attrs: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -476,6 +506,8 @@ def _dat_metadata(
         "pi_over_4": branch_config.pi_over_4,
         "pi_over_4_mode": branch_config.pi_over_4_mode,
     }
+    if phase_warning:
+        metadata["phase_velocity_warning"] = phase_warning
     if taper_attrs:
         metadata.update(
             {

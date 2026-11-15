@@ -87,6 +87,31 @@ negative lag and is only well-defined for self-reciprocal components such as
 `negative` instead. If a two-sided branch is requested for a one-sided trace,
 SeisForge falls back to the positive branch and records a warning in `aftan.log`.
 
+### Components and the phase constant
+
+`pi_over_4` (p) adds `p * pi / 4` to the picked phase; it affects phase
+velocity only. How it is chosen depends on the config:
+
+- **Pair mode** (`source_station`, `receiver_station`, `component(s)`): the
+  component comes from the config and `pi_over_4` defaults to `auto`, a lookup
+  in `_RAYLEIGH_PI_OVER_4` (`seisforge/ant/aftan/phase.py`: ZZ -1, ZR +1,
+  RZ -1, RR -1, TT -1). On the negative branch the lookup uses the reciprocal
+  component (ZR <-> RZ).
+- **Station mode** (`station`, `io.input_dir`, `sac_pattern`, no
+  `component`): every file is measured with the same value, `-1` unless
+  `pi_over_4` is set manually; `auto` is refused because no component is known.
+  The component is read from SAC `kcmpnm` or the file name only to check the
+  value (below), never to choose it.
+
+!!! warning "Known issue: ZR and RZ phase velocities"
+    The ZR/RZ values and the negative-branch swap do not match this package's
+    rotation; see [AFTAN phase constants](aftan_phase_constants.md) for the
+    derivation, the error table and the planned fix. ZZ, RR and TT are right;
+    group velocities are not affected. When the value used does not match the
+    independently checked one (ZZ/RR/TT -1, ZR +1, RZ -3 on both branches), or
+    the component is ZR/RZ or unknown, the `.dat` header gets a
+    `phase_velocity_warning` line and `aftan.log` a warning.
+
 `period_sampling` defines the target filter periods. `uniform` uses a fixed
 period step or a fixed count; `list` uses the periods supplied in the config;
 `geomspace` uses the PyAFTAN-style logarithmic grid:

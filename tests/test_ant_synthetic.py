@@ -100,3 +100,57 @@ def test_band_outside_the_curve_is_rejected(kwargs, match):
     arguments = {"min_period_s": 2.0, "max_period_s": 10.0, **kwargs}
     with pytest.raises(ValueError, match=match):
         synthetic_ccf(time, 50.0, np.array([1.0, 40.0]), np.array([3.0, 3.5]), **arguments)
+
+
+def _bessel_ccf(time, distance, period, c, order_weights, band):
+    """Independent closed form: irfft of W(f) * sum_n a_n J_n(k r) (module docstring)."""
+    from scipy.special import jv
+
+    from seisforge.ant.synthetic import _band_weights
+
+    delta = time[1] - time[0]
+    n_half = time.size // 2
+    n_fft = 4 * (n_half + 1)
+    f = np.fft.rfftfreq(n_fft, delta)
+    w = _band_weights(f, *band)
+    used = w > 0
+    k = 2 * np.pi * f[used] / np.interp(1 / f[used], period, c)
+    spectrum = np.zeros(f.size, dtype=complex)
+    spectrum[used] = w[used] * sum(a * jv(n, k * distance) for n, a in order_weights.items())
+    full = np.fft.irfft(spectrum, n_fft)
+    return np.concatenate([full[n_fft - n_half :], full[: n_half + 1]])
+
+
+def test_plane_wave_rayleigh_ccfs_match_the_bessel_closed_forms_after_rotation():
+    # Independent check of the azimuth average and of its pairing with the
+    # package's ZNE -> ZRT rotation: ZZ = J0, ZR = -e J1, RZ = +e J1,
+    # RR = e^2 (J0 - J2) / 2, TT = e^2 J1 / (k r) (module docstring), computed with scipy.special.
+    from seisforge.ant.rotation import rotate_zne_ccf_to_zrt
+    from seisforge.ant.synthetic import synthetic_rayleigh_ccf_zne
+
+    period = np.linspace(1.0, 40.0, 400)
+    c = 2.8 + 0.04 * period
+    time = symmetric_ccf_time_axis(150.0, 0.25)
+    distance, azimuth, e = 120.0, 37.0, 0.7
+    band = (4.0, 16.0)
+    zne = synthetic_rayleigh_ccf_zne(
+        time, distance, azimuth, period, c, min_period_s=band[0], max_period_s=band[1], ellipticity=e
+    )
+    zrt = rotate_zne_ccf_to_zrt(zne, azimuth, azimuth + 180.0)
+    expected = {
+        "ZZ": {0: 1.0},
+        "ZR": {1: -e},
+        "RZ": {1: e},
+        "RR": {0: e**2 / 2, 2: -(e**2) / 2},
+        # J1(x) / x = (J0(x) + J2(x)) / 2: Rayleigh near field only, no Love waves.
+        "TT": {0: e**2 / 2, 2: e**2 / 2},
+    }
+    scale = np.max(np.abs(zrt["ZZ"]))
+    for name, weights in expected.items():
+        # Tolerance: the default azimuth count makes the discretisation error
+        # of the direction average exponentially small (~1e-12 here).
+        np.testing.assert_allclose(
+            zrt[name], _bessel_ccf(time, distance, period, c, weights, band), atol=1e-9 * scale, err_msg=name
+        )
+    for name in ("ZT", "TZ", "RT", "TR"):
+        assert np.max(np.abs(zrt[name])) < 1e-9 * scale
