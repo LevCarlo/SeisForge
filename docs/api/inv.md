@@ -86,6 +86,10 @@
     options:
       members:
         - MetropolisConfig
+        - AdaptationConfig
+        - update_running_moments
+        - running_covariance
+        - adaptive_proposal_covariance
         - run_metropolis
         - run_metropolis_chain
         - run_tempered_chain
@@ -96,6 +100,12 @@
         - MCMCResult
 
 ## Convergence diagnostics
+
+::: seisforge.inv.io
+    options:
+      members:
+        - mcmc_result_to_xarray
+        - adaptation_attrs
 
 ::: seisforge.inv.diagnostics
 

@@ -66,6 +66,7 @@ from seisforge.inv.forward import (
     predict_receiver_function,
 )
 from seisforge.inv.io import (
+    adaptation_attrs,
     discretization_from_config,
     dispersion_request_from_config,
     dump_yaml,
@@ -187,6 +188,7 @@ from seisforge.inv.setup import (
 
 __all__ = [
     "AdaptationConfig",
+    "adaptation_attrs",
     "adaptive_proposal_covariance",
     "running_covariance",
     "update_running_moments",
