@@ -52,3 +52,7 @@
       members:
         - read_aftan_dat
         - read_station_table
+
+## Synthetic cross-correlations
+
+::: seisforge.ant.synthetic

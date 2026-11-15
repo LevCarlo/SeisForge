@@ -1,0 +1,16 @@
+# AFTAN: group and phase velocity from the cross-correlations of one virtual source.
+# Every other key and its default: examples/reference_configs/aftan.yml
+station: XX.S00                        # change this: the virtual-source station
+io:
+  input_dir: data/ccf                  # change this: folder with the CCF SAC files
+  output_dir: output
+  sac_pattern: "*_ZZ.SAC"              # change this: which files to measure
+aftan:
+  branch: both                         # no default: positive, negative, both or stack (lag branch)
+  min_period: 2.0                      # change this: shortest period (s)
+  max_period: 8.0                      # change this: longest period (s)
+  period_sampling: {mode: uniform, uniform: {step: 0.5}}  # no default: periods measured
+  velocity_window: {min: 1.5, max: 4.0}                   # change this: expected velocities (km/s)
+  basic:
+    alpha: {mode: constant, constant: {value: 20.0}}      # no default: Gaussian filter width
+  prediction_file: data/reference_phase_velocity.dat     # change this: rough phase velocity, picks the 2 pi cycle

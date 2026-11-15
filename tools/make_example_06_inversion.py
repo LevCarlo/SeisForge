@@ -86,8 +86,7 @@ def truth_theta(names) -> np.ndarray:
     return np.array([TRUTH[name] for name in names])
 
 
-def synthetic_data(inv_file: Path, obs_file: Path):
-    """Truth layered model, noise-free and noisy observations."""
+def _truth(inv_file: Path, obs_file: Path):
     inversion_input = load_inversion_input(
         kind="disp_hv", inv_file=inv_file, obs_file=obs_file, require_observations=False
     )
@@ -102,6 +101,17 @@ def synthetic_data(inv_file: Path, obs_file: Path):
     model = layered_model_from_parameterized(
         setup.parameterization.vector_to_model(theta), discretization
     )
+    return inversion_input, setup, theta, model
+
+
+def truth_layered_model(inv_file: Path, obs_file: Path):
+    """The truth in uniform `TRUTH_DZ_KM` layers (also used by `example_truth.py`)."""
+    return _truth(inv_file, obs_file)[3]
+
+
+def synthetic_data(inv_file: Path, obs_file: Path):
+    """Truth layered model, noise-free and noisy observations."""
+    inversion_input, setup, theta, model = _truth(inv_file, obs_file)
 
     specs = observation_specs_from_config(inversion_input.obs_config)
     dispersion = predict_dispersion(model, dispersion_request_from_config({**specs["dispersion"], "periods": PERIODS_S}))
