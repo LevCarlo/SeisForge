@@ -8,7 +8,7 @@ each workflow; the workflow pages explain methods and configuration.
 |---|---|
 | [Inversion](inv.md) | `seisforge.inv`: models, interfaces, layering, priors, forward wrappers, sampler, run driver |
 | [Receiver functions](rf.md) | `seisforge.rf.synthetic`, `seisforge.rf.hk_core` |
-| [Ambient noise](ant.md) | AFTAN taper and SNR helpers, Eikonal/Helmholtz core formulas, run entry points |
+| [Ambient noise](ant.md) | CCF rotation, synthetic CCFs, AFTAN taper and SNR helpers, Eikonal/Helmholtz core formulas, run entry points |
 | [HVSR](hvsr.md) | `seisforge.hvsr` diffuse-field forward modelling |
 
 Names that start with an underscore are internal and not listed.
@@ -29,3 +29,12 @@ Names that start with an underscore are internal and not listed.
         - rename_legacy_sections
         - warn_legacy_sections
         - ConfigDeprecationWarning
+
+## Example config templates (`seisforge init`)
+
+::: seisforge.templates
+    options:
+      members:
+        - WORKFLOWS
+        - copy_template
+        - template_files

@@ -1,0 +1,21 @@
+# Step 1: receiver-function quality control. Paths are relative to the folder
+# you run from (run.sh runs from this folder). This module has no defaults:
+# every key below must be present. Reference: examples/reference_configs/rf_qc.yml
+IO:
+  ROOT: .
+  RAW_HighFreq_RF: data/Gauss_5.0               # change this: folder of high-frequency RFs
+  RAW_LowFreq_RF: data/Gauss_2.5                # change this: folder of low-frequency RFs
+  CLEAN_HighFreq_RF: output/Gauss_5.0_CLEAN     # RFs that pass QC are copied here
+  CLEAN_LowFreq_RF: output/Gauss_2.5_CLEAN
+  FIGURE: output/figures
+  LOG: output/logs
+META: {station: RF01, network: XX, component: R}  # change this; files must contain the component letter
+QC:
+  HighFreq: &qc                                 # the same tests for both bands
+    SNR: {ENABLE: true, THRESHOLD: 3.0, SAC_HEADER: user2}            # SNR stored in SAC user2
+    SLOWNESS: {ENABLE: true, MIN: 0.04, MAX: 0.08, SAC_HEADER: user0}  # ray parameter (s/km) in user0
+    PAMP: {ENABLE: true, TMIN: -2.0, TMAX: 2.0, WINDOW: [-5, 30]}    # largest peak must be direct P near 0 s
+    MAD: {ENABLE: true, THRESHOLD: 2.5, WINDOW: [-5, 30]}             # drop traces far from the median trace
+    F_TEST: {ENABLE: false, THRESHOLD: 0.05, WINDOW: [-5, 30]}
+    CC: {ENABLE: true, THRESHOLD: 0.5, WINDOW: [-5, 30]}              # correlation with the mean trace
+  LowFreq: *qc

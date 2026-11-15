@@ -64,6 +64,8 @@ hkseq = "seisforge.rf.hk:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+# Config templates of the examples (`seisforge init`); copies of examples/*.
+"seisforge.templates" = ["*/*.yml", "*/*.yaml", "*/*.py", "*/*.sh"]
 "seisforge.hvsr" = [
     "_fortran_src/*.f90",
     "_fortran_src/.f2py_f2cmap",

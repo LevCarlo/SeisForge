@@ -1,0 +1,18 @@
+# Eikonal tomography: phase velocity maps from travel times of every station pair.
+# Every other key and its default: examples/reference_configs/eikonal.yml
+input:
+  dataset: data/measurements.nc        # change this: output of `seisforge ant collect-dispersion`
+  periods_s: [2, 3, 4, 5, 6, 7, 8]     # change this: integer periods present in the dataset
+grid:                                  # change this: map area and cell size (degrees)
+  min_longitude_deg: 109.9
+  max_longitude_deg: 111.3
+  min_latitude_deg: 29.9
+  max_latitude_deg: 31.2
+  longitude_step_deg: 0.05
+  latitude_step_deg: 0.05
+stacking:
+  min_raw_measurements_per_cell: 10    # change this: default 50 needs more than 50 stations
+output:
+  directory: output
+compute:
+  workers: 4                           # parallel processes
