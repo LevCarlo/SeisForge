@@ -3,9 +3,10 @@
 Shared by `tests/test_ant_aftan_components.py` (accuracy against the true
 curve, pair mode vs station mode, bit-for-bit regression) and
 `tools/make_aftan_component_baseline.py` (writes
-`tests/data/aftan_component_baseline.npz`). The baseline was generated before
-the T19 component fix (commit cb03b15 plus this module), so it pins that
-components the fix does not touch keep their numbers. Regenerate it only with
+`tests/data/aftan_component_baseline.npz`). The baseline was generated from
+commit cb03b15 plus this module, before any fix of the ZR/RZ phase constants
+(docs/aftan_phase_constants.md), so it shows what a later fix changes and
+pins that ZZ/RR/TT keep their numbers. Regenerate it only with
 the script, and only for a change listed under "Changed results" in
 `CHANGELOG.md`.
 
