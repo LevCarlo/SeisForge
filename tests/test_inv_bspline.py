@@ -195,7 +195,7 @@ def _sta001_prior():
     from seisforge.inv.config import load_inversion_input
     from seisforge.inv.setup import build_inversion_setup
 
-    example = Path(__file__).resolve().parents[1] / "examples" / "STA001"
+    example = Path(__file__).resolve().parents[1] / "examples" / "06_inversion"
     inversion_input = load_inversion_input(
         kind="disp_hv",
         inv_file=example / "inv.yaml",

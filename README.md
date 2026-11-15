@@ -49,25 +49,41 @@ SeisForge groups commands by scientific workflow:
 ```bash
 seisforge --help
 seisforge rf --help
-seisforge rf qc -c examples/configs/rf_qc.yml --plot
-seisforge rf hkseq -c examples/configs/hkseq.yml --mode both --plot
-seisforge ant rotate-ccf -c examples/configs/ccf_rotate.yml
-seisforge ant aftan -c examples/configs/aftan_station.yml
-seisforge ant eikonal -c examples/configs/eikonal.yml
+seisforge rf qc -c examples/reference_configs/rf_qc.yml --plot
+seisforge rf hkseq -c examples/reference_configs/rf_hkseq.yml --mode both --plot
+seisforge ant rotate-ccf -c examples/reference_configs/ccf_rotate.yml
+seisforge ant aftan -c examples/reference_configs/aftan.yml
+seisforge ant eikonal -c examples/reference_configs/eikonal.yml
 seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
 ```
 
 Legacy entry points are still available:
 
 ```bash
-rfqc -c examples/configs/rf_qc.yml --plot
-hkseq -c examples/configs/hkseq.yml --mode both --plot
+rfqc -c examples/reference_configs/rf_qc.yml --plot
+hkseq -c examples/reference_configs/rf_hkseq.yml --mode both --plot
 ```
 
 ## Examples
 
-Example YAML configs live in `examples/configs/`; `examples/AFTAN/` and
-`examples/STA001/` are small end-to-end examples. `scripts/personal/` holds the
+Each folder under `examples/` is a self-contained example on synthetic data
+with a known answer: data, config, `run.sh`, README and the expected figure.
+Copy a folder anywhere and run `bash run.sh`; its README says what the
+result should be and which config lines to change for your own data.
+
+| folder | workflow |
+|---|---|
+| `01_ccf_rotate` | rotate ZNE cross-correlations to ZRT |
+| `02_aftan` | group and phase velocity with AFTAN |
+| `03_eikonal` | Eikonal phase-velocity maps |
+| `04_rf_qc_hk` | receiver-function QC and H-k stacking |
+| `05_hvsr_forward` | diffuse-field H/V of a layered model |
+| `06_inversion` | Bayesian Vs(z) from phase velocity and H/V |
+| `full_chain` | CCFs to Vs(z), all steps |
+
+`seisforge init <workflow> [directory]` copies an example's config to start
+your own project. Full commented configs are in `examples/reference_configs/`;
+`examples/benchmarks/` holds validation material. `scripts/personal/` holds the
 author's personal processing scripts kept as a backup; they are not examples
 and are not tested (see `scripts/personal/README.md`).
 
@@ -86,8 +102,8 @@ Pushes to `dev` publish the site to GitHub Pages
 Single-station inversion:
 
 ```bash
-cd examples/STA001
-seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
+cd examples/06_inversion
+bash run.sh
 ```
 
 See `docs/inv_getting_started.md` for a walkthrough of this example,

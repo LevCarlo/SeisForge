@@ -1,0 +1,11 @@
+# Diffuse-field H/V of a layered model (seisforge.hvsr, native solver).
+# Read by hvsr_forward.py; the package has no command for this yet.
+model_file: data/model.txt          # change this: thickness_km vp_km_s vs_km_s density_g_cm3 per row
+frequency_hz:                       # change this: frequencies to compute (log-spaced)
+  min: 0.2
+  max: 10.0
+  count: 100
+output_file: output/hvsr.dat
+# Optional numerical settings (seisforge.hvsr.DiffuseFieldSettings), defaults:
+# settings: {max_rayleigh_modes: 20, max_love_modes: 20, body_wave_wavenumbers: 100,
+#            precision_percent: 0.1, horizontal_definition: sum}

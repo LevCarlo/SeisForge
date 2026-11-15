@@ -40,7 +40,7 @@ Any number may be fixed (`value: 2.50`) or sampled
 elements of theta; literal values stay fixed for the whole run.
 
 Segment boundaries come either from fixed `top_km`/`bottom_km` values (the
-segment layout, used by `examples/STA001`) or from interfaces whose depths can
+segment layout, used by `examples/06_inversion`) or from interfaces whose depths can
 be sampled (the interface layout, section 3). In both cases a hard boundary is
 a model feature: no forward layer ever straddles it.
 
@@ -99,7 +99,7 @@ model:
         rho: {method: constant, rho: 3.35}
 ~~~
 
-A complete file is `examples/configs/interface_model.yml`.
+A complete file is `examples/reference_configs/inversion_interface_model.yml`.
 
 **Profiles stretch with the interfaces.** Every profile is defined on its
 segment's local coordinate, so when the Moho deepens the crustal B-spline
@@ -210,7 +210,7 @@ the continuous one:
 ~~~python
 from seisforge.inv import build_inversion_setup, layering_report, load_yaml
 
-setup = build_inversion_setup(load_yaml("examples/configs/interface_model.yml"))
+setup = build_inversion_setup(load_yaml("examples/reference_configs/inversion_interface_model.yml"))
 theta = setup.parameterization.theta0()
 theta[setup.parameterization.names.index("moho.width")] = 3.0
 model = setup.parameterization.vector_to_model(theta)
@@ -285,7 +285,7 @@ import numpy as np
 
 from seisforge.inv import build_inversion_setup, load_yaml, parameterization_from_config
 
-config = load_yaml("examples/STA001/inv.yaml")
+config = load_yaml("examples/06_inversion/inv.yaml")
 parameterization = parameterization_from_config(config)
 theta0 = parameterization.theta0()
 model = parameterization.vector_to_model(theta0)

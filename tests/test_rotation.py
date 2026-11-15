@@ -47,3 +47,35 @@ def test_required_zne_components_for_selected_outputs():
         "EN",
         "EE",
     )
+
+
+def test_zrt_to_zne_is_the_inverse_of_zne_to_zrt():
+    """Round trip both ways for arbitrary angles (orthonormal bases: exact inverse)."""
+    import numpy as np
+
+    from seisforge.ant.rotation import ZRT_COMPONENTS, rotate_zne_ccf_to_zrt, rotate_zrt_ccf_to_zne
+
+    rng = np.random.default_rng(3)
+    zrt = {comp: rng.normal(size=5) for comp in ZRT_COMPONENTS}
+    for azimuth, back_azimuth in ((0.0, 180.0), (37.0, 221.5), (300.0, 115.0)):
+        zne = rotate_zrt_ccf_to_zne(zrt, azimuth, back_azimuth)
+        back = rotate_zne_ccf_to_zrt(zne, azimuth, back_azimuth)
+        for comp in ZRT_COMPONENTS:
+            np.testing.assert_allclose(back[comp], zrt[comp], atol=1e-12)
+        again = rotate_zrt_ccf_to_zne(rotate_zne_ccf_to_zrt(zne, azimuth, back_azimuth), azimuth, back_azimuth)
+        for comp in zne:
+            np.testing.assert_allclose(again[comp], zne[comp], atol=1e-12)
+
+
+def test_zrt_to_zne_for_north_pointing_path():
+    """Analytic case: azimuth 0, back azimuth 180 -> source R = -N, receiver R = -N."""
+    import numpy as np
+
+    from seisforge.ant.rotation import ZRT_COMPONENTS, rotate_zrt_ccf_to_zne
+
+    zrt = {comp: np.zeros(1) for comp in ZRT_COMPONENTS}
+    zrt["RR"] = np.ones(1)
+    zne = rotate_zrt_ccf_to_zne(zrt, 0.0, 180.0)
+    np.testing.assert_allclose(zne["NN"], 1.0, atol=1e-15)  # (-1) * (-1)
+    for comp in ("ZZ", "NE", "EN", "EE", "ZN", "NZ"):
+        np.testing.assert_allclose(zne[comp], 0.0, atol=1e-15)

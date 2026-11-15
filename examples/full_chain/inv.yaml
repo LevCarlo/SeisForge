@@ -1,0 +1,63 @@
+# Bayesian inversion of one station's Rayleigh phase velocity and H/V for Vs(z).
+# Every key has a full explanation in examples/reference_configs/inversion_inv.yaml.
+# Not listed here = package default (Vp and density from Vs by Brocher 2005,
+# uniform priors, likelihood weights 1).
+
+model:
+  segments:
+    - top_km: 0.0                      # change this: sediment top and bottom
+      bottom_km: 1.0
+      profile: {type: gradient, top: {parameter: sediment.vs_top}, bottom: {parameter: sediment.vs_bottom}}
+    - top_km: 1.0
+      bottom_km: 15.0                  # change this: model bottom, about 1/2 of the longest wavelength
+      profile:
+        type: bspline
+        knot_alpha: 1.6
+        coefficients: [{parameter: crust.c0}, {parameter: crust.c1}, {parameter: crust.c2}, {parameter: crust.c3},
+                       {parameter: crust.c4}, {parameter: crust.c5}, {parameter: crust.c6}, {parameter: crust.c7}]
+
+inversion:
+  # change this: prior bounds (km/s) for your area. initial: start value;
+  # proposal sigma: step size of the sampler (tuning only, adapted during burn-in).
+  parameters:
+    - {name: sediment.vs_top,    initial: 2.00, prior: {bounds: [1.20, 2.70]}, proposal: {sigma: 0.04}}
+    - {name: sediment.vs_bottom, initial: 3.05, prior: {bounds: [2.40, 3.45]}, proposal: {sigma: 0.035}}
+    - {name: crust.c0, initial: 3.05, prior: {bounds: [2.50, 3.55]}, proposal: {sigma: 0.035}}
+    - {name: crust.c1, initial: 3.15, prior: {bounds: [2.60, 3.65]}, proposal: {sigma: 0.035}}
+    - {name: crust.c2, initial: 3.25, prior: {bounds: [2.70, 3.75]}, proposal: {sigma: 0.035}}
+    - {name: crust.c3, initial: 3.35, prior: {bounds: [2.80, 3.85]}, proposal: {sigma: 0.035}}
+    - {name: crust.c4, initial: 3.45, prior: {bounds: [2.90, 3.95]}, proposal: {sigma: 0.035}}
+    - {name: crust.c5, initial: 3.55, prior: {bounds: [3.00, 4.05]}, proposal: {sigma: 0.035}}
+    - {name: crust.c6, initial: 3.60, prior: {bounds: [3.05, 4.15]}, proposal: {sigma: 0.035}}
+    - {name: crust.c7, initial: 3.65, prior: {bounds: [3.10, 4.25]}, proposal: {sigma: 0.035}}
+
+discretization:
+  # Forward-model layers: 62.5 m at the surface, 10 % thicker per layer, at
+  # most 1 km. The log line "layering_error_at_initial" must stay well below
+  # 1 sigma; if not, make dz smaller (needed for shorter periods).
+  dz: 0.0625
+  dz_growth_ratio: 1.1
+  dz_max: 1.0
+  zmax: 15.0                           # change this: same as the model bottom
+
+constraints:
+  # Hard prior: models breaking these are rejected before the forward call.
+  constraints:
+    - {type: positive_velocity}
+    - {type: vp_vs_range, bounds: [1.45, 2.70]}
+    - {type: boundary_non_decreasing_vs, tolerance: 0.05}
+    - {type: vs_range, depth_range: [0.0, 15.0], bounds: [0.8, 4.6], dz: 0.25}
+    - {type: monotonic_vs, depth_range: [0.0, 15.0], tolerance: 0.06, dz: 0.25}
+    - {type: max_vs_gradient, depth_range: [0.0, 15.0], max_abs: 1.2, dz: 0.25}
+
+sampler:
+  n_steps: 16000                       # steps per chain; raise if R-hat > 1.01 or ESS < 400
+  burn_in: 5000
+  thin: 10
+  n_chains: 4
+  executor: process                    # chains in parallel processes; serial on one core
+  max_workers: 4
+  seed: 20260702
+  initial_strategy: prior_uniform
+  adaptation: {initial_diagonal_steps: 1500, update_interval_steps: 250, discard_early_history_fraction: 0.5}
+  global_jump_interval: 1000

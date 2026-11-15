@@ -1,25 +1,31 @@
 # Receiver Function Workflows
 
+!!! tip "Runnable example"
+    `examples/04_rf_qc_hk` runs this workflow on synthetic data with a known answer
+    (`bash run.sh`); see the [examples overview](examples.md). The commands below
+    use the full reference config in `examples/reference_configs/`.
+
+
 SeisForge exposes two receiver-function workflows through the unified CLI
 (QC and sequential H-k stacking) and a synthetic P receiver function forward
 model in Python ([below](#synthetic-p-receiver-functions)):
 
 ```bash
-seisforge rf qc -c examples/configs/rf_qc.yml --plot
-seisforge rf hkseq -c examples/configs/hkseq.yml --mode both --plot
-seisforge rf hkseq -c examples/configs/hkseq.yml --mode low --overwrite
+seisforge rf qc -c examples/reference_configs/rf_qc.yml --plot
+seisforge rf hkseq -c examples/reference_configs/rf_hkseq.yml --mode both --plot
+seisforge rf hkseq -c examples/reference_configs/rf_hkseq.yml --mode low --overwrite
 ```
 
 The older commands remain available for existing scripts:
 
 ```bash
-rfqc -c examples/configs/rf_qc.yml --plot
-hkseq -c examples/configs/hkseq.yml --mode both --plot
+rfqc -c examples/reference_configs/rf_qc.yml --plot
+hkseq -c examples/reference_configs/rf_hkseq.yml --mode both --plot
 ```
 
 ## RF QC Config
 
-Use `examples/configs/rf_qc.yml` as the starting template.
+Use `examples/reference_configs/rf_qc.yml` as the starting template.
 
 Important sections:
 
@@ -44,7 +50,7 @@ unchanged, which makes it easy to test one criterion at a time.
 
 ## Sequential H-k Config
 
-Use `examples/configs/hkseq.yml` as the starting template.
+Use `examples/reference_configs/rf_hkseq.yml` as the starting template.
 
 Important sections:
 

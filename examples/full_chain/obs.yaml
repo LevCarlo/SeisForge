@@ -1,0 +1,7 @@
+# Step 5: data of the inversion. Phase velocity from step 4; H/V synthetic
+# (SeisForge does not measure H/V from data yet).
+observations:
+  dispersion:
+    file: output/vph_disp.dat          # written by extract-station-curve
+  hv:
+    file: data/hv.dat                  # change this: your H/V curve

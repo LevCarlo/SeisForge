@@ -170,3 +170,43 @@ def rotate_zne_ccf_to_zrt(
         )
 
     return rotated_ccf
+
+
+def rotate_zrt_ccf_to_zne(ccf, azimuth, back_azimuth, degrees=True):
+    """Rotate nine-component CCFs from ZRT back to ZNE (inverse of `rotate_zne_ccf_to_zrt`).
+
+    Same conventions as `rotate_zne_ccf_to_zrt`: the first letter is the
+    virtual-source component, the second the receiver component. With
+    theta = azimuth and psi = back azimuth, the unit vectors in (N, E) are
+
+        source:   R = (-cos theta, -sin theta),  T = (sin theta, -cos theta)
+        receiver: R = (cos psi, sin psi),        T = (-sin psi, cos psi)
+
+    (read off the forward rotation). Both bases are orthonormal, so the
+    inverse is the transpose: ``C_ij = sum_ab S_a[i] R_b[j] X_ab`` with
+    ``i, j`` in N/E and ``a, b`` in R/T (Z passes through). All nine ZRT
+    components are required; all nine ZNE components are returned. Used to
+    build synthetic ZNE input; checked by a round trip in the tests.
+    """
+    missing = [comp for comp in ZRT_COMPONENTS if comp not in ccf]
+    if missing:
+        raise KeyError(f"Missing ZRT components: {missing}")
+    theta = np.deg2rad(azimuth) if degrees else azimuth
+    psi = np.deg2rad(back_azimuth) if degrees else back_azimuth
+    source = {"Z": None, "R": (-np.cos(theta), -np.sin(theta)), "T": (np.sin(theta), -np.cos(theta))}
+    receiver = {"Z": None, "R": (np.cos(psi), np.sin(psi)), "T": (-np.sin(psi), np.cos(psi))}
+    horizontal = {"N": 0, "E": 1}
+
+    def weight(basis, rotated, physical):
+        if rotated == "Z" or physical == "Z":
+            return 1.0 if rotated == physical else 0.0
+        return basis[rotated][horizontal[physical]]
+
+    result = {}
+    for first in "ZNE":
+        for second in "ZNE":
+            result[first + second] = sum(
+                weight(source, comp[0], first) * weight(receiver, comp[1], second) * np.asarray(ccf[comp])
+                for comp in ZRT_COMPONENTS
+            )
+    return result

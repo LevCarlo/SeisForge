@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from seisforge.cli import ant, inv, rf
+from seisforge.cli import ant, init, inv, rf
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,6 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     rf.register(subparsers)
     ant.register(subparsers)
     inv.register(subparsers)
+    init.register(subparsers)
 
     return parser
 

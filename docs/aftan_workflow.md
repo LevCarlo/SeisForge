@@ -1,9 +1,15 @@
 # AFTAN Dispersion Measurement
 
+!!! tip "Runnable example"
+    `examples/02_aftan` runs this workflow on synthetic data with a known answer
+    (`bash run.sh`); see the [examples overview](examples.md). The commands below
+    use the full reference config in `examples/reference_configs/`.
+
+
 Use one station-pair config per run:
 
 ```bash
-seisforge ant aftan -c examples/configs/aftan_station.yml
+seisforge ant aftan -c examples/reference_configs/aftan.yml
 ```
 
 The config is intentionally local and explicit: one source station, one receiver
@@ -100,7 +106,7 @@ picker. `instant_period_delta_s` is
 Optional QC outputs can be enabled in config or from the CLI:
 
 ```bash
-seisforge ant aftan -c examples/configs/aftan_station.yml --write-energy-map --plot-energy-map
+seisforge ant aftan -c examples/reference_configs/aftan.yml --write-energy-map --plot-energy-map
 ```
 
 When enabled, each trace writes `<input_stem>.basic_ftan.nc` as an xarray

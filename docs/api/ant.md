@@ -1,5 +1,14 @@
 # Ambient noise API
 
+## CCF rotation
+
+::: seisforge.ant.rotation
+    options:
+      members:
+        - rotate_zne_ccf_to_zrt
+        - rotate_zrt_ccf_to_zne
+        - required_zne_components
+
 ## AFTAN
 
 ::: seisforge.ant.aftan.driver
@@ -52,3 +61,7 @@
       members:
         - read_aftan_dat
         - read_station_table
+
+## Synthetic cross-correlations
+
+::: seisforge.ant.synthetic

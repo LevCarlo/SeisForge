@@ -5,13 +5,13 @@
 
 Observations:
   dispersion:
-    file: vph_disp.dat
+    file: data/vph_disp.dat
     wave: rayleigh
     kind: phase
     mode: 0
 
   hv:
-    file: hv.dat
+    file: data/hv.dat
     wave: rayleigh
     mode: 0
 

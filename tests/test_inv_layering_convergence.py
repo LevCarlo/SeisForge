@@ -37,7 +37,7 @@ PERIODS_S = np.array([0.8, 1.2, 1.6, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0
 
 
 def _sta001_like():
-    """The STA001 truth model (tools/make_sta001_synthetic.py)."""
+    """The STA001 truth model (tools/make_example_06_inversion.py)."""
     return ParameterizedVsModel(
         segments=(
             VsSegment(0.0, 1.0, GradientVs(1.70, 2.60)),

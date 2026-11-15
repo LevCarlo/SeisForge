@@ -1,0 +1,15 @@
+# Step 1: AFTAN on every CCF. Reference: examples/reference_configs/aftan.yml
+station: ALL                           # label only; every file matching sac_pattern is measured
+io:
+  input_dir: data/ccf                  # change this
+  output_dir: output/aftan
+  sac_pattern: "*_ZZ.SAC"
+aftan:
+  branch: both                         # no default; both lags give both directed paths
+  min_period: 1.5                      # change this: a little wider than the periods you keep
+  max_period: 9.0
+  period_sampling: {mode: uniform, uniform: {step: 0.5}}  # no default
+  velocity_window: {min: 1.5, max: 4.0}                   # change this
+  basic:
+    alpha: {mode: constant, constant: {value: 20.0}}      # no default
+  prediction_file: data/reference_phase_velocity.dat     # change this: picks the 2 pi cycle
