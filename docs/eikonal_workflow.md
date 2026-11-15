@@ -8,9 +8,9 @@ amplitude correction. Azimuthal anisotropy is not yet implemented.
 ## Input Dataset
 
 The Eikonal workflow starts from an already collected and integer-period
-resampled Xarray Dataset. Parsing AFTAN text files, resolving physical CCF
-branches, and attaching station coordinates belong in the project-specific
-upstream glue script.
+resampled Xarray Dataset. `seisforge ant collect-dispersion` builds it from
+AFTAN output (see [Collect AFTAN measurements](#collect-aftan-measurements));
+any other tool may write it directly if it follows this contract.
 
 The NetCDF dataset must have `path` and `period` dimensions and these values:
 
@@ -48,6 +48,54 @@ interpreted in that declared scale.
 Each directed source/receiver pair may occur only once. Coordinates associated
 with a station identifier must be consistent across every path. Input and grid
 longitude conventions must match explicitly.
+
+## Collect AFTAN Measurements
+
+```bash
+seisforge ant collect-dispersion 'FTAN/**/*.dat' \
+    --periods 8:40:2 --stations stations.txt -o measurements.nc
+```
+
+Quote the glob so the command, not the shell, expands it (`**` recurses).
+`--periods` takes `start:stop:step` (stop included) or `8,10,12`. The output
+then goes into `input.dataset` of the Eikonal config. What the command does:
+
+- **Which files.** Each `.dat` header names its AFTAN stage; only
+  `--aftan-stage` files are used (`basic`, default, or `pmf`), so the
+  `*.pmf.dat` and basic files can sit in the same folders.
+- **Which station is the source.** Station names and the component come from
+  the SAC file name recorded in the `.dat` header (`input_file`), matched
+  against `--name-pattern` (default
+  `{source_station}_{receiver_station}_{component}*`; use `--component ZZ`
+  when the name has no component). The stored pair is source -> receiver for
+  positive lags. A `negative`-branch file is the reversed path
+  (receiver -> source) with the reciprocal component, so measuring both
+  branches gives both directed paths. A symmetric `stack`-branch file is one
+  path; `--mirror-stack` also uses it for the reversed path. A directed path
+  found twice is an error.
+- **Coordinates.** Either `--stations FILE` with lines
+  `station longitude_deg latitude_deg`, or `--sac-dir DIR`, which finds each
+  `input_file` below `DIR` and reads `evlo/evla` (stored source) and
+  `stlo/stla` (stored receiver). Longitudes are written in
+  `--longitude-convention` (default `-180_180`; must match the grid).
+- **Resampling.** Phase velocity and SNR are interpolated linearly in period
+  onto the integer periods, between neighbouring AFTAN samples, without
+  extrapolation (NaN outside the measured range). The period axis is the
+  instantaneous period by default (`--period-axis instant`), the period the
+  AFTAN phase velocity belongs to; `--period-axis target` uses the filter
+  centre periods. A curve whose period axis is not increasing, or that does
+  not reach any requested period, is skipped and reported.
+- **SNR.** `snr(path, period)` is always written; `snr_scale` is `linear` or
+  `db` from the AFTAN column name (`snr` or `snr_db`; mixing them is an
+  error), so `input.min_snr` works directly.
+- **Amplitude.** `--amplitude` also writes the AFTAN amplitude for the
+  Helmholtz correction. It is only meaningful if all CCFs of a virtual source
+  share one amplitude normalization.
+
+The file records these choices in its attributes, and each path keeps the
+`aftan_file` and `aftan_branch` it came from. The command validates the
+dataset with the Eikonal reader before writing it, and refuses to replace an
+existing file without `--overwrite`.
 
 ## Run The Workflow
 
@@ -183,6 +231,48 @@ is excluded. The implementation counts only valid neighboring events, fixing
 the ambiguous indexing in the reference surfpy helper. Stacking is performed
 in slowness, followed by the configured iterative standard-deviation outlier
 rejection.
+
+## Extract A Station Curve For The Inversion
+
+```bash
+seisforge ant extract-station-curve output/eikonal_stack.nc \
+    --station STA001 --stations stations.txt -o vph_disp.dat
+```
+
+The command samples the stack at a station (or at `--longitude/--latitude`)
+and writes the three-column `period_s phase_velocity_km_s sigma_km_s` file
+that `observations.dispersion.file` of `seisforge inv` reads. Sampling is
+bilinear between the four surrounding grid nodes (`--interpolation nearest`
+takes the nearest node); a period is dropped when a needed node is masked or
+has no uncertainty, and the dropped periods are listed in the header.
+`--field helmholtz` uses the Helmholtz-corrected stack.
+
+**Which sigma.** The stack holds two spreads. `slowness_std_s_per_km` is the
+weighted standard deviation of the single-source slowness values: how much
+the individual fields scatter, which includes azimuthal anisotropy and
+source-specific errors and does not shrink with more sources.
+`velocity_sem_km_s` is the standard error of the weighted mean velocity,
+standard deviation / sqrt(n_eff) with the effective count
+n_eff = 1 / sum(w^2). The inversion fits the stacked mean, so the default is
+`--sigma sem`, the uncertainty of that mean, as Lin et al. (2009) report it.
+It assumes independent single-source fields; they share stations and
+interpolation, so it underestimates the error, most where many sources
+overlap. Two things compensate:
+
+- `--sigma-floor-km-s` (default 0.01 km/s, an assumed value, not from a
+  source) raises smaller values to the floor; the periods affected are listed
+  in the header.
+- A sampled noise scale in the inversion (`noise_parameter`, see
+  [Likelihood](inv_usage.md#likelihood)) lets the data rescale all sigmas;
+  the standard error then sets only their relative size.
+
+`--sigma std` uses the single-source spread instead, converted to velocity
+as std_s / s^2 (first order in std_s / s), a more conservative choice when
+anisotropy or bad sources dominate.
+
+The header records the stack file, location, field, interpolation, sigma
+source and definition, floor, and software provenance. An existing output is
+replaced only with `--overwrite`.
 
 ## Numerical Backends
 

@@ -43,6 +43,17 @@ switch that restores the old behaviour where one exists.
 
 ### Added
 
+- **Glue commands between AFTAN, Eikonal and the inversion.**
+  `seisforge ant collect-dispersion` gathers AFTAN `.dat` files into the
+  Eikonal `(path, period)` input dataset (negative branch = reversed pair,
+  coordinates from a station table or SAC headers, linear resampling on the
+  instantaneous period onto integer periods without extrapolation, `snr` and
+  `snr_scale` carried over). `seisforge ant extract-station-curve` samples an
+  Eikonal stack at a station or point and writes the inversion's
+  `period velocity sigma` file; `sigma` is the stack's standard error of the
+  mean by default (`--sigma std` for the single-source spread) with a lower
+  bound `--sigma-floor-km-s` (assumed default 0.01 km/s), all recorded in the
+  file header. Package `seisforge.ant.glue`.
 - **Parallel tempering** (`Sampler.tempering`): each chain becomes a
   ladder of tempered replicas with state swaps between neighbours; only the
   `T = 1` replica is stored. Swap acceptance is written to `*_mcmc.nc`.
