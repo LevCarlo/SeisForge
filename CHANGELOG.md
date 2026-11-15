@@ -8,6 +8,16 @@ switch that restores the old behaviour where one exists.
 
 ### Changed results
 
+- **STA001 example replaced by synthetic data.** `examples/STA001/vph_disp.dat`
+  and `hv.dat` had no stated origin or truth; they are now computed by
+  `tools/make_sta001_synthetic.py` from a stated truth model with seeded
+  noise, written with `true_model.dat`. `inv.yaml` now runs 4 x 16000 steps
+  (burn-in 5000, thin 10) with adaptive proposals
+  (`discard_early_history_fraction: 0.5`) and converges (split R-hat <= 1.006,
+  ESS >= 673, about 400 s on one core); the old 4 x 5000 fixed-step settings
+  did not converge on the old data. Results of the example therefore differ
+  entirely; the old files are in git history (before this change), not
+  behind an option, because they were example inputs, not a method.
 - **AFTAN time taper.** The 5 % edge taper on zero-lag CCF branches was
   replaced by a taper on the group-velocity window `[dist/vmax, dist/vmin]`
   (`aftan.time_taper.mode: velocity_window`, default). The old taper

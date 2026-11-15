@@ -167,9 +167,12 @@ likelihood:
   hv_weight: 1.0
 
 sampler:
-  n_steps: 5000
-  burn_in: 1000
-  thin: 5
+  # Settings of the documented example run (docs/inv_getting_started.md):
+  # on the synthetic data every parameter reaches split R-hat <= 1.006 and
+  # ESS >= 673, post-burn-in acceptance 0.18-0.20, about 400 s on one core.
+  n_steps: 16000
+  burn_in: 5000
+  thin: 10
   n_chains: 4
   executor: serial
   max_workers: null
@@ -183,6 +186,15 @@ sampler:
 
   proposal_sigma: from_parameters
   use_parameter_bounds: true
+
+  # Neighbouring B-spline coefficients trade off against each other; the
+  # proposal covariance is learned during burn-in and frozen after it. The
+  # first half of the burn-in history so far is left out of each update, so
+  # the drift from the random starting points does not widen the steps.
+  adaptation:
+    initial_diagonal_steps: 1500
+    update_interval_steps: 250
+    discard_early_history_fraction: 0.5
 
   # Every N steps, use a global uniform proposal over parameter bounds. This is
   # the pymcinv step4uwalk idea, kept as an occasional escape move.
