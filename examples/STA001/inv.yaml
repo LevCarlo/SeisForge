@@ -125,7 +125,17 @@ inversion:
         sigma: 0.035
 
 discretization:
-  dz: 0.25
+  # Layers the forward solver sees: 62.5 m thick at the surface, growing by
+  # 10 % per layer down to at most 1 km (35 layers for this model). Thin
+  # shallow layers matter for H/V; deep layers can be thick because the
+  # periods used see them only on average. Uniform 0.25 km layers were not
+  # thin enough: H/V changed by up to 1.8 sigma against much thinner layers.
+  # Every run logs "layering error" (the change of the predicted data against
+  # a 4x finer layering, in units of the data sigma); keep it well below 1,
+  # and make dz smaller if your data have shorter periods.
+  dz: 0.0625
+  dz_growth_ratio: 1.1
+  dz_max: 1.0
   zmax: 15.0
   # Segment boundaries are preserved automatically. Use force_depths only for
   # extra fixed internal depths that are not already model segment boundaries.
@@ -168,14 +178,17 @@ likelihood:
 
 sampler:
   # Settings of the documented example run (docs/inv_getting_started.md):
-  # on the synthetic data every parameter reaches split R-hat <= 1.006 and
-  # ESS >= 673, post-burn-in acceptance 0.18-0.20, about 400 s on one core.
+  # on the synthetic data every parameter reaches split R-hat <= 1.007 and
+  # ESS >= 541, post-burn-in acceptance 0.18-0.20, about 80 s with the four
+  # chains in four processes (10-core Apple M4). The executor does not change
+  # the numbers (each chain has its own seeded generator); use serial on one
+  # core.
   n_steps: 16000
   burn_in: 5000
   thin: 10
   n_chains: 4
-  executor: serial
-  max_workers: null
+  executor: process
+  max_workers: 4
   seed: 20260702
 
   # prior_uniform draws legal starting points from parameter bounds plus hard

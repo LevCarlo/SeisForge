@@ -1,18 +1,18 @@
 # Synthetic data written by tools/make_sta001_synthetic.py (see its docstring);
 # truth = sediment.vs_top=1.70, sediment.vs_bottom=2.60, crust.c0=2.65, crust.c1=2.85, crust.c2=3.05, crust.c3=3.20, crust.c4=3.30, crust.c5=3.45, crust.c6=3.60, crust.c7=3.70;
-# Gaussian noise, numpy default_rng(20261115), sigma 0.03 km/s (dispersion), 0.02 (H/V).
+# forwarded in uniform 0.03125 km layers; Gaussian noise, numpy default_rng(20261115), sigma 0.03 km/s (dispersion), 0.02 (H/V).
 # period_s  rayleigh_hv  sigma
-0.80 0.6582 0.020
-1.20 0.7970 0.020
-1.60 0.8681 0.020
-2.00 0.9071 0.020
-2.50 0.9584 0.020
-3.00 0.9463 0.020
-3.50 0.9655 0.020
-4.00 1.0090 0.020
-4.50 0.9405 0.020
-5.00 0.9728 0.020
-5.50 0.9321 0.020
-6.00 0.9443 0.020
-6.50 0.9364 0.020
-7.00 0.9489 0.020
+0.80 0.6854 0.020
+1.20 0.8182 0.020
+1.60 0.8854 0.020
+2.00 0.9212 0.020
+2.50 0.9692 0.020
+3.00 0.9546 0.020
+3.50 0.9720 0.020
+4.00 1.0142 0.020
+4.50 0.9447 0.020
+5.00 0.9763 0.020
+5.50 0.9350 0.020
+6.00 0.9468 0.020
+6.50 0.9385 0.020
+7.00 0.9508 0.020

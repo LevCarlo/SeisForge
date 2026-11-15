@@ -15,10 +15,15 @@ parameters of `examples/STA001/inv.yaml` set to `TRUTH` below, i.e.
   3.70 km/s; half-space below 15 km;
 - Vp and density from Vs by Brocher (2005), as in `inv.yaml`.
 
-The model is discretized and forwarded exactly as the inversion does it
-(`discretization` of `inv.yaml`, the forward settings of `obs.yaml`: disba,
-fundamental-mode Rayleigh phase velocity and ellipticity). The truth must lie
-inside the prior: the script stops if its log prior is not finite.
+The model is forwarded with the forward settings of `obs.yaml` (disba,
+fundamental-mode Rayleigh phase velocity and ellipticity) but layered much
+more finely than the inversion: uniform layers of `TRUTH_DZ_KM` = 1/32 km
+(assumed; the reference layering of `seisforge.inv.layering` tests, at which
+the STA001 predictions are converged to well below the noise), with the
+segment boundaries and `zmax` of `inv.yaml`. Using the inversion's own
+layering would hide its discretization error: the example would then agree
+with itself whatever the layering. The truth must lie inside the prior: the
+script stops if its log prior is not finite.
 
 Noise (assumed): independent Gaussian, standard deviation `DISPERSION_SIGMA_KM_S`
 = 0.03 km/s on the phase velocity (about 1 %) and `HV_SIGMA` = 0.02 on the
@@ -27,8 +32,8 @@ ellipticity, at the 14 periods `PERIODS_S` (0.8-7 s), drawn with
 written sigma is the true noise standard deviation.
 
 Outputs (in `--out`, default `examples/STA001`): `vph_disp.dat`, `hv.dat`
-(three columns: period, value, sigma) and `true_model.dat` (the layered truth
-model the data were computed from: top depth, thickness, Vp, Vs, density;
+(three columns: period, value, sigma) and `true_model.dat` (the finely layered
+truth model the data were computed from: top depth, thickness, Vp, Vs, density;
 the truth parameters in the header). Existing files are kept unless
 `--overwrite` is given.
 
@@ -46,6 +51,7 @@ import numpy as np
 from seisforge.inv.config import load_inversion_input, observation_specs_from_config
 from seisforge.inv.forward import predict_dispersion, predict_rayleigh_hv
 from seisforge.inv.io import dispersion_request_from_config, rayleigh_hv_request_from_config
+from seisforge.inv.layering import layered_model_from_parameterized, reference_discretization
 from seisforge.inv.setup import build_inversion_setup
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,6 +74,9 @@ PERIODS_S = np.array([0.8, 1.2, 1.6, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0
 DISPERSION_SIGMA_KM_S = 0.03  # assumed, about 1 % of the phase velocity
 HV_SIGMA = 0.02  # assumed
 SEED = 20261115
+# Uniform layer thickness of the truth model (assumed, see the docstring);
+# independent of the `discretization` the inversion uses.
+TRUTH_DZ_KM = 1.0 / 32.0
 
 
 def truth_theta(names) -> np.ndarray:
@@ -87,7 +96,12 @@ def synthetic_data(inv_file: Path, obs_file: Path):
     prior = setup.prior.evaluate(theta)
     if not prior.success:
         raise ValueError(f"The truth lies outside the prior of {inv_file}: {prior.error}")
-    model = prior.layered_model
+    discretization = reference_discretization(
+        setup.prior.discretization, reference_dz_km=TRUTH_DZ_KM
+    )
+    model = layered_model_from_parameterized(
+        setup.parameterization.vector_to_model(theta), discretization
+    )
 
     specs = observation_specs_from_config(inversion_input.obs_config)
     dispersion = predict_dispersion(model, dispersion_request_from_config({**specs["dispersion"], "periods": PERIODS_S}))
@@ -123,7 +137,7 @@ def main(argv=None) -> None:
     source = [
         "Synthetic data written by tools/make_sta001_synthetic.py (see its docstring);",
         f"truth = {', '.join(f'{n}={v:.2f}' for n, v in zip(setup.parameterization.names, theta, strict=True))};",
-        f"Gaussian noise, numpy default_rng({SEED}), "
+        f"forwarded in uniform {TRUTH_DZ_KM:g} km layers; Gaussian noise, numpy default_rng({SEED}), "
         f"sigma {DISPERSION_SIGMA_KM_S} km/s (dispersion), {HV_SIGMA} (H/V).",
     ]
     np.savetxt(
@@ -146,8 +160,9 @@ def main(argv=None) -> None:
         fmt="%.6f",
         header=_header(
             [
-                "Truth model of the STA001 synthetic data (tools/make_sta001_synthetic.py), as layered",
-                "by inv.yaml for the forward calculation; last row is the half-space (thickness 0).",
+                "Truth model of the STA001 synthetic data (tools/make_sta001_synthetic.py), in the",
+                f"uniform {TRUTH_DZ_KM:g} km layers used for the forward calculation (not the",
+                "inversion layering); last row is the half-space (thickness 0).",
                 source[1],
                 "top_km  thickness_km  vp_km_s  vs_km_s  rho_g_cm3",
             ]

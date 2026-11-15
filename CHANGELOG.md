@@ -8,6 +8,18 @@ switch that restores the old behaviour where one exists.
 
 ### Changed results
 
+- **STA001 example: data from a finer layering, graded inversion layering,
+  parallel chains.** `tools/make_sta001_synthetic.py` now forwards the truth
+  in uniform 1/32 km layers (`TRUTH_DZ_KM`) instead of the inversion's own
+  layering, so the example no longer hides its layering error; the data files
+  were regenerated (same truth, noise and seed). `examples/STA001/inv.yaml`
+  uses `discretization: dz: 0.0625, dz_growth_ratio: 1.1, dz_max: 1.0`
+  (35 layers; logged layering error 0.03 sigma in phase velocity, 0.08 sigma
+  in H/V) instead of uniform `dz: 0.25` (1.2-1.4 sigma in H/V), and
+  `sampler.executor: process` with `max_workers: 4` (bit-for-bit the same
+  samples as `serial`, checked on a short run). Measured: split R-hat <= 1.007,
+  ESS >= 541, about 80 s on 4 processes. The old data and settings are in git
+  history; they were example inputs, not a method, so no option restores them.
 - **STA001 example replaced by synthetic data.** `examples/STA001/vph_disp.dat`
   and `hv.dat` had no stated origin or truth; they are now computed by
   `tools/make_sta001_synthetic.py` from a stated truth model with seeded

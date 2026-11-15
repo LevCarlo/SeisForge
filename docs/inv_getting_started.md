@@ -4,7 +4,9 @@ This page runs the example in `examples/STA001` from start to finish: a
 Bayesian (MCMC) inversion of Rayleigh phase velocity and Rayleigh H/V for
 Vs(z) in the upper 15 km. The data are synthetic, computed from a known
 model, so the result can be compared with the truth. The posterior run takes
-about 7 minutes on one core (400 s measured), the prior run about 30 s.
+about 80 s and the prior run about 6 s, with the four chains in four
+processes (measured on a 10-core Apple M4; on one core expect about four
+times as long).
 
 The [model guide](model.md) explains the model space, and the
 [configuration reference](inv_usage.md) lists every key.
@@ -34,8 +36,10 @@ sediment.vs_top, sediment.vs_bottom, crust.c0 ... crust.c7
 ```
 
 **The data are synthetic.** `tools/make_sta001_synthetic.py` sets these ten
-parameters to a truth model, forwards it with the same discretization and
-disba settings as the inversion, and adds Gaussian noise (seed 20261115):
+parameters to a truth model, forwards it with the disba settings of `obs.yaml`
+in uniform 1/32 km layers (much thinner than the inversion's layers, so the
+example does not hide the inversion's own layering error), and adds Gaussian
+noise (seed 20261115):
 
 | | truth (km/s) |
 |---|---|
@@ -76,9 +80,26 @@ seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run_disp_hv --progress
 
 `inv disp` and `inv hv` invert one data type; `inv disp-hv` inverts both.
 An existing output directory is not overwritten unless `--overwrite` is given.
-The example uses four chains in series (`sampler.executor: serial`); with
-`executor: thread` they run in parallel, because the forward solvers release
-the GIL.
+The example runs its four chains in four processes (`sampler.executor:
+process`, `max_workers: 4`). The executor does not change the numbers: every
+chain draws from its own seeded generator, and a short run gave identical
+samples with `serial` and `process`. Use `serial` on a machine with one core.
+
+**Layering.** The forward solver sees the model as thin uniform layers. The
+example uses 62.5 m layers at the surface, each 10 % thicker than the one
+above, at most 1 km (`discretization: dz: 0.0625, dz_growth_ratio: 1.1,
+dz_max: 1.0`, 35 layers). Every run logs the change of the predicted data
+against 4 times thinner layers, in units of the data sigma:
+
+```text
+discretization layering_error_at_initial: 35 layers vs reference 961 (uniform dz 0.01562 km);
+  max |d phase velocity| 0.000818 km/s (0.0273 sigma); max |d H/V| 0.00153 (0.0767 sigma)
+```
+
+Keep both ratios well below 1 (here below 0.1). With your own data, read this
+line first; if a ratio is near or above 1, make `dz` smaller. Uniform 0.25 km
+layers, used by this example before, give 1.2-1.4 sigma in H/V. See
+[choosing a layering](inv_usage.md#discretization).
 
 The output directory contains:
 
@@ -122,8 +143,10 @@ What to check:
   note below 0.1 or above 0.6.
 - **Truth.** The truth (black) lies inside the posterior 5-95 % band at every
   depth of the output grid. The band is about a tenth of the prior width at
-  the surface and a third at 2-8 km, and widens below 10 km (two thirds of the
-  prior width at 14 km), where the 7 s maximum period loses sensitivity.
+  the surface and a quarter to a third at 2-8 km, and widens below 10 km
+  (0.56 of the prior width at 10 km, 0.69 at 14 km), where the 7 s maximum
+  period loses sensitivity. The posterior means of the ten parameters lie
+  within 0.85 posterior standard deviations of the truth.
 - **Posterior vs prior.** Where the posterior band is as wide as the prior
   band, the data do not constrain that depth range. Compare the bottom of the
   model with the period range of the data before interpreting it.
@@ -135,7 +158,7 @@ What to check:
   1.01 for final results) and `mcmc.effective_sample_size` at least a few
   hundred; `mcmc.attrs["lagging_chains"]` lists chains stuck in a lower mode.
   The log file repeats these and warns when they fail. In this run split
-  R-hat is 1.001-1.006 and the ESS 673-959 for all ten parameters (3200
+  R-hat is 1.000-1.007 and the ESS 541-935 for all ten parameters (4400
   stored draws), with no lagging chain. The prior run reaches R-hat <= 1.012
   and ESS >= 397.
 - **Forward failures.** `mcmc.forward_failure_rate` is the fraction of
