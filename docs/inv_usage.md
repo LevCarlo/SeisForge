@@ -389,6 +389,7 @@ sampler:
 | `use_parameter_bounds` | true | keep proposals inside the prior bounds |
 | `global_jump_interval` | none | every N steps propose uniformly over the bounds |
 | `tempering` | none | parallel tempering: `{}` for the default ladder, `{n_temperatures, max_temperature}`, or `{temperatures: [...]}`; plus `swap_interval` (below) |
+| `adaptation` | none (off) | adaptive proposal covariance during burn-in: `{initial_diagonal_steps, update_interval_steps}`, optional `regularization_fraction` (below) |
 
 **Executor.** `thread` is usually best on one machine: disba and the RF kernel
 release the GIL, so chains run in parallel (four threads ran disba about 3.6x
@@ -443,13 +444,65 @@ sampler:
 - Run untempered first; turn tempering on when the diagnostics show separate
   modes.
 
+**Adaptive proposals.** Parameters that trade off against each other, such
+as neighbouring B-spline coefficients, form a narrow, tilted ridge in the
+posterior. A proposal that moves each parameter independently must then use
+steps as small as the ridge is narrow, and the chain crawls along it: split
+R-hat stays far above 1 and the ESS in single digits even after thousands of
+steps. Tempering does not help here; it helps with separate modes. With
+`adaptation`, each chain learns the shape of the ridge during burn-in
+(adaptive Metropolis, Haario et al. 2001):
+
+```yaml
+sampler:
+  n_steps: 20000
+  burn_in: 8000
+  adaptation:
+    initial_diagonal_steps: 2000   # steps with proposal.sigma before the first update
+    update_interval_steps: 200     # steps between updates
+    # regularization_fraction: 1.0e-4
+```
+
+- For the first `initial_diagonal_steps` steps the chain uses the diagonal
+  `proposal.sigma`. From then on, every `update_interval_steps` steps, the
+  proposal covariance becomes
+  $C = \frac{2.38^2}{d}\,\big(\mathrm{Cov}(\text{chain so far}) + \varepsilon\,\mathrm{diag}(\sigma^2)\big)$,
+  with $d$ the number of parameters and $\sigma$ the starting
+  `proposal.sigma`. $2.38^2/d$ is the scaling that is optimal for Gaussian
+  posteriors (Gelman et al. 1996); $\varepsilon$ =
+  `regularization_fraction` (default $10^{-4}$, assumed) keeps every
+  parameter a small step of its own unit even if it has not moved yet.
+- The last update falls at or before the end of burn-in; afterwards $C$ is
+  frozen, so the stored draws come from an ordinary Metropolis chain with a
+  fixed proposal and sample the posterior exactly. `burn_in` must be at least
+  `initial_diagonal_steps`, which must exceed the number of parameters.
+- Choose `initial_diagonal_steps` long enough for the chain to reach the
+  high-probability region (watch the log posterior in the progress lines),
+  and leave several updates after it: a covariance estimated from the
+  transient start is too wide or wrongly tilted. Keep `proposal.sigma`
+  sensible, because it still drives the start.
+- Each chain adapts on its own history only, so chains stay independent and
+  the executors give the same result. With tempering each temperature adapts
+  its own covariance from the states it held, swaps included. Global jumps
+  keep their uniform proposal. The prior-only run (`--prior-only`,
+  `--with-prior`) adapts as well, with its own chains.
+- How to read the result: the log prints, per chain, the frozen proposal
+  step size of every parameter (`frozen proposal sd`), and `*_mcmc.nc` holds
+  the frozen covariance `proposal_covariance(chain, parameter,
+  parameter_column)` (with tempering, all temperatures in
+  `proposal_covariance_tempered`) and the settings in attrs
+  `adaptation_*`. Acceptance after burn-in near 0.2-0.35 is what the scaling
+  aims for in many dimensions. Chains whose frozen covariances differ
+  strongly did not reach the same region during burn-in; lengthen it. Judge
+  the improvement by R-hat and ESS, as without adaptation.
+
 ## Output files
 
 For `disp-hv` (other kinds use their own prefix):
 
 | file | content |
 |---|---|
-| `disp_hv_mcmc.nc` | `theta(chain, draw, parameter)`, `log_prob`, `log_prior`, `log_parameter_prior`, `log_physical_hard_prior`, `log_soft_prior`, `log_likelihood`, acceptance, initial and final theta; `vs_curvature_rms` with the curvature prior; convergence diagnostics `split_rhat(parameter)`, `effective_sample_size(parameter)`, and attrs `max_split_rhat`, `min_effective_sample_size`, `lagging_chains`; with tempering, `swap_acceptance(chain, temperature_pair)` and attr `temperatures`; forward-solver failures `forward_attempts(chain)`, `forward_failures(chain)`, `forward_failure_rate(chain)` (with tempering also `*_cold`) and attr `forward_failure_top_errors` |
+| `disp_hv_mcmc.nc` | `theta(chain, draw, parameter)`, `log_prob`, `log_prior`, `log_parameter_prior`, `log_physical_hard_prior`, `log_soft_prior`, `log_likelihood`, acceptance, initial and final theta; `vs_curvature_rms` with the curvature prior; convergence diagnostics `split_rhat(parameter)`, `effective_sample_size(parameter)`, and attrs `max_split_rhat`, `min_effective_sample_size`, `lagging_chains`; with tempering, `swap_acceptance(chain, temperature_pair)` and attr `temperatures`; with `adaptation`, `proposal_covariance(chain, parameter, parameter_column)` (and `proposal_covariance_tempered`) and attrs `adaptation_*`; forward-solver failures `forward_attempts(chain)`, `forward_failures(chain)`, `forward_failure_rate(chain)` (with tempering also `*_cold`) and attr `forward_failure_top_errors` |
 | `disp_hv_vs.nc` | Vs(z) per sample and depth-wise `mean`, `std`, `minimum`, `maximum`, `p01`...`p99`, `median`, `best_vs` |
 | `disp_hv_predictive.nc` | predicted dispersion and H/V per sample, their percentiles, and the observed values and sigmas |
 | `disp_hv.log` | settings, acceptance rates, forward failures, best theta, output paths |

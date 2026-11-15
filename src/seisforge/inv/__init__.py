@@ -66,6 +66,7 @@ from seisforge.inv.forward import (
     predict_receiver_function,
 )
 from seisforge.inv.io import (
+    adaptation_attrs,
     discretization_from_config,
     dispersion_request_from_config,
     dump_yaml,
@@ -164,15 +165,19 @@ from seisforge.inv.soft_priors import (
     soft_priors_from_config,
 )
 from seisforge.inv.samplers import (
+    AdaptationConfig,
     ChainLocalTarget,
     ChainResult,
     MCMCResult,
     MetropolisConfig,
+    adaptive_proposal_covariance,
     draw_valid_initial_thetas,
     geometric_temperatures,
     run_metropolis,
     run_metropolis_chain,
     run_tempered_chain,
+    running_covariance,
+    update_running_moments,
 )
 from seisforge.inv.setup import (
     InversionSetup,
@@ -182,6 +187,11 @@ from seisforge.inv.setup import (
 )
 
 __all__ = [
+    "AdaptationConfig",
+    "adaptation_attrs",
+    "adaptive_proposal_covariance",
+    "running_covariance",
+    "update_running_moments",
     "geometric_temperatures",
     "run_tempered_chain",
     "ConvergenceDiagnostics",

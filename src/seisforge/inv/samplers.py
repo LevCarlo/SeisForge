@@ -22,6 +22,60 @@ replica, the only one stored, samples the posterior, while hot replicas cross
 between modes the cold one cannot leave. Without ``temperatures`` a chain
 draws exactly the random numbers it drew before tempering existed.
 
+Adaptive proposals during burn-in (``MetropolisConfig.adaptation``): the
+adaptive Metropolis algorithm of Haario, Saksman & Tamminen (2001, Bernoulli
+7, 223-242), restricted to burn-in. With ``d`` parameters, chain states
+``x_0, ..., x_t`` (``x_0`` the starting point; a rejected step repeats the
+state) and the diagonal starting proposal ``sigma`` (``proposal_sigma``), the
+Gaussian random-walk proposal has covariance
+
+    C_t = diag(sigma**2)                                  for t < t_0
+    C_t = s_d * (Cov(x_0, ..., x_t) + eps * diag(sigma**2)) otherwise
+
+where ``t_0 = adaptation.initial_diagonal_steps`` and
+``s_d = 2.38**2 / d``, the scaling that is optimal for Gaussian targets
+(Gelman, Roberts & Gilks 1996, Bayesian Statistics 5, 599-607; the value
+Haario et al. use). ``C_t`` is recomputed every
+``adaptation.update_interval_steps`` steps from a running mean and scatter
+matrix (Welford's recursion, `update_running_moments`), never from the full
+history; the last update falls at or before the end of burn-in, after which
+``C`` is frozen. The stored draws therefore come from a Metropolis chain with
+one fixed symmetric Gaussian kernel, whose stationary distribution is the
+target whatever ``C`` is: adaptation only changes how fast the chain mixes,
+and no ergodicity argument for a continuously adapted chain is needed.
+
+``eps`` is ``adaptation.regularization_fraction`` (default
+``DEFAULT_REGULARIZATION_FRACTION = 1e-4``, assumed) times the starting
+variance of each parameter, not times the identity as in Haario et al.:
+parameters with different units and scales (for example km/s next to a
+log10 noise scale) then each get a floor of ``sqrt(s_d * eps) * sigma_j``,
+about 1% of their own starting step times ``2.38 / sqrt(d)``, which keeps
+``C`` positive definite when a parameter has not moved without distorting
+any well-sampled direction. A chain that accepted nothing before its first
+update therefore keeps a tiny but valid proposal; check the burn-in acceptance.
+
+Relation to the other moves:
+
+- Proposals outside ``bounds`` are rejected without evaluating the target, as
+  without adaptation; the repeated state enters the history.
+- Global-jump steps keep their uniform proposal and do not use ``C``. The
+  state after such a step is a state of the chain like any other and enters
+  the history: the history is the chain itself (as in Haario et al.), and
+  leaving states out would make it depend on the jump schedule.
+- With tempering every temperature slot of the ladder adapts its own
+  ``C_i``, starting from ``sigma * sqrt(T_i)`` with ``eps`` relative to that
+  start. The history of slot ``i`` is the sequence of states held at
+  temperature ``T_i`` after each step, swaps included: after burn-in that
+  sequence is the chain that samples the tempered target ``i``, which is the
+  covariance the slot's proposal should match. A swap therefore moves states,
+  not histories, between slots.
+- Every chain adapts from its own history only, with the random numbers of
+  its own generator, so the serial, thread and process executors draw the
+  same chains.
+- Without adaptation the sampler draws exactly the random numbers it drew
+  before adaptation existed (pinned by ``tests/test_inv_sampler_baseline.py``);
+  before ``t_0`` an adaptive chain draws the same steps as a fixed one.
+
 Failure policy: a target signals an invalid point by returning ``-inf`` (or
 NaN, read as ``-inf``). Floating-point overflow raised during an evaluation
 (``FloatingPointError``, ``OverflowError``) also counts as ``-inf``; every
@@ -77,6 +131,53 @@ class ChainLocalTarget(Protocol):
     def chain_evaluator(self) -> ReportingEvaluator: ...
 
 
+# Assumed: regularization of the adapted proposal relative to the starting
+# variance of each parameter (see the module docstring).
+DEFAULT_REGULARIZATION_FRACTION = 1e-4
+# Gelman, Roberts & Gilks (1996): s_d = OPTIMAL_RW_SCALE**2 / d.
+OPTIMAL_RW_SCALE = 2.38
+
+
+@dataclass(frozen=True)
+class AdaptationConfig:
+    """Adaptive Metropolis during burn-in (Haario et al. 2001), frozen afterwards.
+
+    Parameters
+    ----------
+    initial_diagonal_steps
+        Steps run with the diagonal ``proposal_sigma`` before the first update
+        (``t_0``); the empirical covariance is first computed from the
+        starting point and these states. Must exceed the number of
+        parameters (checked when a chain starts) and must not exceed
+        ``burn_in``.
+    update_interval_steps
+        Steps between proposal updates after ``t_0``.
+    regularization_fraction
+        ``eps``: fraction of the starting variance added to the empirical
+        covariance of each parameter.
+    """
+
+    initial_diagonal_steps: int
+    update_interval_steps: int
+    regularization_fraction: float = DEFAULT_REGULARIZATION_FRACTION
+
+    def __post_init__(self):
+        if self.initial_diagonal_steps < 1:
+            raise ValueError("adaptation.initial_diagonal_steps must be positive.")
+        if self.update_interval_steps < 1:
+            raise ValueError("adaptation.update_interval_steps must be positive.")
+        if not (np.isfinite(self.regularization_fraction) and self.regularization_fraction > 0):
+            raise ValueError("adaptation.regularization_fraction must be positive and finite.")
+
+    def update_steps(self, burn_in: int) -> tuple[int, ...]:
+        """Completed step counts after which the proposal is recomputed.
+
+        The proposal computed after ``n`` completed steps is used from step
+        ``n`` (0-based) on; the last entry is at most ``burn_in``.
+        """
+        return tuple(range(self.initial_diagonal_steps, burn_in + 1, self.update_interval_steps))
+
+
 @dataclass(frozen=True)
 class MetropolisConfig:
     """Configuration for random-walk Metropolis sampling."""
@@ -89,6 +190,7 @@ class MetropolisConfig:
     global_jump_interval: int | None = None
     temperatures: Sequence[float] | None = None  # parallel tempering ladder, first = 1
     swap_interval: int = 1
+    adaptation: AdaptationConfig | None = None  # adaptive proposal during burn-in
 
     def __post_init__(self):
         if self.n_steps <= 0:
@@ -116,6 +218,15 @@ class MetropolisConfig:
             object.__setattr__(self, "temperatures", tuple(float(t) for t in ladder))
         if self.swap_interval < 1:
             raise ValueError("swap_interval must be positive.")
+        if self.adaptation is not None:
+            if not isinstance(self.adaptation, AdaptationConfig):
+                raise TypeError("adaptation must be an AdaptationConfig or None.")
+            if self.burn_in < self.adaptation.initial_diagonal_steps:
+                raise ValueError(
+                    "Adaptive proposals are fitted during burn-in only and frozen afterwards: "
+                    f"burn_in ({self.burn_in}) must be at least "
+                    f"adaptation.initial_diagonal_steps ({self.adaptation.initial_diagonal_steps})."
+                )
 
 
 def geometric_temperatures(n_temperatures: int, max_temperature: float) -> tuple[float, ...]:
@@ -147,10 +258,21 @@ class ChainResult:
     # ``report()`` of each chain-local evaluator, one per replica in ladder
     # order (one for a plain chain); None unless the target is a ChainLocalTarget.
     target_reports: tuple | None = None
+    # Frozen adaptive proposal covariance, shape (n_replicas, d, d) in ladder
+    # order (n_replicas = 1 for a plain chain), as in use at the end of the
+    # run; None without adaptation.
+    proposal_covariance: np.ndarray | None = None
 
     @property
     def n_steps(self) -> int:
         return len(self.accepted)
+
+    @property
+    def proposal_sd(self) -> np.ndarray | None:
+        """Per-parameter step size of the frozen proposal of the ``T = 1`` chain."""
+        if self.proposal_covariance is None:
+            return None
+        return np.sqrt(np.diag(self.proposal_covariance[0]))
 
     @property
     def acceptance_rate(self) -> float:
@@ -203,18 +325,18 @@ def run_metropolis_chain(
     initial_theta = theta.copy()
     initial_log_prob = current_log_prob
 
+    adapter = _adapter(config, theta, proposal_sigma)
+
     stored_samples = []
     stored_log_prob = []
     accepted = np.zeros(config.n_steps, dtype=bool)
 
     for step in range(config.n_steps):
-        proposal = _propose(
-            theta,
-            proposal_sigma,
-            rng,
-            bounds=bounds,
-            global_jump=_is_global_jump(step, config.global_jump_interval),
-        )
+        global_jump = _is_global_jump(step, config.global_jump_interval)
+        if adapter is not None and not global_jump:
+            proposal = adapter.propose(theta, rng)
+        else:
+            proposal = _propose(theta, proposal_sigma, rng, bounds=bounds, global_jump=global_jump)
         if bounds is not None and not _within_bounds(proposal, bounds):
             proposed_log_prob = -np.inf
         else:
@@ -223,6 +345,8 @@ def run_metropolis_chain(
             theta = proposal
             current_log_prob = proposed_log_prob
             accepted[step] = True
+        if adapter is not None:
+            adapter.observe(step, theta)
 
         if _store_step(step, config.burn_in, config.thin):
             stored_samples.append(theta.copy())
@@ -246,6 +370,7 @@ def run_metropolis_chain(
         final_log_prob=float(current_log_prob),
         seed=seed,
         chain_id=chain_id,
+        proposal_covariance=None if adapter is None else adapter.covariance()[None],
     )
 
 
@@ -292,6 +417,7 @@ def run_tempered_chain(
     states = [theta.copy() for _ in temperatures]
     values = [current for _ in temperatures]
     sigmas = [proposal_sigma * np.sqrt(t) for t in temperatures]
+    adapters = [_adapter(config, theta, sigma) for sigma in sigmas]
     n_pairs = len(temperatures) - 1
     attempts = np.zeros(n_pairs, dtype=int)
     accepts = np.zeros(n_pairs, dtype=int)
@@ -303,7 +429,10 @@ def run_tempered_chain(
     for step in range(config.n_steps):
         global_jump = _is_global_jump(step, config.global_jump_interval)
         for i, temperature in enumerate(temperatures):
-            proposal = _propose(states[i], sigmas[i], rng, bounds=bounds, global_jump=global_jump)
+            if adapters[i] is not None and not global_jump:
+                proposal = adapters[i].propose(states[i], rng)
+            else:
+                proposal = _propose(states[i], sigmas[i], rng, bounds=bounds, global_jump=global_jump)
             if bounds is not None and not _within_bounds(proposal, bounds):
                 proposed = (-np.inf, -np.inf)
             else:
@@ -324,6 +453,9 @@ def run_tempered_chain(
                     states[i], states[i + 1] = states[i + 1], states[i]
                     values[i], values[i + 1] = values[i + 1], values[i]
                     accepts[i] += 1
+        for adapter, state in zip(adapters, states, strict=True):
+            if adapter is not None:
+                adapter.observe(step, state)
 
         if _store_step(step, config.burn_in, config.thin):
             stored_samples.append(states[0].copy())
@@ -347,6 +479,9 @@ def run_tempered_chain(
         seed=seed,
         chain_id=chain_id,
         swap_acceptance=accepts / np.maximum(attempts, 1),
+        proposal_covariance=(
+            None if config.adaptation is None else np.stack([a.covariance() for a in adapters])
+        ),
     )
 
 
@@ -433,6 +568,99 @@ def draw_valid_initial_thetas(
     if len(starts) < n_chains:
         raise RuntimeError("Could not draw enough valid initial thetas.")
     return np.asarray(starts, dtype=float)
+
+
+def update_running_moments(
+    count: int,
+    mean: np.ndarray,
+    scatter: np.ndarray,
+    x: np.ndarray,
+) -> tuple[int, np.ndarray, np.ndarray]:
+    """Add one point to a running mean and scatter matrix (Welford's recursion).
+
+    With ``n = count + 1``: ``mean_n = mean + (x - mean) / n`` and
+    ``scatter_n = scatter + (x - mean) (x - mean_n)^T``, so that
+    ``scatter_n = sum_k (x_k - mean_n)(x_k - mean_n)^T`` over all ``n`` points.
+    Start from ``count = 0`` and zero arrays. Returns new arrays.
+    """
+    count = count + 1
+    delta = x - mean
+    mean = mean + delta / count
+    scatter = scatter + np.outer(delta, x - mean)
+    return count, mean, scatter
+
+
+def running_covariance(count: int, scatter: np.ndarray) -> np.ndarray:
+    """Unbiased sample covariance ``scatter / (count - 1)``, symmetrized."""
+    if count < 2:
+        raise ValueError("Need at least two points for a covariance.")
+    covariance = scatter / (count - 1)
+    return 0.5 * (covariance + covariance.T)
+
+
+def adaptive_proposal_covariance(
+    sample_covariance: np.ndarray,
+    reference_sigma: np.ndarray,
+    regularization_fraction: float,
+) -> np.ndarray:
+    """``(2.38**2 / d) * (sample_covariance + eps * diag(reference_sigma**2))``.
+
+    Haario, Saksman & Tamminen (2001) with the regularization ``eps`` taken
+    relative to each parameter's starting variance (module docstring).
+    """
+    reference_sigma = np.asarray(reference_sigma, dtype=float)
+    d = reference_sigma.size
+    scale = OPTIMAL_RW_SCALE**2 / d
+    return scale * (np.asarray(sample_covariance, dtype=float) + regularization_fraction * np.diag(reference_sigma**2))
+
+
+class _ProposalAdapter:
+    """Running moments and the current proposal of one chain (or replica)."""
+
+    def __init__(self, adaptation: AdaptationConfig, burn_in: int, theta0: np.ndarray, sigma: np.ndarray):
+        if adaptation.initial_diagonal_steps <= theta0.size:
+            raise ValueError(
+                f"adaptation.initial_diagonal_steps ({adaptation.initial_diagonal_steps}) must exceed "
+                f"the number of parameters ({theta0.size}) to estimate a covariance."
+            )
+        self._settings = adaptation
+        self._sigma = sigma
+        self._updates = frozenset(adaptation.update_steps(burn_in))
+        self._last_update = max(self._updates)
+        self._count, self._mean, self._scatter = update_running_moments(
+            0, np.zeros(theta0.size), np.zeros((theta0.size, theta0.size)), theta0
+        )
+        self._cholesky: np.ndarray | None = None
+        self._covariance = np.diag(sigma**2)
+
+    def propose(self, theta: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+        if self._cholesky is None:  # the same draw as a fixed diagonal proposal
+            return theta + rng.normal(loc=0.0, scale=self._sigma, size=theta.shape)
+        return theta + self._cholesky @ rng.standard_normal(theta.size)
+
+    def observe(self, step: int, theta: np.ndarray) -> None:
+        """Record the state after ``step`` (0-based); update the proposal on schedule."""
+        if step >= self._last_update:  # frozen: nothing more to record
+            return
+        self._count, self._mean, self._scatter = update_running_moments(
+            self._count, self._mean, self._scatter, theta
+        )
+        if step + 1 in self._updates:
+            self._covariance = adaptive_proposal_covariance(
+                running_covariance(self._count, self._scatter),
+                self._sigma,
+                self._settings.regularization_fraction,
+            )
+            self._cholesky = np.linalg.cholesky(self._covariance)
+
+    def covariance(self) -> np.ndarray:
+        return self._covariance.copy()
+
+
+def _adapter(config: MetropolisConfig, theta0: np.ndarray, sigma: np.ndarray) -> _ProposalAdapter | None:
+    if config.adaptation is None:
+        return None
+    return _ProposalAdapter(config.adaptation, config.burn_in, theta0, sigma)
 
 
 def _run_chain_worker(args) -> ChainResult:

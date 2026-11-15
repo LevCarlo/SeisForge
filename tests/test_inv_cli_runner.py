@@ -268,6 +268,81 @@ def test_driver_with_tempering_writes_swap_acceptance(tmp_path):
     assert "posterior forward failures per chain" in result.log_file.read_text()
 
 
+@pytest.mark.parametrize("tempering", [None, {"temperatures": [1, 3]}])
+def test_driver_with_adaptation_writes_frozen_proposals(tmp_path, tempering):
+    config = _config()
+    inv_config = dict(config)
+    inv_config.pop("observations", None)
+    inv_config["sampler"] = dict(
+        config["sampler"],
+        n_steps=14,
+        burn_in=10,
+        n_chains=2,
+        adaptation={"initial_diagonal_steps": 6, "update_interval_steps": 2},
+    )
+    if tempering is not None:
+        inv_config["sampler"]["tempering"] = tempering
+    inv_file = tmp_path / "inv.yaml"
+    obs_file = tmp_path / "obs.yaml"
+    dump_yaml(inv_config, inv_file)
+    dump_yaml(_obs_config(), obs_file)
+    _write_observations(tmp_path, config)
+
+    result = run_inversion(
+        kind="disp_hv",
+        inv_file=inv_file,
+        obs_file=obs_file,
+        output=tmp_path / "adapted",
+        with_prior=True,
+        progress=False,
+    )
+    names = ["vs0", "vs1", "vs2"]
+    for path in (result.posterior_mcmc, result.prior_mcmc):
+        with xr.open_dataset(path) as dataset:
+            covariance = dataset["proposal_covariance"]
+            assert covariance.dims == ("chain", "parameter", "parameter_column")
+            assert list(covariance["parameter"].values) == names
+            assert list(covariance["parameter_column"].values) == names
+            np.testing.assert_allclose(covariance.values, np.swapaxes(covariance.values, 1, 2))
+            assert dataset.attrs["adaptation_initial_diagonal_steps"] == 6
+            assert dataset.attrs["adaptation_update_interval_steps"] == 2
+            assert dataset.attrs["adaptation_last_update_step"] == 10
+            assert dataset.attrs["adaptation_scale_factor"] == pytest.approx(2.38**2 / 3)
+            assert dataset.attrs["sampler_adaptation"].startswith("adaptive Metropolis")
+    with xr.open_dataset(result.posterior_mcmc) as dataset:
+        if tempering is None:
+            assert "proposal_covariance_tempered" not in dataset
+        else:
+            tempered = dataset["proposal_covariance_tempered"]
+            assert tempered.dims == ("chain", "temperature", "parameter", "parameter_column")
+            np.testing.assert_array_equal(tempered.isel(temperature=0).values, dataset["proposal_covariance"].values)
+    with xr.open_dataset(result.prior_mcmc) as dataset:
+        assert "proposal_covariance_tempered" not in dataset  # prior chains are not tempered
+    log = result.log_file.read_text()
+    assert "sampler adaptation_update_interval_steps: 2" in log
+    assert "posterior chain 1 frozen proposal sd: vs0=" in log
+    assert "prior chain 0 frozen proposal sd: vs0=" in log
+
+
+def test_driver_without_adaptation_records_none(tmp_path):
+    config = _config()
+    inv_config = dict(config)
+    inv_config.pop("observations", None)
+    inv_file = tmp_path / "inv.yaml"
+    obs_file = tmp_path / "obs.yaml"
+    dump_yaml(inv_config, inv_file)
+    dump_yaml(_obs_config(), obs_file)
+    _write_observations(tmp_path, config)
+    result = run_inversion(
+        kind="disp_hv", inv_file=inv_file, obs_file=obs_file, output=tmp_path / "fixed", progress=False
+    )
+    with xr.open_dataset(result.posterior_mcmc) as dataset:
+        assert "proposal_covariance" not in dataset
+        assert dataset.attrs["sampler_adaptation"] == "none"
+        assert "adaptation_initial_diagonal_steps" not in dataset.attrs
+    assert "frozen proposal sd" not in result.log_file.read_text()
+
+
 def test_inv_cli_help_runs(capsys):
     with pytest.raises(SystemExit) as exc_info:
         main(["inv", "disp-hv", "--help"])

@@ -128,8 +128,11 @@ SAMPLER_KEYS = frozenset(
         "use_parameter_bounds",
         "global_jump_interval",
         "tempering",
+        "adaptation",
     }
 )
+# sampler.adaptation: adaptive Metropolis during burn-in (see inv/samplers.py).
+ADAPTATION_KEYS = frozenset({"initial_diagonal_steps", "update_interval_steps", "regularization_fraction"})
 TEMPERING_KEYS = frozenset({"temperatures", "n_temperatures", "max_temperature", "swap_interval"})
 
 # Observations: ``hv`` and ``rayleigh_hv`` are aliases. An observation entry
@@ -318,6 +321,9 @@ def _validate_sampler(sampler: Any) -> None:
     tempering = sampler.get("tempering")
     if isinstance(tempering, Mapping):  # non-mappings are rejected by the reader
         check_keys(tempering, TEMPERING_KEYS, where="sampler.tempering")
+    adaptation = sampler.get("adaptation")
+    if isinstance(adaptation, Mapping):
+        check_keys(adaptation, ADAPTATION_KEYS, where="sampler.adaptation")
 
 
 def _validate_observations(observations: Any, *, where: str) -> None:

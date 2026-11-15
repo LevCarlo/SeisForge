@@ -15,6 +15,7 @@ from seisforge.inv.posterior import CountingTarget, JointInversionTarget
 from seisforge.inv.prior import GeophysicalPrior
 from seisforge.inv.soft_priors import SoftPriorSuite, soft_priors_from_config
 from seisforge.inv.samplers import (
+    AdaptationConfig,
     ExecutorKind,
     MCMCResult,
     MetropolisConfig,
@@ -128,6 +129,9 @@ class InversionSetup:
         if target == "prior" and config.temperatures is not None:
             # The prior has no likelihood to temper; sample it with a plain chain.
             config = replace(config, temperatures=None)
+        # sampler.adaptation applies to the prior run too: a prior-only run
+        # checks the sampler as configured, and hard constraints correlate
+        # the parameters under the prior as well.
         log_target = self._log_target(target)
         if target == "posterior":
             # Same values as target.log_posterior / log_prior_and_likelihood,
@@ -216,6 +220,7 @@ def sampler_settings_from_config(
         global_jump_interval=sampler_cfg.get("global_jump_interval"),
         temperatures=temperatures,
         swap_interval=swap_interval,
+        adaptation=_adaptation_from_config(sampler_cfg.get("adaptation")),
     )
     initial_thetas = sampler_cfg.get("initial_thetas")
     return SamplerSettings(
@@ -251,6 +256,29 @@ def _tempering_from_config(config: dict | None) -> tuple[tuple[float, ...] | Non
         int(config.get("n_temperatures", 5)), float(config.get("max_temperature", 30.0))
     )
     return ladder, swap_interval
+
+
+def _adaptation_from_config(config: dict | None) -> AdaptationConfig | None:
+    """``sampler.adaptation``: adaptive Metropolis during burn-in; absent or null is off.
+
+    ``{initial_diagonal_steps: 1000, update_interval_steps: 100}`` plus an
+    optional ``regularization_fraction``; both step counts are required, since
+    they must fit inside ``burn_in``.
+    """
+    if config is None:
+        return None
+    if not isinstance(config, dict):
+        raise ValueError("sampler.adaptation must be a mapping.")
+    missing = [k for k in ("initial_diagonal_steps", "update_interval_steps") if k not in config]
+    if missing:
+        raise ValueError(f"sampler.adaptation needs {', '.join(missing)}.")
+    kwargs = {
+        "initial_diagonal_steps": int(config["initial_diagonal_steps"]),
+        "update_interval_steps": int(config["update_interval_steps"]),
+    }
+    if config.get("regularization_fraction") is not None:
+        kwargs["regularization_fraction"] = float(config["regularization_fraction"])
+    return AdaptationConfig(**kwargs)
 
 
 def _normalize_initial_thetas(initial_thetas, *, n_chains: int) -> np.ndarray:

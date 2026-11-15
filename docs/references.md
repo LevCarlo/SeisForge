@@ -37,6 +37,8 @@ Publications and software whose methods SeisForge implements or follows.
 |---|---|
 | Bodin, T., Sambridge, M., Tkalčić, H., Arroucau, P., Gallagher, K., & Rawlinson, N. (2012). Transdimensional inversion of receiver functions and surface wave dispersion. *Journal of Geophysical Research*, 117, B02301. | [sampled noise scales](inv_usage.md#likelihood) |
 | Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.), Sec. 11.4. CRC Press. | split R-hat |
+| Gelman, A., Roberts, G. O., & Gilks, W. R. (1996). Efficient Metropolis jumping rules. In J. M. Bernardo et al. (Eds.), *Bayesian Statistics 5*, 599-607. Oxford University Press. | adaptive proposal scaling $2.38^2/d$ |
+| Haario, H., Saksman, E., & Tamminen, J. (2001). An adaptive Metropolis algorithm. *Bernoulli*, 7, 223-242. | [adaptive proposals](inv_usage.md#sampler) |
 | Geyer, C. J. (1991). Markov chain Monte Carlo maximum likelihood. *Computing Science and Statistics: Proceedings of the 23rd Symposium on the Interface*, 156-163. | parallel tempering |
 | Earl, D. J., & Deem, M. W. (2005). Parallel tempering: theory, applications, and new perspectives. *Physical Chemistry Chemical Physics*, 7, 3910-3916. | parallel tempering |
 | Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021). Rank-normalization, folding, and localization: an improved R-hat for assessing convergence of MCMC. *Bayesian Analysis*, 16, 667-718. | effective sample size |

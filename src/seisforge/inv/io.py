@@ -26,7 +26,7 @@ from seisforge.inv.model_config import (
 from seisforge.inv.predictive import JointPredictionEnsemble, ObservablePredictionEnsemble
 from seisforge.inv.posterior import ForwardFailureSummary
 from seisforge.inv.prior import PriorSampleDiagnostics
-from seisforge.inv.samplers import MCMCResult
+from seisforge.inv.samplers import OPTIMAL_RW_SCALE, AdaptationConfig, MCMCResult
 
 
 def load_yaml(path: str | Path) -> dict:
@@ -257,6 +257,9 @@ def mcmc_result_to_xarray(
         dataset["swap_acceptance"] = (("chain", "temperature_pair"), np.stack(swap))
         dataset.attrs["temperatures"] = ", ".join(f"{t:.6g}" for t in result.config.temperatures)
         dataset.attrs["swap_interval"] = int(result.config.swap_interval)
+    covariances = [chain.proposal_covariance for chain in result.chains]
+    if result.config.adaptation is not None and all(c is not None for c in covariances):
+        dataset = _add_adaptation(dataset, result.config, np.stack(covariances), parameter_names)
     if forward_failures is not None:
         _add_forward_failures(dataset, forward_failures)
     if convergence is not None:
@@ -270,6 +273,36 @@ def mcmc_result_to_xarray(
             }
         )
     return dataset
+
+
+def _add_adaptation(dataset: xr.Dataset, config, covariances: np.ndarray, parameter_names) -> xr.Dataset:
+    """Frozen adaptive proposal covariances (chain, replica, d, d) and the settings."""
+    adaptation = config.adaptation
+    dataset = dataset.assign_coords(parameter_column=list(parameter_names))
+    matrix_dims = ("parameter", "parameter_column")
+    dataset["proposal_covariance"] = (("chain", *matrix_dims), covariances[:, 0])
+    dataset["proposal_covariance"].attrs["description"] = (
+        "frozen adaptive proposal covariance of the T = 1 chain, in parameter units squared"
+    )
+    if config.temperatures is not None:
+        dataset = dataset.assign_coords(temperature=list(config.temperatures))
+        dataset["proposal_covariance_tempered"] = (("chain", "temperature", *matrix_dims), covariances)
+    dataset.attrs.update(adaptation_attrs(adaptation, burn_in=config.burn_in, n_parameters=len(parameter_names)))
+    return dataset
+
+
+def adaptation_attrs(adaptation: AdaptationConfig | None, *, burn_in: int, n_parameters: int) -> dict:
+    """Attributes describing ``sampler.adaptation`` (``adaptation: none`` when off)."""
+    if adaptation is None:
+        return {"adaptation": "none"}
+    return {
+        "adaptation": "adaptive Metropolis during burn-in, frozen after (Haario et al. 2001)",
+        "adaptation_initial_diagonal_steps": int(adaptation.initial_diagonal_steps),
+        "adaptation_update_interval_steps": int(adaptation.update_interval_steps),
+        "adaptation_regularization_fraction": float(adaptation.regularization_fraction),
+        "adaptation_scale_factor": float(OPTIMAL_RW_SCALE**2 / n_parameters),
+        "adaptation_last_update_step": int(adaptation.update_steps(burn_in)[-1]),
+    }
 
 
 def _add_forward_failures(dataset: xr.Dataset, summary: ForwardFailureSummary) -> None:

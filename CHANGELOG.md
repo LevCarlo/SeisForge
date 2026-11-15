@@ -76,6 +76,16 @@ switch that restores the old behaviour where one exists.
   `forward_attempts`, `forward_failures` and `forward_failure_rate` (with
   tempering also for the `T = 1` replica), and the log warns when a chain's
   rate exceeds 1 % (assumed threshold), naming the most frequent errors.
+- **Adaptive proposals during burn-in** (`sampler.adaptation`): the adaptive
+  Metropolis algorithm of Haario et al. (2001) fits the proposal covariance
+  to each chain's own history during burn-in and freezes it afterwards, so
+  stored draws come from a fixed-kernel chain. It speeds up mixing of
+  strongly correlated parameters such as B-spline coefficients (ESS about
+  10x higher than the best fixed isotropic step on a correlation-0.99
+  Gaussian). The frozen covariance is written to `*_mcmc.nc`
+  (`proposal_covariance`, with tempering also `proposal_covariance_tempered`)
+  and the settings to its attrs and the log. Off by default; without it
+  chains are bit-for-bit those of earlier versions.
 
 ### Changed
 
