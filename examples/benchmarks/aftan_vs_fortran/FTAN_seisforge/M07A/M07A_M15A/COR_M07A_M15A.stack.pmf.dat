@@ -12,8 +12,8 @@
 # phase_cycle_selection_source: skipped_no_prediction_file
 # phase_cycle_shift: 0
 # seisforge_version: 0.2.0
-# seisforge_git_commit: e8964a990c34b5cb0fe988ed30d6258e5c0aa6c6
-# seisforge_git_dirty: true
+# seisforge_git_commit: a1ca6455f47383e8f144cf9dfa4c96114832c3be
+# seisforge_git_dirty: false
 # python_version: 3.11.15
 # numpy_version: 2.4.6
 # scipy_version: 1.17.1
