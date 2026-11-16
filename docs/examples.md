@@ -17,7 +17,7 @@ bash run.sh
 | `04_rf_qc_hk` | receiver-function QC and H-k stacking | 8 s | H = 35 km, Vp/Vs = 1.75; all bad RFs removed |
 | `05_hvsr_forward` | diffuse-field H/V of a layered model | 3 s | peak at f0 = Vs / 4H = 1 Hz |
 | `06_inversion` | Bayesian Vs(z) from phase velocity and H/V (walk-through: [Getting started](inv_getting_started.md)) | 90 s | the truth model, inside the posterior band |
-| `full_chain` | one possible route: CCFs -> AFTAN -> collect-dispersion -> Eikonal -> station curve -> inversion | 90 s | the truth model under station XX.A22 |
+| `full_chain` | one possible route: CCFs -> AFTAN -> Eikonal -> station curve -> inversion, linked by the example's own `glue.py` | 90 s | the truth model under station XX.A22 |
 
 Run times measured on a 10-core Apple M4. `examples/benchmarks/` holds
 validation material (SeisForge AFTAN against Fortran AFTAN and PyAFTAN on a

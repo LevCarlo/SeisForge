@@ -274,7 +274,7 @@ The standard error assumes the sources are independent. They are not: the
 same stations enter every source's surface, and neighbouring sources see
 almost the same wavefront. $\sigma_{\bar c}$ is therefore a lower bound,
 and it becomes implausibly small where many sources overlap
-(`extract-station-curve` applies a floor for this reason). Systematic errors
+(a floor on it is advisable for this reason; `examples/full_chain` uses one). Systematic errors
 common to all sources (a wrong phase constant, a biased interpolant at the
 edges, as in panel (d) above) are not in either number. The cell also
 records the directional coverage, $360°$ minus the largest azimuthal gap
@@ -316,16 +316,13 @@ Practical consequences:
 
 ## 6. Input and output
 
-The maps can be used directly, or sampled at stations or grid points for a
-depth inversion of any kind. Two optional helper commands link this tool to
-AFTAN and to `seisforge inv`: `seisforge ant collect-dispersion` gathers the AFTAN `.dat` files of all
-pairs into one (path, period) dataset (negative-lag branches become the
-reversed pair; values are resampled onto integer periods), `seisforge ant
-eikonal` builds and stacks the fields, and `seisforge ant
-extract-station-curve` samples the stack at one station (bilinear in
-longitude and latitude, NaN unless all four nodes are valid) and writes the
-`period velocity sigma` file that `seisforge inv` reads. Configuration keys are
-on the [previous page](../eikonal_workflow.md) until they move here.
+The input is a (path, period) dataset of path-average phase velocities and
+station coordinates, written by the user's own script from the dispersion
+measurements; the output is the stack of maps with their spreads. The maps
+can be used directly, or sampled at stations or grid points for a depth
+inversion of any kind (`examples/full_chain/glue.py` samples one station
+bilinearly for `seisforge inv`). Configuration keys and the input contract
+are on the [previous page](../eikonal_workflow.md) until they move here.
 
 ## References
 

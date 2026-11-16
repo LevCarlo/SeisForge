@@ -134,8 +134,9 @@ switch that restores the old behaviour where one exists.
 
 - **Runnable examples with a known answer.** `examples/01_ccf_rotate`,
   `02_aftan`, `03_eikonal`, `04_rf_qc_hk`, `05_hvsr_forward`,
-  `06_inversion` and `full_chain` (CCFs -> AFTAN -> collect-dispersion ->
-  Eikonal -> station curve -> inversion), each with small synthetic data,
+  `06_inversion` and `full_chain` (one possible route: CCFs -> AFTAN ->
+  Eikonal -> station curve -> inversion, linked by the example's own
+  `glue.py` script, not by package code), each with small synthetic data,
   a minimal config (lines to edit marked `# change this`), `run.sh`, an
   expected figure and a README with the same five sections. Data scripts
   `tools/make_example_*.py` (fixed seeds, `tools/example_truth.py` shares the
@@ -152,17 +153,6 @@ switch that restores the old behaviour where one exists.
   analytic non-dispersive pulse, the envelope arrival at r/U, and AFTAN.
 - **`seisforge.ant.rotation.rotate_zrt_ccf_to_zne`**: inverse of the CCF
   rotation (round-trip tested), used to build synthetic ZNE input.
-- **Glue commands between AFTAN, Eikonal and the inversion.**
-  `seisforge ant collect-dispersion` gathers AFTAN `.dat` files into the
-  Eikonal `(path, period)` input dataset (negative branch = reversed pair,
-  coordinates from a station table or SAC headers, linear resampling on the
-  instantaneous period onto integer periods without extrapolation, `snr` and
-  `snr_scale` carried over). `seisforge ant extract-station-curve` samples an
-  Eikonal stack at a station or point and writes the inversion's
-  `period velocity sigma` file; `sigma` is the stack's standard error of the
-  mean by default (`--sigma std` for the single-source spread) with a lower
-  bound `--sigma-floor-km-s` (assumed default 0.01 km/s), all recorded in the
-  file header. Package `seisforge.ant.glue`.
 - **Parallel tempering** (`Sampler.tempering`): each chain becomes a
   ladder of tempered replicas with state swaps between neighbours; only the
   `T = 1` replica is stored. Swap acceptance is written to `*_mcmc.nc`.

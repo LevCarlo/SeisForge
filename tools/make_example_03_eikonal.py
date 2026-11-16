@@ -15,9 +15,9 @@ the array. No noise is added: the example checks the tomography alone
 (`full_chain` adds the AFTAN measurement).
 
 Outputs (in `--out`, default `examples/03_eikonal/data`):
-`measurements.nc`, the Eikonal input dataset in the same format
-`seisforge ant collect-dispersion` writes (built with
-`seisforge.ant.glue.io.measurement_dataset`), and `true_phase_velocity.dat`.
+`measurements.nc`, the Eikonal input dataset (format:
+docs/eikonal_workflow.md; written with `seisforge.ant.eikonal.io.write_netcdf`),
+and `true_phase_velocity.dat`.
 Existing files are kept unless `--overwrite` is given.
 """
 
@@ -27,9 +27,11 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+import xarray as xr
 
 from example_truth import ROOT, truth_phase_velocity
-from seisforge.ant.glue.io import measurement_dataset, write_measurement_dataset
+from seisforge.ant.eikonal.io import write_netcdf
+from seisforge.provenance import software_provenance
 
 EXAMPLE = ROOT / "examples" / "03_eikonal"
 PERIODS_S = (2, 3, 4, 5, 6, 7, 8)
@@ -53,39 +55,34 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
 
     velocity = truth_phase_velocity(np.asarray(PERIODS_S, dtype=float))
-    paths = [
-        {
-            "source_station": src[0],
-            "receiver_station": rcv[0],
-            "source_longitude_deg": src[1],
-            "source_latitude_deg": src[2],
-            "receiver_longitude_deg": rcv[1],
-            "receiver_latitude_deg": rcv[2],
-            "phase_velocity_km_s": velocity,
-            "aftan_file": "synthetic",
-            "aftan_branch": "synthetic",
-        }
-        for src in stations()
-        for rcv in stations()
-        if src[0] != rcv[0]
-    ]
-    dataset = measurement_dataset(
-        periods_s=PERIODS_S,
-        paths=paths,
+    pairs = [(src, rcv) for src in stations() for rcv in stations() if src[0] != rcv[0]]
+    dataset = xr.Dataset(
+        {"phase_velocity_km_s": (("path", "period"), np.tile(velocity, (len(pairs), 1)))},
+        coords={
+            "path": np.arange(len(pairs)),
+            "period": np.arange(len(PERIODS_S)),
+            "period_s": ("period", np.asarray(PERIODS_S, dtype=np.int32)),
+            "source_station": ("path", np.array([src[0] for src, _ in pairs])),
+            "receiver_station": ("path", np.array([rcv[0] for _, rcv in pairs])),
+            "source_longitude_deg": ("path", np.array([src[1] for src, _ in pairs])),
+            "source_latitude_deg": ("path", np.array([src[2] for src, _ in pairs])),
+            "receiver_longitude_deg": ("path", np.array([rcv[1] for _, rcv in pairs])),
+            "receiver_latitude_deg": ("path", np.array([rcv[2] for _, rcv in pairs])),
+        },
         attrs={
             "schema_version": 1,
             "component": "ZZ",
             "longitude_convention": "-180_180",
             "source": "tools/make_example_03_eikonal.py: exact travel times in a laterally homogeneous medium",
+            **software_provenance(),
         },
-        include_snr=False,
-        include_amplitude=False,
     )
+    dataset["phase_velocity_km_s"].attrs["units"] = "km s-1"
     truth_file = args.out / "true_phase_velocity.dat"
     if truth_file.exists() and not args.overwrite:
         raise SystemExit(f"Refusing to overwrite {truth_file}; pass --overwrite.")
     args.out.mkdir(parents=True, exist_ok=True)
-    print(f"wrote {write_measurement_dataset(dataset, args.out / 'measurements.nc', overwrite=args.overwrite)}")
+    print(f"wrote {write_netcdf(dataset, args.out / 'measurements.nc', overwrite=args.overwrite, compression_level=4)}")
     np.savetxt(
         truth_file,
         np.column_stack([PERIODS_S, velocity]),

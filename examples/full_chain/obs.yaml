@@ -2,6 +2,6 @@
 # (SeisForge does not measure H/V from data yet).
 observations:
   dispersion:
-    file: output/vph_disp.dat          # written by extract-station-curve
+    file: output/vph_disp.dat          # written by glue.py station-curve
   hv:
     file: data/hv.dat                  # change this: your H/V curve

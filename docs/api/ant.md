@@ -49,28 +49,6 @@
 
 ::: seisforge.ant.eikonal.helmholtz
 
-## Glue: AFTAN -> Eikonal -> inversion
-
-::: seisforge.ant.glue.driver
-    options:
-      members:
-        - collect_dispersion
-        - run_collect_dispersion
-        - CollectResult
-        - extract_station_curve
-        - run_extract_station_curve
-        - StationCurve
-
-::: seisforge.ant.glue.models
-
-::: seisforge.ant.glue.core
-
-::: seisforge.ant.glue.io
-    options:
-      members:
-        - read_aftan_dat
-        - read_station_table
-
 ## Synthetic cross-correlations
 
 ::: seisforge.ant.synthetic

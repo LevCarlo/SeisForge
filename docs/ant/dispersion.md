@@ -586,8 +586,8 @@ at $T_{\text{inst}}$ from the **untapered** branch (`snr.spectral_snr`):
 
 SNR is a ratio of amplitudes (or $20\log_{10}$ of it with `output_db`).
 Evaluation stops at the first period where it is not positive. AFTAN only
-reports SNR (in the `.dat` output); `collect-dispersion` carries it into the
-Eikonal input, and the Eikonal stage drops measurements below
+reports SNR (in the `.dat` output); if it is carried into the Eikonal input
+(an `snr` variable), the Eikonal tool can drop measurements below
 `input.min_snr` (off by default).
 
 ### Wavelength criteria
@@ -603,7 +603,7 @@ $$
 
 with defaults $n_\lambda$ = `max_period_nwl` = 0.5 and $v_{\text{ref}}$ =
 4 km/s. This is deliberately permissive (half a wavelength); the
-[Eikonal stage](tomography.md#3-quality-control-of-one-sources-field) applies a stricter
+[Eikonal tool](tomography.md#3-quality-control-of-one-sources-field) applies a stricter
 three-wavelength cut by default. A three-wavelength rule is widely used for
 noise dispersion (often attributed to Bensen et al. 2007; **Unverified**
 here). With the §1 estimate, phase velocities at one wavelength already

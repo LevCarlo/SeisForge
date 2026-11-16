@@ -156,7 +156,7 @@ source of B_A, it points towards A (in either convention). Hence
 (`+1 + 4 = 5 = -3 mod 8` in lin2008). AFTAN therefore takes the constant of
 the **stored** component on the negative branch; `physical_component_for_branch`
 still labels the branch as the reciprocal component of the reversed pair
-(used by `collect-dispersion`), but that label never chooses `pi_over_4`.
+(in `aftan.log`), but that label never chooses `pi_over_4`.
 
 ## Which convention a file has
 

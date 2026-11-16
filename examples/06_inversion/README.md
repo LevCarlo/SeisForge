@@ -39,8 +39,8 @@ From `data/hv.dat`:
 ```
 
 The two files may have different periods. Phase velocity curves can come
-from the ambient-noise examples (`02_aftan`, `03_eikonal`, and
-`seisforge ant extract-station-curve`, see `full_chain`). SeisForge does not
+from the ambient-noise examples (`02_aftan`, `03_eikonal`; `full_chain`
+samples an Eikonal map under one station with its own script). SeisForge does not
 measure H/V from data yet; take it from another program.
 
 ## Run

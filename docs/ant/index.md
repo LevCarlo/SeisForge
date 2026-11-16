@@ -29,11 +29,9 @@ or the recommended one:
   (`seisforge inv` is one choice).
 
 The FTAN/PMF tool serves both routes; the rotation is needed only for
-multi-component work (R and T components). Two optional helper commands link
-the tools for route (b): `seisforge ant collect-dispersion` (AFTAN `.dat`
-files → Eikonal input) and `seisforge ant extract-station-curve` (Eikonal stack
-→ `period velocity sigma` at one station). `examples/full_chain` demonstrates
-route (b).
+multi-component work (R and T components). Linking the tools (file formats,
+resampling, choosing an uncertainty) is done by the user's own scripts;
+`examples/full_chain` has one example of route (b).
 
 ## Conventions to watch when using the tools together
 
@@ -50,7 +48,8 @@ route (b).
   when it is passed on to tomography.
 - **Periods.** AFTAN reports measurements at instantaneous periods; a
   tomography code usually wants fixed periods, so the curves are resampled
-  (the helper above interpolates linearly, without extrapolation).
+  (`examples/full_chain/glue.py` interpolates linearly, without
+  extrapolation).
 - **Cycle choices.** AFTAN picks the $2\pi$ branch of each pair against a
   reference curve; the Eikonal tool can additionally correct whole-period
   travel-time errors between neighbouring stations (long periods only).
