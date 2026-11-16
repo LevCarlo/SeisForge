@@ -158,49 +158,24 @@ def _find_component_inputs(config: StationAFTANConfig) -> list[tuple[Path, str |
     if not config.components:
         return [(path, None) for path in _find_sac_files(config.input_dir, config.sac_pattern)]
 
+    # Pair layout only: <input_root_datadir>/<source>/<source>_<receiver>/.
     inputs: list[tuple[Path, str | None]] = []
     missing: list[str] = []
     for component in config.components:
-        attempted: list[str] = []
-        for label, input_dir, pattern in _component_input_candidates(config, component):
-            attempted.append(f"{label}={input_dir / pattern}")
-            matches = _find_sac_files(input_dir, pattern)
-            if not matches:
-                continue
-            if len(matches) > 1:
-                raise FileExistsError(
-                    f"AFTAN component {component} matched multiple SAC files "
-                    f"for {label}: " + ", ".join(str(item) for item in matches)
-                )
-            inputs.append((matches[0], component))
-            break
-        else:
-            missing.append(f"{component}: " + "; ".join(attempted))
+        pattern = _component_sac_pattern(config, component)
+        matches = _find_sac_files(config.input_dir, pattern)
+        if not matches:
+            missing.append(f"{component}: {config.input_dir / pattern}")
+            continue
+        if len(matches) > 1:
+            raise FileExistsError(
+                f"AFTAN component {component} matched multiple SAC files: "
+                + ", ".join(str(item) for item in matches)
+            )
+        inputs.append((matches[0], component))
     if missing:
         raise FileNotFoundError("Missing AFTAN component input(s): " + "; ".join(missing))
     return inputs
-
-
-def _component_input_candidates(
-    config: StationAFTANConfig,
-    component: str,
-) -> list[tuple[str, Path, str]]:
-    pattern = _component_sac_pattern(config, component)
-    candidates = [("primary", config.input_dir, pattern)]
-    root_dir = _component_input_root_dir(config)
-    if root_dir is not None and root_dir != config.input_dir:
-        candidates.append(("input_root", root_dir, pattern))
-    return candidates
-
-
-def _component_input_root_dir(config: StationAFTANConfig) -> Path | None:
-    pair_name = _station_pair_name(config.source_station, config.receiver_station)
-    if pair_name is None or config.input_dir.name != pair_name:
-        return None
-    source_dir = config.input_dir.parent
-    if source_dir.name != config.source_station:
-        return None
-    return source_dir.parent
 
 
 def _component_sac_pattern(config: StationAFTANConfig, component: str) -> str:

@@ -22,6 +22,7 @@ over 5-14 s, so the far-field phase constants hold to within about
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -117,12 +118,17 @@ def run(
 ):
     """Run AFTAN on one component file; return the list of `AFTANResult`."""
     if mode == "pair":
+        # Pair layout <root>/<source>/<source>_<receiver>/ (the only one AFTAN reads).
+        root = output / "pair_input"
+        pair_dir = root / SOURCE / f"{SOURCE}_{RECEIVER}"
+        pair_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(directory / sac_name(component), pair_dir / sac_name(component))
         config = {
             "source_station": SOURCE,
             "receiver_station": RECEIVER,
-            "component": component,
+            "components": [component],
             "io": {
-                "input_root_datadir": str(directory),
+                "input_root_datadir": str(root),
                 "output_root_datadir": str(output),
                 "input_template": "{source_station}_{receiver_station}_{component}.SAC",
             },

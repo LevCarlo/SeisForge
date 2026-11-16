@@ -290,6 +290,44 @@ switch that restores the old behaviour where one exists.
 
 ### Removed
 
+- **Old AFTAN config key names** (aliases kept from earlier SeisForge
+  configs). Only the names of `examples/reference_configs/aftan.yml` are
+  read; a removed name stops the run with an error naming the current key
+  (`seisforge.ant.aftan.config.REMOVED_AFTAN_KEYS`). Removed -> current:
+  `component` -> `components` (a list); `io.source_station`,
+  `io.receiver_station`, `io.station`, `io.component(s)` -> the top-level
+  keys; `io.input_root_dir` / `io.output_root_dir` -> `io.input_root_datadir`
+  / `io.output_root_datadir`; `io.sac_pattern` in a pair config ->
+  `io.input_template`; `aftan.velocity_min/max` ->
+  `aftan.velocity_window.min/max`; `aftan.trig_threshold`,
+  `aftan.jump_points` -> `aftan.basic.*` and `aftan.pmf.*`;
+  `aftan.reference_velocity`, `aftan.max_period_nwl`,
+  `short_distance_period_guard.reference_velocity_km_s`,
+  `short_distance_period_guard.min_wavelengths` ->
+  `short_distance_period_guard.reference_velocity` / `max_period_nwl`;
+  flat `aftan.snr.{noise_mode, signal_half_width_factor,
+  signal_before_periods, signal_after_periods, noise_guard_factor}` ->
+  `aftan.snr.local.*`; `signal_half_width_periods`, `noise_guard_periods` ->
+  `signal_half_width_factor`, `noise_guard_factor`; flat
+  `aftan.snr.{bfact, efact, vmax, vmin, fill}` -> `aftan.snr.pyftan.*`; flat
+  `aftan.snr.{dsn, nlen}` -> `aftan.snr.local.tail.*` or
+  `aftan.snr.pyftan.*`; flat `aftan.time_taper.ramp_s` / `fraction` ->
+  `aftan.time_taper.velocity_window.ramp_s` /
+  `legacy_edge_fraction.fraction`; flat `aftan.period_sampling.{count, step,
+  dfreq, min_count, periods}` -> `aftan.period_sampling.<mode>.*`;
+  `<mode>.min_nfreq` -> `<mode>.min_count`; flat
+  `aftan.{basic,pmf}.alpha.{value, factor, distance_nodes, alpha_nodes}` ->
+  `aftan.{basic,pmf}.alpha.<mode>.*`. The SNR tail window is now read only
+  from the section of the definition in use (`local.tail` for `local`,
+  `pyftan` for `pyftan`); before, `pyftan.dsn/nlen` also overrode
+  `local.tail` (a config that set both differently gets different `local`
+  SNR values). `examples/benchmarks/aftan_vs_fortran/aftan_seisforge.yml`
+  now uses `components`. All example and benchmark AFTAN results are bit
+  for bit unchanged.
+- **AFTAN flat input directory fallback.** A pair config reads files only
+  from `<input_root_datadir>/<source>/<source>_<receiver>/`; it no longer
+  also looks in `<input_root_datadir>/` itself. The benchmark CCF moved to
+  `examples/benchmarks/aftan_vs_fortran/CCF/M07A/M07A_M15A/`.
 - `examples/configs/joint_inversion.yml` (no longer loadable;
   `examples/STA001` replaces it).
 

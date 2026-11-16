@@ -39,6 +39,84 @@ _SNR_DEFINITIONS = {"local", "pyftan", "aftan"}
 _SNR_NOISE_MODES = {"tail", "complement"}
 _PI_OVER_4_MODES = {"auto", "manual"}
 
+# Key names removed in 0.2.0 (aliases of older SeisForge configs) -> the
+# current key. A config that still uses one stops with this hint instead of
+# being read silently. Paths are relative to the top of the config.
+_SNR_LOCAL_KEYS = (
+    "noise_mode",
+    "signal_half_width_factor",
+    "signal_before_periods",
+    "signal_after_periods",
+    "noise_guard_factor",
+)
+_SNR_PYFTAN_KEYS = ("bfact", "efact", "vmax", "vmin", "fill")
+REMOVED_AFTAN_KEYS: dict[tuple[str, ...], str] = {
+    ("component",): "components",
+    ("io", "source_station"): "source_station (top level)",
+    ("io", "receiver_station"): "receiver_station (top level)",
+    ("io", "station"): "station (top level)",
+    ("io", "component"): "components (top level)",
+    ("io", "components"): "components (top level)",
+    ("io", "input_root_dir"): "io.input_root_datadir",
+    ("io", "output_root_dir"): "io.output_root_datadir",
+    ("aftan", "velocity_min"): "aftan.velocity_window.min",
+    ("aftan", "velocity_max"): "aftan.velocity_window.max",
+    ("aftan", "trig_threshold"): "aftan.basic.trig_threshold and aftan.pmf.trig_threshold",
+    ("aftan", "jump_points"): "aftan.basic.jump_points and aftan.pmf.jump_points",
+    ("aftan", "reference_velocity"): "short_distance_period_guard.reference_velocity",
+    ("aftan", "max_period_nwl"): "short_distance_period_guard.max_period_nwl",
+    ("short_distance_period_guard", "reference_velocity_km_s"): (
+        "short_distance_period_guard.reference_velocity"
+    ),
+    ("short_distance_period_guard", "min_wavelengths"): (
+        "short_distance_period_guard.max_period_nwl"
+    ),
+    **{("aftan", "snr", key): f"aftan.snr.local.{key}" for key in _SNR_LOCAL_KEYS},
+    ("aftan", "snr", "signal_half_width_periods"): "aftan.snr.local.signal_half_width_factor",
+    ("aftan", "snr", "noise_guard_periods"): "aftan.snr.local.noise_guard_factor",
+    ("aftan", "snr", "local", "signal_half_width_periods"): (
+        "aftan.snr.local.signal_half_width_factor"
+    ),
+    ("aftan", "snr", "local", "noise_guard_periods"): "aftan.snr.local.noise_guard_factor",
+    **{("aftan", "snr", key): f"aftan.snr.pyftan.{key}" for key in _SNR_PYFTAN_KEYS},
+    **{
+        ("aftan", "snr", key): f"aftan.snr.local.tail.{key} or aftan.snr.pyftan.{key}"
+        for key in ("dsn", "nlen")
+    },
+    ("aftan", "time_taper", "ramp_s"): "aftan.time_taper.velocity_window.ramp_s",
+    ("aftan", "time_taper", "fraction"): "aftan.time_taper.legacy_edge_fraction.fraction",
+    **{
+        ("aftan", "period_sampling", key): f"aftan.period_sampling.<mode>.{key}"
+        for key in ("count", "step", "dfreq", "min_count", "periods")
+    },
+    **{
+        ("aftan", "period_sampling", mode, "min_nfreq"): (
+            f"aftan.period_sampling.{mode}.min_count"
+        )
+        for mode in ("geomspace", "uniform", "list")
+    },
+    **{
+        ("aftan", stage, "alpha", key): f"aftan.{stage}.alpha.<mode>.{key}"
+        for stage in ("basic", "pmf")
+        for key in ("value", "factor", "distance_nodes", "alpha_nodes")
+    },
+}
+
+
+def _reject_removed_keys(config: dict[str, Any]) -> None:
+    """Stop on any key of `REMOVED_AFTAN_KEYS`, naming the current key."""
+    found = []
+    for path, current in REMOVED_AFTAN_KEYS.items():
+        node: Any = config
+        for key in path[:-1]:
+            node = node.get(key) if isinstance(node, dict) else None
+        if isinstance(node, dict) and path[-1] in node:
+            found.append(f"{'.'.join(path)} (use {current})")
+    if found:
+        raise ValueError(
+            "AFTAN config uses removed (unknown) keys: " + "; ".join(found) + "."
+        )
+
 
 def build_station_aftan_config(
     config: dict[str, Any],
@@ -46,6 +124,7 @@ def build_station_aftan_config(
 ) -> StationAFTANConfig:
     """Build a station-level AFTAN config from a plain YAML dictionary."""
     base_path = Path(base_dir) if base_dir is not None else None
+    _reject_removed_keys(config)
     io_config = config.get("io", {})
     aftan_config = config.get("aftan", {})
     if not isinstance(aftan_config, dict):
@@ -56,20 +135,11 @@ def build_station_aftan_config(
             "phase_cycle_selection with only enabled and max_shift."
         )
 
-    source_station = _optional_string(
-        config.get("source_station") or io_config.get("source_station")
-    )
-    receiver_station = _optional_string(
-        config.get("receiver_station") or io_config.get("receiver_station")
-    )
-    components = _build_components(
-        config.get(
-            "components",
-            config.get("component", io_config.get("components", io_config.get("component"))),
-        )
-    )
+    source_station = _optional_string(config.get("source_station"))
+    receiver_station = _optional_string(config.get("receiver_station"))
+    components = _build_components(config.get("components"))
 
-    station = _optional_string(config.get("station") or io_config.get("station"))
+    station = _optional_string(config.get("station"))
     if source_station is not None and station is None:
         station = source_station
 
@@ -79,11 +149,13 @@ def build_station_aftan_config(
                 "AFTAN config with component(s) requires source_station and "
                 "receiver_station."
             )
-        input_root = io_config.get("input_root_datadir", io_config.get("input_root_dir"))
-        output_root = io_config.get(
-            "output_root_datadir",
-            io_config.get("output_root_dir"),
-        )
+        if "sac_pattern" in io_config:
+            raise ValueError(
+                "AFTAN pair config (with components) uses io.input_template, "
+                "not io.sac_pattern."
+            )
+        input_root = io_config.get("input_root_datadir")
+        output_root = io_config.get("output_root_datadir")
         if input_root is None:
             raise ValueError("AFTAN config io.input_root_datadir is required.")
         if output_root is None:
@@ -91,9 +163,7 @@ def build_station_aftan_config(
         pair_name = f"{source_station}_{receiver_station}"
         input_dir = _resolve_path(input_root, base_path) / source_station / pair_name
         output_dir = _resolve_path(output_root, base_path) / source_station / pair_name
-        input_template = str(
-            io_config.get("input_template", io_config.get("sac_pattern", "*_{component}.SAC"))
-        )
+        input_template = str(io_config.get("input_template", "*_{component}.SAC"))
         sac_pattern = input_template
     else:
         if not station:
@@ -122,7 +192,6 @@ def build_station_aftan_config(
             ),
             short_distance_guard=_build_short_distance_guard_config(
                 config.get("short_distance_period_guard"),
-                aftan_config,
             ),
         ),
         source_station=source_station,
@@ -157,8 +226,8 @@ def _build_aftan_config(
         period_sampling=_build_period_sampling_config(
             config.get("period_sampling", {})
         ),
-        velocity_min=float(velocity_window.get("min", config.get("velocity_min", 0.5))),
-        velocity_max=float(velocity_window.get("max", config.get("velocity_max", 5.5))),
+        velocity_min=float(velocity_window.get("min", 0.5)),
+        velocity_max=float(velocity_window.get("max", 5.5)),
         pi_over_4=pi_over_4,
         pi_over_4_mode=pi_over_4_mode,
         radial_convention=str(config.get("radial_convention", "auto")).strip().lower(),
@@ -168,10 +237,8 @@ def _build_aftan_config(
         ),
         basic=AFTANBasicConfig(
             alpha=_build_alpha_config(basic.get("alpha", {}), label="aftan.basic.alpha"),
-            trig_threshold=float(
-                basic.get("trig_threshold", config.get("trig_threshold", 50.0))
-            ),
-            jump_points=int(basic.get("jump_points", config.get("jump_points", 3))),
+            trig_threshold=float(basic.get("trig_threshold", 50.0)),
+            jump_points=int(basic.get("jump_points", 3)),
         ),
         pmf=AFTANPMFConfig(
             enabled=bool(pmf.get("enabled", False)),
@@ -179,10 +246,8 @@ def _build_aftan_config(
                 pmf.get("alpha", basic.get("alpha", {})),
                 label="aftan.pmf.alpha",
             ),
-            trig_threshold=float(
-                pmf.get("trig_threshold", config.get("trig_threshold", 20.0))
-            ),
-            jump_points=int(pmf.get("jump_points", config.get("jump_points", 3))),
+            trig_threshold=float(pmf.get("trig_threshold", 20.0)),
+            jump_points=int(pmf.get("jump_points", 3)),
             nalpha=float(pmf.get("nalpha", 2.0)),
             min_half_length=float(pmf.get("min_half_length", 5.0)),
             amplitude_ratio=float(pmf.get("amplitude_ratio", 0.2)),
@@ -272,33 +337,15 @@ def _validate_aftan_config(config: AFTANConfig) -> None:
         )
 
 
-def _build_short_distance_guard_config(
-    config: Any,
-    legacy_aftan_config: dict[str, Any],
-) -> AFTANShortDistanceGuardConfig:
+def _build_short_distance_guard_config(config: Any) -> AFTANShortDistanceGuardConfig:
     if config is None:
         config = {}
     if not isinstance(config, dict):
         raise ValueError("short_distance_period_guard must be a mapping.")
-
-    reference_velocity = config.get(
-        "reference_velocity",
-        config.get(
-            "reference_velocity_km_s",
-            legacy_aftan_config.get("reference_velocity", 4.0),
-        ),
-    )
-    max_period_nwl = config.get(
-        "max_period_nwl",
-        config.get(
-            "min_wavelengths",
-            legacy_aftan_config.get("max_period_nwl", 0.5),
-        ),
-    )
     return AFTANShortDistanceGuardConfig(
         enabled=bool(config.get("enabled", True)),
-        reference_velocity=float(reference_velocity),
-        max_period_nwl=float(max_period_nwl),
+        reference_velocity=float(config.get("reference_velocity", 4.0)),
+        max_period_nwl=float(config.get("max_period_nwl", 0.5)),
     )
 
 
@@ -373,17 +420,6 @@ def _nested_option_config(config: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
-def _option_value(
-    legacy_config: dict[str, Any],
-    option_config: dict[str, Any],
-    key: str,
-    default: Any,
-) -> Any:
-    if key in option_config:
-        return option_config[key]
-    return legacy_config.get(key, default)
-
-
 def _build_snr_config(config: dict[str, Any]) -> AFTANSNRConfig:
     if not isinstance(config, dict):
         raise ValueError("aftan.snr must be a mapping.")
@@ -393,33 +429,19 @@ def _build_snr_config(config: dict[str, Any]) -> AFTANSNRConfig:
     local_config = _nested_option_config(config, "local")
     pyftan_config = _nested_option_config(config, "pyftan")
     local_tail_config = _nested_option_config(local_config, "tail")
-    noise_mode = str(_option_value(config, local_config, "noise_mode", "tail")).lower()
+    noise_mode = str(local_config.get("noise_mode", "tail")).lower()
     if definition == "local" and noise_mode not in _SNR_NOISE_MODES:
         raise ValueError(f"aftan.snr.noise_mode must be one of {sorted(_SNR_NOISE_MODES)}.")
-    signal_half_width_factor = float(
-        _option_value(
-            config,
-            local_config,
-            "signal_half_width_factor",
-            _option_value(config, local_config, "signal_half_width_periods", 1.0),
-        )
-    )
-    signal_before_value = _option_value(config, local_config, "signal_before_periods", None)
-    signal_after_value = _option_value(config, local_config, "signal_after_periods", None)
+    signal_half_width_factor = float(local_config.get("signal_half_width_factor", 1.0))
+    signal_before_value = local_config.get("signal_before_periods")
+    signal_after_value = local_config.get("signal_after_periods")
     signal_before_periods = (
         float(signal_before_value) if signal_before_value is not None else None
     )
     signal_after_periods = (
         float(signal_after_value) if signal_after_value is not None else None
     )
-    noise_guard_factor = float(
-        _option_value(
-            config,
-            local_config,
-            "noise_guard_factor",
-            _option_value(config, local_config, "noise_guard_periods", 1.0),
-        )
-    )
+    noise_guard_factor = float(local_config.get("noise_guard_factor", 1.0))
     if definition == "local" and signal_half_width_factor < 0:
         raise ValueError("aftan.snr.signal_half_width_factor must be non-negative.")
     if definition == "local" and signal_before_periods is not None and signal_before_periods < 0:
@@ -428,17 +450,15 @@ def _build_snr_config(config: dict[str, Any]) -> AFTANSNRConfig:
         raise ValueError("aftan.snr.signal_after_periods must be non-negative.")
     if definition == "local" and noise_guard_factor < 0:
         raise ValueError("aftan.snr.noise_guard_factor must be non-negative.")
-    bfact = float(_option_value(config, pyftan_config, "bfact", 1.0))
-    efact = float(_option_value(config, pyftan_config, "efact", 0.0))
-    dsn = float(
-        _option_value(config, pyftan_config, "dsn", _option_value(config, local_tail_config, "dsn", 500.0))
-    )
-    nlen = float(
-        _option_value(config, pyftan_config, "nlen", _option_value(config, local_tail_config, "nlen", 500.0))
-    )
-    vmax = float(_option_value(config, pyftan_config, "vmax", 4.5))
-    vmin = float(_option_value(config, pyftan_config, "vmin", 1.0))
-    fill = float(_option_value(config, pyftan_config, "fill", 3.0))
+    bfact = float(pyftan_config.get("bfact", 1.0))
+    efact = float(pyftan_config.get("efact", 0.0))
+    # The tail-noise window of the definition in use: local.tail or pyftan.
+    tail_config = pyftan_config if definition == "pyftan" else local_tail_config
+    dsn = float(tail_config.get("dsn", 500.0))
+    nlen = float(tail_config.get("nlen", 500.0))
+    vmax = float(pyftan_config.get("vmax", 4.5))
+    vmin = float(pyftan_config.get("vmin", 1.0))
+    fill = float(pyftan_config.get("fill", 3.0))
     if fill <= 0:
         raise ValueError("aftan.snr.fill must be positive.")
     uses_tail_window = definition == "pyftan" or (
@@ -500,8 +520,8 @@ def _build_time_taper_config(config: Any) -> AFTANTimeTaperConfig:
         raise ValueError(f"aftan.time_taper.mode must be one of {list(TIME_TAPER_MODES)}.")
     window_config = _nested_option_config(config, "velocity_window")
     legacy_config = _nested_option_config(config, "legacy_edge_fraction")
-    ramp_s = _option_value(config, window_config, "ramp_s", None)
-    fraction = float(_option_value(config, legacy_config, "fraction", 0.05))
+    ramp_s = window_config.get("ramp_s")
+    fraction = float(legacy_config.get("fraction", 0.05))
     if ramp_s is not None and float(ramp_s) < 0:
         raise ValueError("aftan.time_taper.velocity_window.ramp_s must be non-negative.")
     if not 0 < fraction <= 0.5:
@@ -522,16 +542,11 @@ def _build_period_sampling_config(config: dict[str, Any]) -> AFTANPeriodSampling
             f"aftan.period_sampling.mode must be one of {sorted(_PERIOD_SAMPLING_MODES)}."
         )
     mode_config = _nested_option_config(config, mode)
-    count = _option_value(config, mode_config, "count", None)
-    step = _option_value(config, mode_config, "step", None)
-    dfreq = _option_value(config, mode_config, "dfreq", None)
-    min_count = _option_value(
-        config,
-        mode_config,
-        "min_count",
-        _option_value(config, mode_config, "min_nfreq", None),
-    )
-    periods = _option_value(config, mode_config, "periods", None)
+    count = mode_config.get("count")
+    step = mode_config.get("step")
+    dfreq = mode_config.get("dfreq")
+    min_count = mode_config.get("min_count")
+    periods = mode_config.get("periods")
     if mode == "geomspace" and count is None and dfreq is None:
         raise ValueError(
             "aftan.period_sampling.count or dfreq is required "
@@ -570,10 +585,10 @@ def _build_alpha_config(
     if mode not in _ALPHA_MODES:
         raise ValueError(f"{label}.mode must be one of {sorted(_ALPHA_MODES)}.")
     mode_config = _nested_option_config(config, mode)
-    value = _option_value(config, mode_config, "value", None)
-    factor = float(_option_value(config, mode_config, "factor", 1.0))
-    distance_nodes = _option_value(config, mode_config, "distance_nodes", None)
-    alpha_nodes = _option_value(config, mode_config, "alpha_nodes", None)
+    value = mode_config.get("value")
+    factor = float(mode_config.get("factor", 1.0))
+    distance_nodes = mode_config.get("distance_nodes")
+    alpha_nodes = mode_config.get("alpha_nodes")
     if mode == "constant" and value is None:
         raise ValueError(f"{label}.value is required when mode is constant.")
     if value is not None and float(value) <= 0:

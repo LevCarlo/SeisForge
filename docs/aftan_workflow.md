@@ -43,9 +43,16 @@ io:
   input_template: "{source_station}_{receiver_station}_{component}_pws.SAC"
 ```
 
-`component` may be used instead of `components` for a single component.
+`components` is a list, also for a single component (`components: [ZZ]`).
 
-`input_template` is formatted for each requested component. Supported fields are `{source_station}`, `{receiver_station}`, `{name}` (`source_station_receiver_station`), and `{component}`. SeisForge first looks under `<input_root>/<source_station>/<name>/`; if nothing matches, it also tries `<input_root>/` for flat demo-style inputs.
+`input_template` is formatted for each requested component. Supported fields are `{source_station}`, `{receiver_station}`, `{name}` (`source_station_receiver_station`), and `{component}`. Files are read only from `<input_root_datadir>/<source_station>/<name>/`.
+
+Only the key names of `examples/reference_configs/aftan.yml` are read. Older
+spellings removed in 0.2.0 (for example `component`, `io.input_root_dir`,
+`aftan.velocity_min`, flat `aftan.trig_threshold`, flat
+`aftan.period_sampling.step`, flat `aftan.basic.alpha.value`, flat
+`aftan.snr.dsn`) stop the run with an error that names the current key; the
+full list is in the changelog.
 
 The current config uses explicit branch and alpha choices:
 
@@ -104,11 +111,11 @@ component, the same on both lag branches (`AUTOMATIC_PI_OVER_4` in
 | ZR | -3 | +1 |
 | RZ | +1 | -3 |
 
-- **Pair mode** (`source_station`, `receiver_station`, `component(s)`): the
+- **Pair mode** (`source_station`, `receiver_station`, `components`): the
   component comes from the config. A ZRT code in SAC `kcmpnm` or the file name
   that contradicts it stops the run.
 - **Station mode** (`station`, `io.input_dir`, `sac_pattern`, no
-  `component`): the component of each file is read from SAC `kcmpnm` (written
+  `components`): the component of each file is read from SAC `kcmpnm` (written
   by `rotate-ccf`), else from the one ZRT code in the file name
   (`*_ZR.SAC`, `*_ZR_pws.SAC`). If neither gives one, `auto` stops with an
   explanation instead of assuming ZZ; set `pi_over_4` to a number (manual
@@ -536,10 +543,16 @@ signal_window = [t_pick - signal_half_width_factor * T,
 snr:
   definition: local  # local, pyftan, or aftan
   output_db: false
-  noise_mode: tail  # tail or complement
-  signal_half_width_factor: 1.0
-  noise_guard_factor: 1.0
+  local:
+    noise_mode: tail  # tail or complement
+    signal_half_width_factor: 1.0
+    noise_guard_factor: 1.0
+    tail: {dsn: 500.0, nlen: 500.0}
+  pyftan: {bfact: 1.0, efact: 0.0, dsn: 500.0, nlen: 500.0, vmax: 4.5, vmin: 1.0}
 ```
+
+The tail-noise window is read from the section of the definition in use:
+`local.tail.dsn/nlen` for `local`, `pyftan.dsn/nlen` for `pyftan`.
 
 `definition: local` uses the period-scaled picked-arrival window above.
 `noise_mode: tail` keeps a trailing noise window: after the signal window,

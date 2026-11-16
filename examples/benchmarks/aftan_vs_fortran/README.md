@@ -7,7 +7,7 @@ kept unchanged from the earlier `examples/AFTAN/`.
 
 | file | what it is |
 |---|---|
-| `COR_M07A_M15A.SAC` | ZZ (LHZ-LHZ) cross-correlation, virtual source M07A, receiver M15A, 561.9 km, 1 Hz, lags -3000 to 3000 s |
+| `CCF/M07A/M07A_M15A/COR_M07A_M15A.SAC` | ZZ (LHZ-LHZ) cross-correlation, virtual source M07A, receiver M15A, 561.9 km, 1 Hz, lags -3000 to 3000 s |
 | `FTAN_f77/` | Fortran AFTAN result (`FTAN/TA_M07A_TA_M15A.npz`) and its figure |
 | `FTAN_python/` | PyAFTAN result and its figure |
 | `FTAN_seisforge/` | SeisForge basic-FTAN dataset and figure from `aftan_seisforge.yml` |

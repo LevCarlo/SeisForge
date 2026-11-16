@@ -3,9 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import re
+
 import numpy as np
 from obspy import Trace
 import pytest
+import yaml
 import xarray as xr
 
 from seisforge.ant.aftan import (
@@ -66,7 +69,8 @@ def _alpha_config_lines(mode="constant"):
         return [
             "    alpha:",
             "      mode: constant",
-            "      value: 20.0",
+            "      constant:",
+            "        value: 20.0",
         ]
     if mode == "empirical_distance_table":
         return [
@@ -88,15 +92,15 @@ def test_build_station_aftan_config_is_station_scoped(tmp_path):
             "branch": "positive",
             "min_period": 2.0,
             "max_period": 8.0,
-            "period_sampling": {"mode": "uniform", "step": 0.5},
+            "period_sampling": {"mode": "uniform", "uniform": {"step": 0.5}},
             "velocity_window": {"min": 2.0, "max": 4.5},
-            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "basic": {"alpha": {"mode": "constant", "constant": {"value": 18.0}}},
             "pmf": {
-                "alpha": {"mode": "constant", "value": 22.0},
+                "alpha": {"mode": "constant", "constant": {"value": 22.0}},
                 "trig_threshold": 20.0,
                 "jump_points": 5,
             },
-            "snr": {"noise_mode": "complement"},
+            "snr": {"local": {"noise_mode": "complement"}},
         },
         "phase_cycle_selection": {
             "max_shift": 3,
@@ -165,9 +169,9 @@ def test_build_station_aftan_config_accepts_station_pair_component_list(tmp_path
             "branch": "negative",
             "min_period": 2.0,
             "max_period": 8.0,
-            "period_sampling": {"mode": "uniform", "step": 0.5},
+            "period_sampling": {"mode": "uniform", "uniform": {"step": 0.5}},
             "velocity_window": {"min": 2.0, "max": 4.5},
-            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "basic": {"alpha": {"mode": "constant", "constant": {"value": 18.0}}},
         },
     }
 
@@ -213,15 +217,15 @@ def test_energy_map_override_preserves_jump_correction_config(tmp_path):
             "branch": "positive",
             "min_period": 2.0,
             "max_period": 8.0,
-            "period_sampling": {"mode": "uniform", "step": 0.5},
+            "period_sampling": {"mode": "uniform", "uniform": {"step": 0.5}},
             "velocity_window": {"min": 2.0, "max": 4.5},
             "basic": {
-                "alpha": {"mode": "constant", "value": 18.0},
+                "alpha": {"mode": "constant", "constant": {"value": 18.0}},
                 "trig_threshold": 123.0,
                 "jump_points": 7,
             },
             "pmf": {
-                "alpha": {"mode": "constant", "value": 28.0},
+                "alpha": {"mode": "constant", "constant": {"value": 28.0}},
                 "trig_threshold": 21.0,
                 "jump_points": 4,
             },
@@ -253,9 +257,9 @@ def test_build_station_aftan_config_rejects_invalid_numeric_parameters(tmp_path)
             "branch": "positive",
             "min_period": 2.0,
             "max_period": 8.0,
-            "period_sampling": {"mode": "uniform", "step": 0.5},
+            "period_sampling": {"mode": "uniform", "uniform": {"step": 0.5}},
             "velocity_window": {"min": 2.0, "max": 4.5},
-            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "basic": {"alpha": {"mode": "constant", "constant": {"value": 18.0}}},
         },
         "short_distance_period_guard": {"max_period_nwl": 0.0},
     }
@@ -275,9 +279,9 @@ def _pmf_clean_window_config(clean_window: str | None) -> dict:
             "branch": "positive",
             "min_period": 2.0,
             "max_period": 8.0,
-            "period_sampling": {"mode": "uniform", "step": 0.5},
+            "period_sampling": {"mode": "uniform", "uniform": {"step": 0.5}},
             "velocity_window": {"min": 2.0, "max": 4.5},
-            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "basic": {"alpha": {"mode": "constant", "constant": {"value": 18.0}}},
             "pmf": pmf,
         },
     }
@@ -376,23 +380,27 @@ def test_run_aftan_config_writes_dispersion_outputs(tmp_path, assert_provenance)
                 "  input_dir: ccf",
                 "  output_dir: ftan",
                 "  sac_pattern: '*_ZR_pws.SAC'",
+                "short_distance_period_guard:",
+                "  reference_velocity: 3.5",
                 "aftan:",
                 "  branch: positive",
                 "  min_period: 2.0",
                 "  max_period: 8.0",
                 "  period_sampling:",
                 "    mode: uniform",
-                "    step: 0.25",
-                "  reference_velocity: 3.5",
+                "    uniform:",
+                "      step: 0.25",
                 "  velocity_window:",
                 "    min: 2.0",
                 "    max: 4.5",
-                "  trig_threshold: 9999.0",
                 "  basic:",
+                "    trig_threshold: 9999.0",
                 *_alpha_config_lines(),
                 "  snr:",
-                "    dsn: 20.0",
-                "    nlen: 40.0",
+                "    local:",
+                "      tail:",
+                "        dsn: 20.0",
+                "        nlen: 40.0",
             ]
         )
     )
@@ -453,19 +461,21 @@ def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
                 "  input_root_datadir: CC_ZRT",
                 "  output_root_datadir: FTAN",
                 "  input_template: '{source_station}_{receiver_station}_{component}_pws.SAC'",
+                "short_distance_period_guard:",
+                "  reference_velocity: 3.5",
                 "aftan:",
                 "  branch: negative",
                 "  min_period: 2.0",
                 "  max_period: 8.0",
                 "  period_sampling:",
                 "    mode: uniform",
-                "    step: 0.5",
-                "  reference_velocity: 3.5",
+                "    uniform:",
+                "      step: 0.5",
                 "  velocity_window:",
                 "    min: 2.0",
                 "    max: 4.5",
-                "  trig_threshold: 9999.0",
                 "  basic:",
+                "    trig_threshold: 9999.0",
                 *_alpha_config_lines(),
             ]
         )
@@ -504,48 +514,62 @@ def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
     assert "# radial_convention: lin2008 (assumed_default)" in zr_dat_text
 
 
-def test_run_aftan_config_falls_back_to_flat_input_root(tmp_path):
+def test_pair_mode_reads_only_the_station_pair_directory(tmp_path):
+    """No fallback to <input_root_datadir>/ itself: a file there is not found."""
     _write_symmetric_wave_packet(tmp_path / "WT.2001_WT.2085_ZR_pws.SAC")
+    config = {
+        "source_station": "WT.2001",
+        "receiver_station": "WT.2085",
+        "components": ["ZR"],
+        "io": {
+            "input_root_datadir": ".",
+            "output_root_datadir": "FTAN",
+            "input_template": "{source_station}_{receiver_station}_{component}_pws.SAC",
+        },
+        "aftan": {
+            "branch": "positive",
+            "period_sampling": {"mode": "uniform", "uniform": {"step": 0.5}},
+            "basic": {"alpha": {"mode": "constant", "constant": {"value": 20.0}}},
+        },
+    }
     config_file = tmp_path / "aftan.yml"
-    config_file.write_text(
-        "\n".join(
-            [
-                "source_station: 2001",
-                "receiver_station: 2085",
-                "component: ZR",
-                "io:",
-                "  input_root_datadir: .",
-                "  output_root_datadir: FTAN",
-                "  input_template: '*_{component}_pws.SAC'",
-                "aftan:",
-                "  branch: negative",
-                "  min_period: 2.0",
-                "  max_period: 8.0",
-                "  period_sampling:",
-                "    mode: uniform",
-                "    step: 0.5",
-                "  reference_velocity: 3.5",
-                "  velocity_window:",
-                "    min: 2.0",
-                "    max: 4.5",
-                "  trig_threshold: 9999.0",
-                "  basic:",
-                *_alpha_config_lines(),
-            ]
-        )
-    )
+    config_file.write_text(yaml.safe_dump(config))
+    with pytest.raises(FileNotFoundError, match="WT.2001/WT.2001_WT.2085"):
+        run_aftan_config(config_file)
 
-    results = run_aftan_config(config_file)
 
-    assert len(results) == 1
-    result = results[0]
-    assert result.input_file.name == "WT.2001_WT.2085_ZR_pws.SAC"
-    assert result.input_component == "ZR"
-    assert result.physical_component == "RZ"
-    assert result.output_dat.name == "WT.2001_WT.2085_ZR_pws.negative.dat"
-    log_text = (tmp_path / "FTAN" / "2001" / "2001_2085" / "aftan.log").read_text()
-    assert "input ZR:" in log_text
-    assert "WT.2001_WT.2085_ZR_pws.SAC" in log_text
+@pytest.mark.parametrize(
+    "path, value, current",
+    [
+        (("component",), "ZZ", "components"),
+        (("io", "input_root_dir"), "x", "io.input_root_datadir"),
+        (("aftan", "velocity_min"), 1.0, "aftan.velocity_window.min"),
+        (("aftan", "trig_threshold"), 10.0, "aftan.basic.trig_threshold"),
+        (("aftan", "reference_velocity"), 3.5, "short_distance_period_guard.reference_velocity"),
+        (("short_distance_period_guard", "min_wavelengths"), 1.0, "short_distance_period_guard.max_period_nwl"),
+        (("aftan", "snr", "dsn"), 20.0, "aftan.snr.local.tail.dsn"),
+        (("aftan", "snr", "noise_mode"), "tail", "aftan.snr.local.noise_mode"),
+        (("aftan", "period_sampling", "step"), 0.5, "aftan.period_sampling.<mode>.step"),
+        (("aftan", "basic", "alpha", "value"), 20.0, "aftan.basic.alpha.<mode>.value"),
+        (("aftan", "time_taper", "ramp_s"), 5.0, "aftan.time_taper.velocity_window.ramp_s"),
+    ],
+)
+def test_removed_aftan_keys_stop_with_the_current_name(path, value, current, tmp_path):
+    config = {
+        "station": "STA",
+        "io": {"input_dir": "in", "output_dir": "out"},
+        "aftan": {
+            "branch": "positive",
+            "period_sampling": {"mode": "uniform", "uniform": {"step": 0.5}},
+            "basic": {"alpha": {"mode": "constant", "constant": {"value": 20.0}}},
+        },
+    }
+    node = config
+    for key in path[:-1]:
+        node = node.setdefault(key, {})
+    node[path[-1]] = value
+    with pytest.raises(ValueError, match=re.escape(f"{'.'.join(path)} (use {current}")):
+        build_station_aftan_config(config, base_dir=tmp_path)
 
 
 def test_snr_uses_raw_signal_and_picked_periods(monkeypatch, tmp_path):
@@ -639,14 +663,16 @@ def test_run_aftan_config_optionally_writes_energy_map_and_plot(tmp_path):
                 "  input_dir: ccf",
                 "  output_dir: ftan",
                 "  sac_pattern: '*_ZR_pws.SAC'",
+                "short_distance_period_guard:",
+                "  reference_velocity: 3.5",
                 "aftan:",
                 "  branch: positive",
                 "  min_period: 2.0",
                 "  max_period: 8.0",
                 "  period_sampling:",
                 "    mode: uniform",
-                "    step: 0.25",
-                "  reference_velocity: 3.5",
+                "    uniform:",
+                "      step: 0.25",
                 "  velocity_window:",
                 "    min: 2.0",
                 "    max: 4.5",
@@ -654,12 +680,14 @@ def test_run_aftan_config_optionally_writes_energy_map_and_plot(tmp_path):
                 "    enabled: true",
                 "    plot: true",
                 "    velocity_count: 64",
-                "  trig_threshold: 9999.0",
                 "  basic:",
+                "    trig_threshold: 9999.0",
                 *_alpha_config_lines("empirical_distance_table"),
                 "  snr:",
-                "    dsn: 20.0",
-                "    nlen: 40.0",
+                "    local:",
+                "      tail:",
+                "        dsn: 20.0",
+                "        nlen: 40.0",
             ]
         )
     )
@@ -718,6 +746,8 @@ def test_run_aftan_config_writes_debug_phase_outputs_when_requested(tmp_path):
                 "  input_dir: ccf",
                 "  output_dir: ftan",
                 "  sac_pattern: '*_ZR_pws.SAC'",
+                "short_distance_period_guard:",
+                "  reference_velocity: 3.5",
                 "aftan:",
                 "  debug: true",
                 "  branch: positive",
@@ -725,20 +755,22 @@ def test_run_aftan_config_writes_debug_phase_outputs_when_requested(tmp_path):
                 "  max_period: 8.0",
                 "  period_sampling:",
                 "    mode: uniform",
-                "    step: 0.25",
-                "  reference_velocity: 3.5",
+                "    uniform:",
+                "      step: 0.25",
                 "  velocity_window:",
                 "    min: 2.0",
                 "    max: 4.5",
                 "  energy_map:",
                 "    enabled: true",
                 "    velocity_count: 64",
-                "  trig_threshold: 9999.0",
                 "  basic:",
+                "    trig_threshold: 9999.0",
                 *_alpha_config_lines(),
                 "  snr:",
-                "    dsn: 20.0",
-                "    nlen: 40.0",
+                "    local:",
+                "      tail:",
+                "        dsn: 20.0",
+                "        nlen: 40.0",
             ]
         )
     )
@@ -846,14 +878,16 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path, assert_
                 "  input_dir: ccf",
                 "  output_dir: ftan",
                 "  sac_pattern: '*_ZR_pws.SAC'",
+                "short_distance_period_guard:",
+                "  reference_velocity: 3.5",
                 "aftan:",
                 "  branch: positive",
                 "  min_period: 2.0",
                 "  max_period: 8.0",
                 "  period_sampling:",
                 "    mode: uniform",
-                "    step: 0.25",
-                "  reference_velocity: 3.5",
+                "    uniform:",
+                "      step: 0.25",
                 "  velocity_window:",
                 "    min: 2.0",
                 "    max: 4.5",
@@ -863,12 +897,14 @@ def test_run_aftan_config_optionally_writes_phase_velocity_map(tmp_path, assert_
                 "    phase_velocity: true",
                 "    phase_cycle_count: 3",
                 "    velocity_count: 64",
-                "  trig_threshold: 9999.0",
                 "  basic:",
+                "    trig_threshold: 9999.0",
                 *_alpha_config_lines(),
                 "  snr:",
-                "    dsn: 20.0",
-                "    nlen: 40.0",
+                "    local:",
+                "      tail:",
+                "        dsn: 20.0",
+                "        nlen: 40.0",
                 "phase_cycle_selection:",
                 "  enabled: true",
                 "  max_shift: 2",
@@ -941,30 +977,35 @@ def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path, assert_provena
                 "  input_dir: ccf",
                 "  output_dir: ftan",
                 "  sac_pattern: '*_ZR_pws.SAC'",
+                "short_distance_period_guard:",
+                "  reference_velocity: 3.5",
                 "aftan:",
                 "  branch: positive",
                 "  min_period: 2.0",
                 "  max_period: 8.0",
                 "  period_sampling:",
                 "    mode: uniform",
-                "    step: 0.25",
-                "  reference_velocity: 3.5",
+                "    uniform:",
+                "      step: 0.25",
                 "  velocity_window:",
                 "    min: 2.0",
                 "    max: 4.5",
-                "  trig_threshold: 9999.0",
                 "  basic:",
+                "    trig_threshold: 9999.0",
                 *_alpha_config_lines(),
                 "  pmf:",
                 "    enabled: true",
                 "    alpha:",
                 "      mode: constant",
-                "      value: 24.0",
+                "      constant:",
+                "        value: 24.0",
                 "    trig_threshold: 25.0",
                 "    jump_points: 5",
                 "  snr:",
-                "    dsn: 20.0",
-                "    nlen: 40.0",
+                "    local:",
+                "      tail:",
+                "        dsn: 20.0",
+                "        nlen: 40.0",
             ]
         )
     )
@@ -1004,23 +1045,27 @@ def test_run_aftan_config_can_measure_both_symmetric_branches(tmp_path):
                 "  input_dir: ccf",
                 "  output_dir: ftan",
                 "  sac_pattern: '*_ZR_pws.SAC'",
+                "short_distance_period_guard:",
+                "  reference_velocity: 3.5",
                 "aftan:",
                 "  branch: both",
                 "  min_period: 2.0",
                 "  max_period: 8.0",
                 "  period_sampling:",
                 "    mode: uniform",
-                "    step: 0.25",
-                "  reference_velocity: 3.5",
+                "    uniform:",
+                "      step: 0.25",
                 "  velocity_window:",
                 "    min: 2.0",
                 "    max: 4.5",
-                "  trig_threshold: 9999.0",
                 "  basic:",
+                "    trig_threshold: 9999.0",
                 *_alpha_config_lines(),
                 "  snr:",
-                "    dsn: 20.0",
-                "    nlen: 40.0",
+                "    local:",
+                "      tail:",
+                "        dsn: 20.0",
+                "        nlen: 40.0",
             ]
         )
     )
@@ -1046,23 +1091,27 @@ def test_stack_branch_falls_back_to_positive_for_one_sided_trace(tmp_path):
                 "  input_dir: ccf",
                 "  output_dir: ftan",
                 "  sac_pattern: '*_ZR_pws.SAC'",
+                "short_distance_period_guard:",
+                "  reference_velocity: 3.5",
                 "aftan:",
                 "  branch: stack",
                 "  min_period: 2.0",
                 "  max_period: 8.0",
                 "  period_sampling:",
                 "    mode: uniform",
-                "    step: 0.25",
-                "  reference_velocity: 3.5",
+                "    uniform:",
+                "      step: 0.25",
                 "  velocity_window:",
                 "    min: 2.0",
                 "    max: 4.5",
-                "  trig_threshold: 9999.0",
                 "  basic:",
+                "    trig_threshold: 9999.0",
                 *_alpha_config_lines(),
                 "  snr:",
-                "    dsn: 20.0",
-                "    nlen: 40.0",
+                "    local:",
+                "      tail:",
+                "        dsn: 20.0",
+                "        nlen: 40.0",
             ]
         )
     )
@@ -1091,10 +1140,10 @@ def test_period_sampling_accepts_explicit_list(tmp_path):
             "max_period": 8.0,
             "period_sampling": {
                 "mode": "list",
-                "periods": [1.0, 2.0, 3.0, 5.0, 9.0],
+                "list": {"periods": [1.0, 2.0, 3.0, 5.0, 9.0]},
             },
             "velocity_window": {"min": 2.0, "max": 4.5},
-            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "basic": {"alpha": {"mode": "constant", "constant": {"value": 18.0}}},
         },
     }
 
@@ -1118,11 +1167,10 @@ def test_period_sampling_geomspace_uses_pyftan_dfreq_formula(tmp_path):
             "max_period": 8.0,
             "period_sampling": {
                 "mode": "geomspace",
-                "dfreq": 0.03,
-                "min_count": 3,
+                "geomspace": {"dfreq": 0.03, "min_count": 3},
             },
             "velocity_window": {"min": 2.0, "max": 4.5},
-            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "basic": {"alpha": {"mode": "constant", "constant": {"value": 18.0}}},
         },
     }
 
@@ -1223,8 +1271,8 @@ def test_time_taper_config_parsing_and_validation(tmp_path):
                 "io": {"input_dir": "in", "output_dir": "out"},
                 "aftan": {
                     "branch": "positive",
-                    "period_sampling": {"mode": "uniform", "step": 0.5},
-                    "basic": {"alpha": {"mode": "constant", "value": 20.0}},
+                    "period_sampling": {"mode": "uniform", "uniform": {"step": 0.5}},
+                    "basic": {"alpha": {"mode": "constant", "constant": {"value": 20.0}}},
                     "time_taper": time_taper,
                 },
             },
