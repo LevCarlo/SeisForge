@@ -175,8 +175,9 @@ switch that restores the old behaviour where one exists.
   `seisforge.inv.predict_receiver_function`): Thomson-Haskell motion-stress
   propagator, full reverberations, per-layer density, adaptive FFT padding;
   validated against PyGRT; about 0.5 ms for a 67-layer model.
-- `seisforge ant aftan-cycle-set` to inspect or override a phase-cycle
-  choice.
+- `tools/aftan_cycle_set.py`, a stand-alone script (not a package command)
+  to preview or apply a manual phase-cycle shift to saved AFTAN outputs;
+  preview by default, `--in-place` to write.
 - `--overwrite` for `seisforge rf hkseq`.
 - Documentation site (MkDocs) with getting started, conventions, model guide,
   configuration reference, API reference, and references.

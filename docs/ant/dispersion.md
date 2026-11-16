@@ -616,7 +616,7 @@ constant.
 `seisforge ant aftan -c aftan.yml` runs basic FTAN (and PMF if enabled) on
 each CCF branch and writes `.dat` curves, optional energy and phase-candidate
 maps (NetCDF), and `aftan.log`. The configuration keys, output columns and
-the manual cycle override (`seisforge ant aftan-cycle-set`) are described on
+the manual cycle override (`tools/aftan_cycle_set.py`) are described on
 the [previous page](../aftan_workflow.md) until they move here.
 
 ## References

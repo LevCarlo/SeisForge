@@ -29,13 +29,6 @@
 
 ::: seisforge.ant.aftan.taper
 
-::: seisforge.ant.aftan.cycle
-    options:
-      members:
-        - override_phase_cycle
-        - PhaseCycleOverrideResult
-        - infer_dispersion_dat_path
-
 ## Eikonal and Helmholtz tomography
 
 ::: seisforge.ant.eikonal.driver

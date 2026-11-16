@@ -226,20 +226,22 @@ count, and whether the shift reached `max_shift`. The `.dat` header records
 `phase_cycle_selection_source` and `phase_cycle_shift`.
 
 If visual inspection still identifies the wrong branch, preview an absolute
-manual shift relative to `picked_phase_velocity_uncorrected`:
+manual shift relative to `picked_phase_velocity_uncorrected` with the
+stand-alone tool `tools/aftan_cycle_set.py` (in the repository, not part of
+the installed package or CLI):
 
 ```bash
-seisforge ant aftan-cycle-set path/to/pair.negative.pmf.vph.nc --shift 0
+python tools/aftan_cycle_set.py path/to/pair.negative.pmf.vph.nc --shift 0
 ```
 
 The preview changes no files. Apply it explicitly with:
 
 ```bash
-seisforge ant aftan-cycle-set path/to/pair.negative.pmf.vph.nc \
+python tools/aftan_cycle_set.py path/to/pair.negative.pmf.vph.nc \
   --shift 0 --in-place --reason "visual cycle inspection"
 ```
 
-The in-place command updates the phase-map NetCDF and its inferred companion
+The in-place run updates the phase-map NetCDF and its inferred companion
 `.dat` file. It preserves the original automatic curve and diagnostics under
 `*_automatic` variables and records the manual shift, UTC time, and optional
 reason. Repeated overrides are deterministic because every branch is rebuilt
@@ -270,7 +272,6 @@ Inside `seisforge.ant.aftan`, each module has a single role:
 | `products` | energy and phase-velocity diagnostic maps and their xarray datasets |
 | `qc` | period-mismatch and retained-branch QC |
 | `io`, `plot` | SAC/path helpers, `.dat` writer, summary figure |
-| `cycle` | post-pick manual phase-cycle override (`aftan-cycle-set`) |
 | `driver` | per-file/per-branch orchestration, overwrite policy, logs |
 
 The alpha helpers keep the three common choices explicit:
@@ -639,3 +640,4 @@ Current differences and simplifications:
   `definition: local` is the current SeisForge default for short CCF tests.
 - `qc.period_rel_warning` only logs target/instant period mismatch. It does not
   reject, trim, or smooth the picked branch.
+

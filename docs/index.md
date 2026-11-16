@@ -31,7 +31,6 @@ Commands are grouped by workflow; most take a YAML config:
 |---|---|---|
 | `seisforge ant rotate-ccf -c ccf_rotate.yml` | rotate ZNE CCFs to ZRT | [CCF rotation](ant_workflow.md) |
 | `seisforge ant aftan -c aftan_station.yml` | AFTAN dispersion picks | [AFTAN](aftan_workflow.md) |
-| `seisforge ant aftan-cycle-set PAIR.vph.nc --shift N` | inspect/override a phase-cycle choice | [AFTAN](aftan_workflow.md#phase-cycle-selection) |
 | `seisforge ant eikonal -c eikonal.yml` | Eikonal/Helmholtz phase-velocity maps | [Eikonal](eikonal_workflow.md) |
 | `seisforge rf qc -c rf_qc.yml --plot` | RF quality control | [Receiver functions](rf_workflow.md) |
 | `seisforge rf hkseq -c hkseq.yml --mode both --plot` | sequential H-k stacking | [Receiver functions](rf_workflow.md#sequential-h-k-config) |
@@ -50,4 +49,5 @@ config, `run.sh` and README: see the [examples overview](examples.md).
 - Python functions and classes: [API reference](api/index.md).
 - Changes that alter results of existing configurations:
   [changelog](changelog.md).
+
 
