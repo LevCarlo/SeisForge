@@ -11,7 +11,7 @@ changed only ZR and RZ. Regenerate it only with the script, and only for a
 change listed under "Changed results" in `CHANGELOG.md`.
 
 Inputs: ZZ, ZR, RZ, RR from `synthetic_rayleigh_ccf_zne` (diffuse plane-wave
-Rayleigh field, rotated with the package rotation, default lin2008 axes;
+Rayleigh field, rotated with the package rotation (Lin et al. 2008 axes);
 independent of the AFTAN ``pi_over_4`` table) and TT from `synthetic_ccf` with ``pi_over_4 = -1`` (a
 Love-like waveform with the self-component phase constant). The 2 pi cycle is
 fixed by giving the true curve as ``prediction_file``, so cycle selection
@@ -53,27 +53,15 @@ def sac_name(component: str) -> str:
     return f"{SOURCE}_{RECEIVER}_{component}.SAC"
 
 
-def write_ccfs(
-    directory: Path,
-    *,
-    kcmpnm: bool = False,
-    radial_convention: str = "lin2008",
-    record_convention: bool = False,
-) -> None:
-    """Write one two-sided SAC CCF per component into ``directory``.
-
-    ``radial_convention`` is passed to the rotation; ``record_convention``
-    writes it to SAC ``kuser0`` as `seisforge ant rotate-ccf` does.
-    """
+def write_ccfs(directory: Path, *, kcmpnm: bool = False) -> None:
+    """Write one two-sided SAC CCF per component into ``directory``."""
     directory.mkdir(parents=True, exist_ok=True)
     time = symmetric_ccf_time_axis(300.0, DELTA_S)
     band = {"min_period_s": 4.0, "max_period_s": 16.0}
     zne = synthetic_rayleigh_ccf_zne(
         time, DISTANCE_KM, AZIMUTH_DEG, PERIOD_S, PHASE_VELOCITY_KM_S, **band
     )
-    data = rotate_zne_ccf_to_zrt(
-        zne, AZIMUTH_DEG, AZIMUTH_DEG + 180.0, radial_convention=radial_convention
-    )
+    data = rotate_zne_ccf_to_zrt(zne, AZIMUTH_DEG, AZIMUTH_DEG + 180.0)
     data["TT"] = synthetic_ccf(
         time, DISTANCE_KM, PERIOD_S, PHASE_VELOCITY_KM_S, pi_over_4=-1.0, **band
     )
@@ -84,8 +72,6 @@ def write_ccfs(
         if kcmpnm:  # as `seisforge ant rotate-ccf` writes it (ObsPy maps channel to kcmpnm)
             trace.stats.channel = component
             trace.stats.sac["kcmpnm"] = component
-        if record_convention:
-            trace.stats.sac["kuser0"] = radial_convention
         trace.write(str(directory / sac_name(component)), format="SAC")
     np.savetxt(
         directory / "prediction.dat", np.column_stack([PERIOD_S, PHASE_VELOCITY_KM_S])

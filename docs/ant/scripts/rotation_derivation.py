@@ -51,8 +51,8 @@ C
 # ## The two bases
 #
 # Each row of a rotation matrix is one new unit vector written in the old
-# (Z, N, E) components. In the default convention (`radial_convention:
-# lin2008`, Lin, Moschetti & Ritzwoller 2008, Fig. 2) the radial unit vector
+# (Z, N, E) components. In the package convention (Lin, Moschetti &
+# Ritzwoller 2008, Fig. 2) the radial unit vector
 # at the virtual source is $\hat R_A = (\cos\theta, \sin\theta)$ in (N, E):
 # it points *towards* B. At the receiver $\hat R_B = (-\cos\psi, -\sin\psi)$
 # points *away from* A. Both point along the propagation of the positive-lag
@@ -108,34 +108,32 @@ for i in range(3):
 # with `rotate_zne_ccf_to_zrt` to rounding error (each entry is a sum of at
 # most four products of numbers of order one, so `1e-12` is generous).
 #
-# The `legacy` convention (SeisForge before the change) reverses R and T at
-# both stations: $S_\text{legacy} = D S$, $\mathsf R_\text{legacy} = D \mathsf R$
-# with $D = \mathrm{diag}(1, -1, -1)$. Then $C'_\text{legacy} = D C' D$: the
-# entries with exactly one horizontal index (ZR, ZT, RZ, TZ) change sign, the
-# others do not.
+# SeisForge before 0.2.0 reversed R and T at both stations:
+# $S_\text{old} = D S$, $\mathsf R_\text{old} = D \mathsf R$ with
+# $D = \mathrm{diag}(1, -1, -1)$. Then $C'_\text{old} = D C' D$: the entries
+# with exactly one horizontal index (ZR, ZT, RZ, TZ) change sign, the others
+# do not. This is why files rotated before 0.2.0 differ only in those four.
 
 # %%
 from seisforge.ant.rotation import ZRT_COMPONENTS, rotate_zne_ccf_to_zrt  # noqa: E402
 
 D = sp.diag(1, -1, -1)
-Cp_legacy = sp.expand((D * S) * C * (D * R).T)
-assert sp.expand(Cp_legacy - D * Cp * D) == sp.zeros(3)
+Cp_old = sp.expand((D * S) * C * (D * R).T)
+assert sp.expand(Cp_old - D * Cp * D) == sp.zeros(3)
 rng = np.random.default_rng(0)
-worst = {}
-for convention, matrix in (("lin2008", Cp), ("legacy", Cp_legacy)):
-    f = sp.lambdify((theta, psi, *list(C)), matrix, "numpy")
-    worst[convention] = 0.0
-    for _ in range(200):
-        az, baz = rng.uniform(0, 360, 2)
-        values = rng.normal(size=9)
-        ccf = {zne[i] + zne[j]: values[3 * i + j] for i in range(3) for j in range(3)}
-        package = rotate_zne_ccf_to_zrt(ccf, az, baz, radial_convention=convention)
-        symbolic = np.asarray(f(np.deg2rad(az), np.deg2rad(baz), *values), dtype=float)
-        for comp in ZRT_COMPONENTS:
-            i, j = zrt.index(comp[0]), zrt.index(comp[1])
-            worst[convention] = max(worst[convention], abs(package[comp] - symbolic[i, j]))
-    print(f"{convention}: largest difference over 200 random cases: {worst[convention]:.1e}")
-assert max(worst.values()) < 1e-12
+f = sp.lambdify((theta, psi, *list(C)), Cp, "numpy")
+worst = 0.0
+for _ in range(200):
+    az, baz = rng.uniform(0, 360, 2)
+    values = rng.normal(size=9)
+    ccf = {zne[i] + zne[j]: values[3 * i + j] for i in range(3) for j in range(3)}
+    package = rotate_zne_ccf_to_zrt(ccf, az, baz)
+    symbolic = np.asarray(f(np.deg2rad(az), np.deg2rad(baz), *values), dtype=float)
+    for comp in ZRT_COMPONENTS:
+        i, j = zrt.index(comp[0]), zrt.index(comp[1])
+        worst = max(worst, abs(package[comp] - symbolic[i, j]))
+print(f"largest difference over 200 random cases: {worst:.1e}")
+assert worst < 1e-12
 
 # %% [markdown]
 # ## Inverse rotation
@@ -216,8 +214,7 @@ for name, expr in leaks.items():
 # With $\hat x = (\cos\theta, \sin\theta)$ the unit vector from A towards B
 # (flat Earth), both radial axes equal $+\hat x$ and both transverse axes are
 # equal: R points along the propagation of the positive-lag arrival at *both*
-# stations, as in Fig. 2 of Lin et al. (2008); in the legacy convention both
-# equal $-\hat x$.
+# stations, as in Fig. 2 of Lin et al. (2008).
 
 # %%
 x_hat = sp.Matrix([sp.cos(theta), sp.sin(theta)])
@@ -234,9 +231,9 @@ print("R_A = R_B = x_hat,  T_A = T_B = x_hat turned 90 deg clockwise")
 #
 # Lin et al. give TT, RR, TR and RT as combinations of EE, EN, NN and NE. The
 # coefficients below are those of their eq. 1 (as compared with the paper when
-# the convention was changed); they are the horizontal block of $C'$ in
-# *both* conventions, because reversing R and T at both stations leaves every
-# product of two horizontal axes unchanged.
+# the convention was changed); they are the horizontal block of $C'$, and
+# also of the pre-0.2 $C'_\text{old}$, because reversing R and T at both
+# stations leaves every product of two horizontal axes unchanged.
 
 # %%
 ct, st, cp, sp_ = sp.cos(theta), sp.sin(theta), sp.cos(psi), sp.sin(psi)
@@ -249,5 +246,5 @@ lin_eq1 = {
 }
 for comp, expr in lin_eq1.items():
     i, j = zrt.index(comp[0]), zrt.index(comp[1])
-    assert sp.expand(Cp[i, j] - expr) == 0 and sp.expand(Cp_legacy[i, j] - expr) == 0, comp
-print("TT, RR, TR, RT equal Lin et al. (2008) eq. 1 in both conventions")
+    assert sp.expand(Cp[i, j] - expr) == 0 and sp.expand(Cp_old[i, j] - expr) == 0, comp
+print("TT, RR, TR, RT equal Lin et al. (2008) eq. 1 (also with the pre-0.2 axes)")

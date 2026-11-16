@@ -93,16 +93,6 @@ def _register_rotate_ccf(
         help="Interpret azimuths as radians instead of degrees.",
     )
     parser.add_argument(
-        "--radial-convention",
-        choices=("lin2008", "legacy"),
-        default=None,
-        help=(
-            "R/T axis directions: lin2008 (default; R along the propagation "
-            "at both stations, Lin et al. 2008 Fig. 2) or legacy (pre-change "
-            "SeisForge; ZR, RZ, ZT, TZ have the opposite sign)."
-        ),
-    )
-    parser.add_argument(
         "--overwrite",
         action="store_true",
         default=None,
@@ -184,7 +174,6 @@ def _run_rotate_ccf(args: argparse.Namespace) -> int:
         back_azimuth=args.back_azimuth,
         degrees=args.degrees,
         overwrite=args.overwrite,
-        radial_convention=args.radial_convention,
     )
     for result in results:
         label = result.job.name or str(result.job.input_dir)

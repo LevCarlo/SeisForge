@@ -1,7 +1,7 @@
 # AFTAN Phase Constants: Derivation and History
 
 !!! success "Status: fixed"
-    Until the lin2008 change (CHANGELOG, "Changed results") the automatic
+    Until 0.2.0 (CHANGELOG, "Changed results") the automatic
     `pi_over_4` values for **ZR and RZ**, the negative-branch ZR <-> RZ swap,
     and station mode's fixed `-1` did not match the package rotation; phase
     velocities of the affected cases were wrong by 0.25-0.6 km/s at 150 km.
@@ -52,12 +52,11 @@ time-reversed negative lag has the opposite shift.)
   (first letter) and receiver B (second letter); positive lag is propagation
   A -> B.
 - **Rotation** (`seisforge.ant.rotation`): with azimuth `theta` (A to B) and
-  back azimuth `psi = theta + 180 deg` (flat Earth), the default `lin2008`
-  axes are `R_A = (cos theta, sin theta)` and `R_B = (-cos psi, -sin psi)` in
+  back azimuth `psi = theta + 180 deg` (flat Earth), the axes are `R_A = (cos theta, sin theta)` and `R_B = (-cos psi, -sin psi)` in
   (N, E): both equal `+x`, the unit vector from A to B, **along the
-  propagation** (Lin et al. 2008, Fig. 2). The `legacy` axes (SeisForge
-  before the change) are both `-x`. The transverse axes are equal at the two
-  stations in either convention.
+  propagation** (Lin et al. 2008, Fig. 2). The axes of SeisForge before
+  0.2.0 were both `-x` (no longer supported). The transverse axes are equal at
+  the two stations.
 - **Polarisation**: fundamental-mode Rayleigh waves are retrograde at the
   free surface (Aki & Richards 2002, sec. 7.2.2). For a plane wave travelling
   along `d`, `z = cos(omega t - k d.x)` and the horizontal motion along `d` is
@@ -75,8 +74,8 @@ with `X = k r`:
     <cos^2 a exp(-i X cos a)>  = (J0(X) - J2(X)) / 2
     <sin^2 a exp(-i X cos a)>  = (J0(X) + J2(X)) / 2 = J1(X) / X
 
-The spectrum of `C_ab` is `conj(U_a^A) U_b^B`. With `s = +1` for lin2008 and
-`s = -1` for legacy, `d.R_A = d.R_B = s cos a`:
+The spectrum of `C_ab` is `conj(U_a^A) U_b^B`. With `s = +1` for the
+package axes (`s = -1` for the pre-0.2 axes), `d.R_A = d.R_B = s cos a`:
 
 | Component | Product averaged | Result |
 |---|---|---|
@@ -94,15 +93,16 @@ term `exp(-i(k r - theta))` times `exp(i omega t)` is the causal arrival
 after time reversal has the same `phi0 = theta`. So **both lag branches carry
 the same constant**, that of the stored component:
 
-| Component | Far-field form (lin2008) | `phi0` | `p`, lin2008 | `p`, legacy |
+| Component | Far-field form (`s = +1`) | `phi0` | `p` | `p` with pre-0.2 axes |
 |---|---|---|---|---|
-| ZZ | `+cos(X - pi/4)` | `+pi/4` | **-1** | **-1** |
-| RR | `+cos(X - pi/4)` (since `J2 ~ -J0`) | `+pi/4` | **-1** | **-1** |
-| TT (Love) | `+cos(X - pi/4)` | `+pi/4` | **-1** | **-1** |
-| ZR | `+cos(X - 3 pi/4)` | `+3 pi/4` | **-3** | **+1** |
-| RZ | `-cos(X - 3 pi/4)` = `cos(X + pi/4)` | `-pi/4` | **+1** | **-3** |
+| ZZ | `+cos(X - pi/4)` | `+pi/4` | **-1** | -1 |
+| RR | `+cos(X - pi/4)` (since `J2 ~ -J0`) | `+pi/4` | **-1** | -1 |
+| TT (Love) | `+cos(X - pi/4)` | `+pi/4` | **-1** | -1 |
+| ZR | `+cos(X - 3 pi/4)` | `+3 pi/4` | **-3** | +1 |
+| RZ | `-cos(X - 3 pi/4)` = `cos(X + pi/4)` | `-pi/4` | **+1** | -3 |
 
-These are `AUTOMATIC_PI_OVER_4` in `seisforge/ant/aftan/phase.py`.
+The last column is for reference only: the package supports one convention.
+The `p` column is `AUTOMATIC_PI_OVER_4` in `seisforge/ant/aftan/phase.py`.
 
 ## Numerical check, independent of the table
 
@@ -120,14 +120,15 @@ which anchors the overall sign.
 
 Running AFTAN (station mode, manual `pi_over_4`) on these CCFs with every `p`
 in {-3, -1, +1, +3, +5} picks, at 80, 150 and 300 km and on both branches,
-exactly the `p` of the last table, in both conventions. At 150 km the error is
+exactly the `p` of the last table, for both axis directions (the pre-0.2
+column too; checked while both were still in the package). At 150 km the error is
 0.001-0.010 km/s at the right `p` and 0.25-0.63 km/s at every other value.
 
 With the automatic constants (`tests/test_ant_aftan_components.py`), largest
 `|c_measured - c_true|` in km/s at 150 km, 5-14 s, true curve given as
 `prediction_file` so that the 2 pi cycle choice does not enter; "before" is
-the code before the fix on CCFs rotated with the then-current (legacy)
-axes, "after" the fixed code with the default lin2008 rotation:
+the code before the fix on CCFs rotated with the then-current (pre-0.2)
+axes, "after" the fixed code with the current rotation:
 
 | Stored component | Pair, + | Pair, - | Station, + | Station, - |
 |---|---|---|---|---|
@@ -139,9 +140,8 @@ axes, "after" the fixed code with the default lin2008 rotation:
 
 TT here is a Love-like waveform built with the ZZ phase constant
 (`synthetic_ccf`), so its row only pins the code path; the Love-wave check is
-in [RR and TT](#rr-and-tt). The tests also run every component, both modes
-and both branches on legacy-rotated CCFs with `kuser0: legacy` (all within
-0.03 km/s), check that pair and station mode give bit-identical results on
+in [RR and TT](#rr-and-tt). The tests also check that pair and station mode
+give bit-identical results on
 the same file, and that ZZ, RR and TT are bit for bit as before
 (`tests/data/aftan_component_baseline.npz`). The test tolerance, 0.03 km/s,
 separates the right constant (<= 0.010 km/s) from a pi/2 error (about
@@ -151,31 +151,25 @@ separates the right constant (<= 0.010 km/s) from a pi/2 error (about
 
 The time-reversed negative lag of `ZR` for pair A_B is the physical `RZ` of
 pair B_A only up to a sign: as receiver of A_B, `R_B` points away from A; as
-source of B_A, it points towards A (in either convention). Hence
+source of B_A, it points towards A. Hence
 `ZR_AB(-t) = -RZ_BA(t)`, a pi shift, which turns RZ's constant into ZR's
-(`+1 + 4 = 5 = -3 mod 8` in lin2008). AFTAN therefore takes the constant of
+(`+1 + 4 = 5 = -3 mod 8`). AFTAN therefore takes the constant of
 the **stored** component on the negative branch; `physical_component_for_branch`
 still labels the branch as the reciprocal component of the reversed pair
 (in `aftan.log`), but that label never chooses `pi_over_4`.
 
-## Which convention a file has
+## Files rotated before 0.2.0
 
-ZZ, RR and TT do not depend on the R/T convention; ZR and RZ do (their
-constants differ by pi between the two). `seisforge ant rotate-ccf` writes
-the convention into SAC `kuser0`. AFTAN (`aftan.radial_convention`):
-
-- `auto` (default): `kuser0` if it holds `lin2008` or `legacy`, else
-  `lin2008` with a `phase_velocity_warning` on ZR/RZ results;
-- `lin2008` or `legacy`: used when the file has no `kuser0`; a file whose
-  `kuser0` says otherwise stops the run.
-
-**Files rotated by SeisForge before the change** have no `kuser0` and legacy
-axes: measure their ZR/RZ with `aftan.radial_convention: legacy` (then ZR +1,
-RZ -3, both checked above). Without it, auto mode assumes lin2008, warns, and
-the phase velocity is pi off (about 0.6 km/s at 150 km;
-`tests/test_ant_aftan_components.py::test_unrecorded_legacy_files_need_the_config_option`).
+ZZ, RR and TT do not depend on the R/T axis direction; ZR and RZ do (their
+constants differ by pi between the two directions). SeisForge before 0.2.0
+reversed R and T, so its ZR/RZ (and ZT/TZ) are the negative of today's. The
+package supports only the current axes and does not recognise old files
+(`rotate-ccf` writes `lin2008` into SAC `kuser0` as a record, but nothing
+reads it): measured as they are, old ZR/RZ are pi off (about 0.6 km/s at
+150 km); rotated again or negated, they are right
+(`tests/test_ant_aftan_components.py::test_pre_0_2_rotations_are_pi_off_until_negated`).
 Files from other codes need the same care; see
-[Rotation](ant/rotation.md#relation-to-lin-et-al-2008-and-the-legacy-convention).
+[Rotation](ant/rotation.md#relation-to-lin-et-al-2008-and-to-seisforge-before-020).
 
 ## RR and TT
 
@@ -196,7 +190,7 @@ Files from other codes need the same care; see
   constant) were added together in commit `7d5c2de` (2026-07-10, message
   "optimize seisforge inv"), with no derivation, reference or test of the
   ZR/RZ values. Before that, AFTAN used a single `pi_over_4: -1.0`.
-- With the rotation of that time (legacy axes) the right values were ZR +1,
+- With the rotation of that time (pre-0.2 axes) the right values were ZR +1,
   RZ -3. The table had RZ -1, a pi/2 error. **No R/T convention made it
   right**: ZR and RZ are `J1`-type and differ by 0 or pi under any choice of
   radial directions, never by pi/2 as in the table (`+1` vs `-1`); reversing
@@ -206,11 +200,12 @@ Files from other codes need the same care; see
   RZ value this gave ZR negative -1 and RZ negative +1, both wrong.
 - Station mode used `-1` for every file, right for ZZ/RR/TT only.
 - Task T19 added the warning, the baseline and `xfail` tests without changing
-  numbers; the lin2008 change (CHANGELOG, "Changed results") switched the
-  rotation to Lin et al. (2008) Fig. 2, replaced the table by
-  `AUTOMATIC_PI_OVER_4`, dropped the swap from the constant lookup and made
-  station mode look the component up per file. The old ZR/RZ constants are not
-  available behind an option: they were wrong for every rotation convention.
+  numbers; 0.2.0 (CHANGELOG, "Changed results") switched the rotation to
+  Lin et al. (2008) Fig. 2, replaced the table by `AUTOMATIC_PI_OVER_4`,
+  dropped the swap from the constant lookup and made station mode look the
+  component up per file. For a while a `legacy` option kept the old axes and
+  a matching constant set; it was removed because no old ZR/RZ result had to
+  be reproduced. The old ZR/RZ constants were wrong for every convention.
 
 ## Not verified
 

@@ -35,14 +35,12 @@ resampling, choosing an uncertainty) is done by the user's own scripts;
 
 ## Conventions to watch when using the tools together
 
-- **Components and branches.** The rotation fixes which way R and T point (by
-  default both radial axes point from the virtual source towards the
-  receiver, along the propagation, as in Lin et al. 2008, Fig. 2; the
-  `legacy` option reverses them). The phase constant AFTAN removes depends on
-  the component and, for ZR and RZ, on this convention; `rotate-ccf` records
-  it in SAC `kuser0` and AFTAN reads it
-  ([derivation](../aftan_phase_constants.md)). CCFs rotated elsewhere need the
-  convention checked.
+- **Components and branches.** The rotation fixes which way R and T point
+  (both radial axes from the virtual source towards the receiver, along the
+  propagation, as in Lin et al. 2008, Fig. 2). The phase constant AFTAN
+  removes depends on the component and, for ZR and RZ, on this convention
+  ([derivation](../aftan_phase_constants.md)). ZR/RZ rotated elsewhere, or by
+  SeisForge before 0.2.0, need the convention checked (negate if reversed).
 - **Negative lags.** A CCF has a causal branch (A → B) and an acausal one
   (B → A). A negative-branch measurement belongs to the reversed station pair
   when it is passed on to tomography.

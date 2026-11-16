@@ -12,43 +12,41 @@ switch that restores the old behaviour where one exists.
   `rotate_zne_ccf_to_zrt`, `rotate_zrt_ccf_to_zne` and `seisforge ant
   rotate-ccf` now point R from the virtual source towards the receiver at
   both stations and T 90 degrees clockwise from R, as in Fig. 2 of Lin,
-  Moschetti & Ritzwoller (2008, GJI 173, 281-298) (`radial_convention:
-  lin2008`, default). Before, R and T were reversed at both stations. **ZR,
-  RZ, ZT and TZ change sign** (exact negation); ZZ, RR, RT, TR and TT are bit
-  for bit the same (RR/RT/TR/TT agree with Lin et al. eq. 1 in both
-  conventions). Old behaviour: `rotation.radial_convention: legacy` (config),
-  `--radial-convention legacy` (CLI) or `radial_convention="legacy"`
-  (functions), bit for bit. `rotate-ccf` records the convention in
-  `rotate_ccf.log` and SAC `kuser0` (`lin2008`/`legacy`).
+  Moschetti & Ritzwoller (2008, GJI 173, 281-298). Before, R and T were
+  reversed at both stations. **ZR, RZ, ZT and TZ change sign** (exact
+  negation); ZZ, RR, RT, TR and TT are bit for bit the same (RR/RT/TR/TT
+  agree with Lin et al. eq. 1 either way). No option restores the old axes:
+  the old ones were not wrong, but only one convention is kept, since no
+  old ZR/RZ/ZT/TZ result had to be reproduced and a second convention
+  doubles the phase-constant bookkeeping. **ZR/RZ/ZT/TZ files rotated
+  before 0.2.0 are not recognised**: rotate them again from the ZNE files
+  (or negate them) before AFTAN; measured as they are, their phase
+  velocities are pi off. `rotate-ccf` writes `lin2008` into
+  `rotate_ccf.log` and SAC `kuser0` as a record (nothing reads it).
   `examples/01_ccf_rotate`: data regenerated in the new convention, with the
   RZ truth now built with the correct phase constant (only `NZ`, `EZ` files
   and `true_zrt.npz`, `expected_result.png` changed; residuals still
   0.029-0.040 of max ZZ).
 - **AFTAN ZR/RZ phase constants fixed; station mode picks the constant per
   file.** The automatic `pi_over_4` is now that of the stored component on
-  both lag branches: ZZ, RR, TT -1; with lin2008 axes ZR -3, RZ +1; with
-  legacy axes ZR +1, RZ -3 (derivation and checks:
-  `docs/aftan_phase_constants.md`). The negative-branch ZR <-> RZ swap no longer
-  chooses the constant (it only labels the physical component). Station
-  mode (no `component` in the config) now defaults to `pi_over_4: auto` and
-  reads the component of each file from SAC `kcmpnm` or the file name; when
-  neither names one, auto mode stops (set `pi_over_4` to a number to measure
-  such files). New key `aftan.radial_convention` (`auto` default: SAC
-  `kuser0`, else lin2008 with a warning for ZR/RZ; `lin2008`; `legacy`; a
-  value contradicting `kuser0` stops). Pair mode stops when the configured
-  component contradicts the file's `kcmpnm` or name. On the diffuse-field
-  synthetics at 150 km (`tests/aftan_component_cases.py`), largest
-  phase-velocity error before -> after: ZR pair positive 0.006 -> 0.006, ZR
-  pair negative and station both branches 0.250 -> 0.006; RZ pair positive
-  and station both branches 0.280 -> 0.006, RZ pair negative 0.620 -> 0.006.
-  Group velocities are unchanged. ZZ, RR and TT results are bit for bit the
-  same in both modes (regression baseline, `examples/02_aftan`,
+  both lag branches: ZZ, RR, TT -1, ZR -3, RZ +1, for the R/T axes above
+  (derivation and checks: `docs/aftan_phase_constants.md`). The
+  negative-branch ZR <-> RZ swap no longer chooses the constant (it only
+  labels the physical component). Station mode (no `components` in the
+  config) now defaults to `pi_over_4: auto` and reads the component of each
+  file from SAC `kcmpnm` or the file name; when neither names one, auto mode
+  stops (set `pi_over_4` to a number to measure such files). Pair mode stops
+  when the configured component contradicts the file's `kcmpnm` or name. On
+  the diffuse-field synthetics at 150 km (`tests/aftan_component_cases.py`),
+  largest phase-velocity error before -> after: ZR pair positive 0.006 ->
+  0.006, ZR pair negative and station both branches 0.250 -> 0.006; RZ pair
+  positive and station both branches 0.280 -> 0.006, RZ pair negative 0.620
+  -> 0.006. Group velocities are unchanged. ZZ, RR and TT results are bit
+  for bit the same in both modes (regression baseline, `examples/02_aftan`,
   `examples/full_chain`, `examples/benchmarks/aftan_vs_fortran`); their
-  `.dat` headers now also show `pi_over_4_mode: auto` in station mode,
-  `stored_component` and `radial_convention`. No option restores the old
-  ZR/RZ constants (they were wrong for every rotation convention); to
-  measure ZR/RZ files rotated by SeisForge before this change, set
-  `aftan.radial_convention: legacy`. `tests/data/aftan_component_baseline.npz`
+  `.dat` headers now also show `pi_over_4_mode: auto` in station mode and
+  `stored_component`. No option restores the old ZR/RZ constants (they were
+  wrong for every rotation convention). `tests/data/aftan_component_baseline.npz`
   regenerated (only ZR/RZ arrays changed).
 - **PMF cleaning window.** `PhaseMatchedFilter.clean_undispersed` now sets the
   window as Fortran AFTAN `tgauss.f` does: after the inner limits are made

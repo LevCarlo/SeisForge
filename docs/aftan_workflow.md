@@ -105,11 +105,15 @@ The default is `auto` in both run modes: the value of the **stored**
 component, the same on both lag branches (`AUTOMATIC_PI_OVER_4` in
 `seisforge/ant/aftan/phase.py`):
 
-| stored component | lin2008 R/T axes (default rotation) | legacy axes |
-|---|---|---|
-| ZZ, RR, TT | -1 | -1 |
-| ZR | -3 | +1 |
-| RZ | +1 | -3 |
+| stored component | pi_over_4 |
+|---|---|
+| ZZ, RR, TT | -1 |
+| ZR | -3 |
+| RZ | +1 |
+
+ZR and RZ values assume the R/T axes of `seisforge ant rotate-ccf` (Lin et al.
+2008). ZR/RZ rotated by SeisForge before 0.2.0 have the opposite sign and are
+not recognised: rotate them again (or negate them) first.
 
 - **Pair mode** (`source_station`, `receiver_station`, `components`): the
   component comes from the config. A ZRT code in SAC `kcmpnm` or the file name
@@ -121,19 +125,12 @@ component, the same on both lag branches (`AUTOMATIC_PI_OVER_4` in
   explanation instead of assuming ZZ; set `pi_over_4` to a number (manual
   mode) to measure such files. Both modes then use the same code path and
   give identical results on the same file.
-- **R/T convention** (`aftan.radial_convention`: `auto` (default), `lin2008`,
-  `legacy`): matters for ZR and RZ only. `auto` uses SAC `kuser0`, which
-  `rotate-ccf` writes, and otherwise assumes `lin2008` and adds a warning for
-  ZR/RZ. Files rotated by SeisForge before the lin2008 change have no
-  `kuser0` and legacy axes: set `radial_convention: legacy` for them. An
-  explicit value that contradicts `kuser0` stops the run.
 - ZT, TZ, RT, TR have no automatic value; set `pi_over_4` manually (the
   result carries a "not been checked" warning).
 
-The `.dat` header records `pi_over_4`, `pi_over_4_mode`, `stored_component`
-(with its source) and `radial_convention` (with its source). When the value
-used does not match the table, the component is unknown or unchecked, or the
-convention of a ZR/RZ file had to be assumed, the header gets a
+The `.dat` header records `pi_over_4`, `pi_over_4_mode` and
+`stored_component` (with its source). When the value used does not match the
+table, or the component is unknown or unchecked, the header gets a
 `phase_velocity_warning` line and `aftan.log` a warning. The derivation and
 the checks are on [AFTAN phase constants](aftan_phase_constants.md).
 

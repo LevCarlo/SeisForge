@@ -204,20 +204,6 @@ def _component_from_sac(path: Path, trace: Trace) -> tuple[str | None, str]:
     return None, "no ZRT code in SAC kcmpnm or the file name"
 
 
-def _radial_convention_from_sac(trace: Trace) -> str | None:
-    """R/T convention recorded by `seisforge ant rotate-ccf` (SAC ``kuser0``), or None.
-
-    Any other ``kuser0`` content (left by other software) counts as not recorded.
-    """
-    from seisforge.ant.rotation import RADIAL_CONVENTION_SAC_HEADER, RADIAL_CONVENTIONS
-
-    sac = getattr(trace.stats, "sac", None)
-    if sac is None or RADIAL_CONVENTION_SAC_HEADER not in sac:
-        return None
-    value = str(sac[RADIAL_CONVENTION_SAC_HEADER]).strip().lower()
-    return value if value in RADIAL_CONVENTIONS else None
-
-
 def _split_stem(path: Path) -> list[str]:
     stem = path.name
     if stem.upper().endswith(".SAC"):

@@ -9,7 +9,6 @@
         - rotate_zrt_ccf_to_zne
         - required_zne_components
         - horizontal_axes
-        - validate_radial_convention
 
 ## AFTAN
 
@@ -25,7 +24,6 @@
       members:
         - phase_constant_warning
         - automatic_pi_over_4
-        - resolve_radial_convention
 
 ::: seisforge.ant.aftan.taper
 

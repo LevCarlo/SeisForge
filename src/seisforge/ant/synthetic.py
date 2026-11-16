@@ -53,21 +53,19 @@ source) with station B (second letter) is
 positive branch. Averaging over directions gives the 2-D diffuse-field
 correlations (Snieder 2004, Phys. Rev. E 69, 046610; Lin et al. 2008, GJI
 173, 281; for Z-R and R-Z, Lin, Tsai & Schmandt 2014, GJI 198, 656). After
-rotation with `seisforge.ant.rotation.rotate_zne_ccf_to_zrt` in its default
-``lin2008`` convention (radial axes at *both* stations point from the source
-towards the receiver, along the propagation) the closed forms are
+rotation with `seisforge.ant.rotation.rotate_zne_ccf_to_zrt` (radial axes at
+*both* stations point from the source towards the receiver, along the
+propagation; Lin et al. 2008) the closed forms are
 
     ZZ = W J0(kr),  ZR = +epsilon W J1(kr),  RZ = -epsilon W J1(kr),
     RR = epsilon**2 W (J0(kr) - J2(kr)) / 2,  TT = epsilon**2 W J1(kr) / (kr),
 
-checked in ``tests/test_ant_synthetic.py`` (the ``legacy`` rotation reverses
-both radial axes, so ZR and RZ change sign). Far from the source
+checked in ``tests/test_ant_synthetic.py``. Far from the source
 ``J_n(x) ~ sqrt(2 / (pi x)) cos(x - n pi / 2 - pi / 4)``, so the causal
 branch carries the phase constant ``phi0 = +pi/4`` for ZZ and RR (AFTAN
 ``pi_over_4 = -1``), ``+3 pi / 4`` for ZR (``-3``) and ``-pi/4`` for RZ
-(``+1``), on both lag branches (legacy rotation: ZR ``+1``, RZ ``-3``;
-`seisforge.ant.aftan.phase`). The ZNE CCFs themselves do not depend on the
-radial convention. There are no Love waves: TT is only the
+(``+1``), on both lag branches (`seisforge.ant.aftan.phase`). There are no
+Love waves: TT is only the
 Rayleigh near-field term above (it decays as ``(kr)**-1.5``) and the
 mixed R/T and Z/T components vanish. The band weight ``W`` is the one above; no
 geometric spreading is added (the Bessel functions carry it).

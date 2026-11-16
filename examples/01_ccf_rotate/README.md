@@ -58,14 +58,12 @@ Common wrong-looking results:
 - **Large ZT, TZ, RT or TR** (comparable to ZR): wrong angles. Check the
   coordinates in the headers, that source and receiver are not swapped, and
   any `azimuth`/`back_azimuth` set in the config.
-- **ZR and RZ with opposite sign to what you expect**: by default
-  (`radial_convention: lin2008`) R points from the virtual source towards
-  the receiver at *both* stations, along the propagation, and T is R turned
-  90 degrees clockwise, as in Lin, Moschetti & Ritzwoller (2008, Fig. 2).
-  SeisForge before this convention change reversed R and T, so ZR, RZ, ZT
-  and TZ written by older versions have the opposite sign;
-  `rotation.radial_convention: legacy` reproduces them. The convention used
-  is in `rotate_ccf.log` and in SAC `kuser0` of every output file. See
+- **ZR and RZ with opposite sign to what you expect**: R points from the
+  virtual source towards the receiver at *both* stations, along the
+  propagation, and T is R turned 90 degrees clockwise, as in Lin, Moschetti &
+  Ritzwoller (2008, Fig. 2). SeisForge before 0.2.0 reversed R and T, so ZR,
+  RZ, ZT and TZ written by older versions have the opposite sign; rotate
+  them again. See
   [the rotation method page](../../docs/ant/rotation.md).
 - **"Failed to resolve required input component"**: a file is missing or
   `input_template` does not match the file names.

@@ -30,16 +30,12 @@ aftan:
     list:
       periods: [1.0, 1.2, 1.5, 2.0, 3.0, 5.0]
   # Auto (default): the pi/4 correction of the stored component, the same on
-  # both branches (ZZ/RR/TT -1; ZR -3, RZ +1 with lin2008 R/T axes; ZR +1,
-  # RZ -3 with legacy axes). Station mode reads the component from SAC kcmpnm
+  # both branches (ZZ/RR/TT -1; ZR -3, RZ +1 for the R/T axes of rotate-ccf;
+  # ZR/RZ rotated before 0.2.0 must be rotated again). Station mode reads the component from SAC kcmpnm
   # or the file name and stops if neither names one. Manual: mode: manual,
   # value: <p>, or just a number.
   pi_over_4:
     mode: auto
-  # R/T axes of the input ZR/RZ (matters for those only): auto uses SAC kuser0
-  # written by rotate-ccf, else assumes lin2008 and warns; lin2008; legacy
-  # (files rotated by SeisForge before the lin2008 change).
-  radial_convention: auto
   velocity_window:
     min: 0.5
     max: 5.5

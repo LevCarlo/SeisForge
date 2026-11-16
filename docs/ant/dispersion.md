@@ -110,8 +110,8 @@ manually.
 The same average (Lin et al. 2008; for ZR and RZ, Lin et al. 2014) with the
 horizontal polarisation of a retrograde Rayleigh wave,
 $H = i\varepsilon\,\hat d\,Z$ ($\varepsilon > 0$ the H/V ratio), and the
-package's radial axes (default `lin2008`: both pointing from A towards B,
-along the propagation; see
+package's radial axes (both pointing from A towards B, along the
+propagation, Lin et al. 2008; see
 [Rotation §1](rotation.md#the-rotated-axes-used-by-seisforge)) gives, with
 $\langle\cos a\,e^{-ikr\cos a}\rangle = -iJ_1(kr)$,
 
@@ -126,24 +126,22 @@ the far-field constants are those of `seisforge.ant.aftan.phase`
 (`AUTOMATIC_PI_OVER_4`), for the **stored** component on **both** lag
 branches (the acausal half has the same $\phi_0$ after time reversal):
 
-| component | far-field form of $\hat C$ (lin2008) | $\phi_0$ | $p$, lin2008 | $p$, legacy axes |
-|---|---|---|---|---|
-| ZZ | $+\cos(kr - \pi/4)$ | $+\pi/4$ | $-1$ | $-1$ |
-| RR | $+\cos(kr - \pi/4)$ ($J_2 \simeq -J_0$) | $+\pi/4$ | $-1$ | $-1$ |
-| TT (Love) | $+\cos(kr - \pi/4)$ | $+\pi/4$ | $-1$ | $-1$ |
-| ZR | $+\cos(kr - 3\pi/4)$ | $+3\pi/4$ | $-3$ | $+1$ |
-| RZ | $-\cos(kr - 3\pi/4) = \cos(kr + \pi/4)$ | $-\pi/4$ | $+1$ | $-3$ |
+| component | far-field form of $\hat C$ | $\phi_0$ | $p$ |
+|---|---|---|---|
+| ZZ | $+\cos(kr - \pi/4)$ | $+\pi/4$ | $-1$ |
+| RR | $+\cos(kr - \pi/4)$ ($J_2 \simeq -J_0$) | $+\pi/4$ | $-1$ |
+| TT (Love) | $+\cos(kr - \pi/4)$ | $+\pi/4$ | $-1$ |
+| ZR | $+\cos(kr - 3\pi/4)$ | $+3\pi/4$ | $-3$ |
+| RZ | $-\cos(kr - 3\pi/4) = \cos(kr + \pi/4)$ | $-\pi/4$ | $+1$ |
 
-With the legacy axes (R reversed at both stations) ZR and RZ change sign,
-i.e. $\phi_0$ shifts by $\pi$ and $p$ by 4. ZR and RZ differ by $\pi$ in
-either convention, as they must: one is the other with the radial axis
-reversed. With `pi_over_4: auto` (the default) AFTAN takes the convention from
-SAC `kuser0` (written by `rotate-ccf`), else from `aftan.radial_convention`,
-else assumes `lin2008` and warns for ZR/RZ. ZT, TZ, RT and TR have no
-automatic value.
+ZR and RZ differ by $\pi$, as they must: one is the other with the radial
+axis reversed. ZR/RZ rotated by SeisForge before 0.2.0 (R reversed at both
+stations) have the opposite sign, $\phi_0$ shifted by $\pi$; the package
+does not recognise them, so they must be rotated again (or negated) before
+AFTAN. ZT, TZ, RT and TR have no automatic value.
 
 The full derivation, the numerical checks with synthetic diffuse fields (both
-conventions, both run modes, both branches: 0.001-0.010 km/s at 150 km), and
+run modes, both branches: 0.001-0.010 km/s at 150 km), and
 the history of the earlier, wrong ZR/RZ table are on the page
 [AFTAN phase constants](../aftan_phase_constants.md).
 

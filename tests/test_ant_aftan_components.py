@@ -1,4 +1,4 @@
-"""AFTAN component handling: phase constants per component, branch, run mode and R/T convention.
+"""AFTAN component handling: phase constants per component, branch and run mode.
 
 Inputs and the known answer come from `aftan_component_cases` (diffuse-field
 Rayleigh CCFs rotated with the package rotation; see that module and
@@ -34,22 +34,6 @@ CHANGED = {(mode, component) for mode in ("pair", "station") for component in ("
 def ccf_dir(tmp_path_factory):
     directory = tmp_path_factory.mktemp("ccf")
     write_ccfs(directory)
-    return directory
-
-
-@pytest.fixture(scope="module")
-def legacy_dir(tmp_path_factory):
-    """CCFs rotated with the legacy axes, convention recorded in SAC kuser0."""
-    directory = tmp_path_factory.mktemp("ccf_legacy")
-    write_ccfs(directory, radial_convention="legacy", record_convention=True)
-    return directory
-
-
-@pytest.fixture(scope="module")
-def legacy_unrecorded_dir(tmp_path_factory):
-    """Legacy-axes CCFs without kuser0, like files rotated before the change."""
-    directory = tmp_path_factory.mktemp("ccf_legacy_old")
-    write_ccfs(directory, radial_convention="legacy")
     return directory
 
 
@@ -91,43 +75,30 @@ def test_phase_velocity_matches_the_true_curve(mode, component, branch, ccf_dir,
     assert phase_velocity_error(result) < PHASE_VELOCITY_TOLERANCE_KM_S
 
 
-@pytest.mark.parametrize("mode", ["pair", "station"])
-@pytest.mark.parametrize("component", COMPONENTS)
-@pytest.mark.parametrize("branch", ["positive", "negative"])
-def test_legacy_rotation_recorded_in_the_file_gets_legacy_constants(
-    mode, component, branch, legacy_dir, tmp_path
-):
-    from aftan_component_cases import phase_velocity_error
+@pytest.mark.parametrize("component", ["ZR", "RZ"])
+def test_pre_0_2_rotations_are_pi_off_until_negated(component, ccf_dir, tmp_path):
+    """ZR/RZ rotated before 0.2.0 are the negative of today's; the package does
+    not recognise them (one R/T convention only): measured as they are they are
+    pi off, negated (or rotated again) they are right."""
+    from obspy import read
 
-    (result,) = run(mode, component, branch, legacy_dir, tmp_path)
-    assert result.radial_convention == "legacy"
-    assert result.radial_convention_source == "sac_kuser0"
-    assert phase_velocity_error(result) < PHASE_VELOCITY_TOLERANCE_KM_S
-    assert not any("pi_over_4" in w or "convention" in w for w in result.warnings)
+    from aftan_component_cases import phase_velocity_error, sac_name
 
-
-@pytest.mark.parametrize("component, expected_pi_over_4", [("ZR", 1.0), ("RZ", -3.0)])
-def test_unrecorded_legacy_files_need_the_config_option(component, expected_pi_over_4, legacy_unrecorded_dir, tmp_path):
-    """Old (pre-change) ZR/RZ files carry no kuser0: auto assumes lin2008 and warns; the option fixes it."""
-    from aftan_component_cases import phase_velocity_error
-
-    (assumed,) = run("station", component, "positive", legacy_unrecorded_dir, tmp_path / "auto")
-    assert assumed.radial_convention_source == "assumed_default"
-    assert any("convention not recorded" in w for w in assumed.warnings)
-    assert phase_velocity_error(assumed) > 0.4  # pi off: the case the warning is about
-    (fixed,) = run(
-        "station", component, "positive", legacy_unrecorded_dir, tmp_path / "legacy",
-        aftan={"radial_convention": "legacy"},
-    )
-    assert fixed.pi_over_4 == expected_pi_over_4
-    assert fixed.radial_convention_source == "config"
-    assert not any("convention" in w for w in fixed.warnings)
-    assert phase_velocity_error(fixed) < PHASE_VELOCITY_TOLERANCE_KM_S
-
-
-def test_configured_convention_contradicting_the_file_stops(legacy_dir, tmp_path):
-    with pytest.raises(ValueError, match="records legacy"):
-        run("station", "ZR", "positive", legacy_dir, tmp_path, aftan={"radial_convention": "lin2008"})
+    for label, sign in (("old", -1.0), ("negated", 1.0)):
+        directory = tmp_path / label
+        directory.mkdir()
+        trace = read(str(ccf_dir / sac_name(component)))[0]
+        trace.data = (-1.0 * trace.data).astype(np.float32)  # as rotated before 0.2.0
+        if sign > 0:
+            trace.data = (-1.0 * trace.data).astype(np.float32)
+        trace.write(str(directory / sac_name(component)), format="SAC")
+        (directory / "prediction.dat").write_bytes((ccf_dir / "prediction.dat").read_bytes())
+        (result,) = run("station", component, "positive", directory, tmp_path / f"out_{label}")
+        error = phase_velocity_error(result)
+        if sign < 0:
+            assert error > 0.4  # pi off: about 0.6 km/s at 150 km
+        else:
+            assert error < PHASE_VELOCITY_TOLERANCE_KM_S
 
 
 def test_station_auto_mode_stops_when_the_component_is_unknown(ccf_dir, tmp_path):
@@ -202,8 +173,8 @@ def test_pair_and_station_mode_agree_on_the_same_file(component, ccf_dir, tmp_pa
     [
         ("station", "ZZ", None, None),
         ("pair", "RR", None, None),
-        ("pair", "ZR", None, "convention not recorded"),  # no kuser0 in these files
-        ("station", "ZR", {"radial_convention": "lin2008"}, None),
+        ("pair", "ZR", None, None),
+        ("station", "RZ", None, None),
         ("station", "RZ", {"pi_over_4": -1.0}, "phase velocity is wrong"),
     ],
 )
@@ -212,7 +183,7 @@ def test_phase_constant_warning_reaches_log_and_dat(mode, component, aftan, expe
     dat = result.output_dat.read_text()
     log = (result.output_dat.parent / "aftan.log").read_text()
     if expected is None:
-        assert not result.warnings or not any("pi_over_4" in w or "convention" in w for w in result.warnings)
+        assert not any("pi_over_4" in w for w in result.warnings)
         assert "phase_velocity_warning" not in dat
     else:
         assert any(expected in w for w in result.warnings)
@@ -226,28 +197,13 @@ def test_phase_constant_warning_rules():
     assert phase_constant_warning("ZZ", -1.0) is None
     assert phase_constant_warning("TT", 7.0) is None  # -1 + 8: same phase
     assert phase_constant_warning("ZR", -3.0) is None
-    assert phase_constant_warning("RZ", 1.0, radial_convention="lin2008", convention_source="sac_kuser0") is None
-    assert phase_constant_warning("RZ", -3.0, radial_convention="legacy") is None
+    assert phase_constant_warning("RZ", 1.0) is None
     assert "wrong" in phase_constant_warning("RZ", -1.0)
-    assert "wrong" in phase_constant_warning("RZ", -3.0)  # legacy value on lin2008 axes
+    assert "wrong" in phase_constant_warning("RZ", -3.0)  # the pre-0.2 axes' value
     assert "wrong" in phase_constant_warning("ZZ", 1.0)  # manual value checked too
-    assert "not recorded" in phase_constant_warning("ZR", 5.0, convention_source="assumed_default")
-    assert phase_constant_warning("ZZ", -1.0, convention_source="assumed_default") is None
+    assert phase_constant_warning("ZR", 5.0) is None  # -3 + 8
     assert "not been checked" in phase_constant_warning("ZT", -1.0)
     assert "component unknown (why)" in phase_constant_warning(None, -1.0, component_note="why")
-
-
-def test_resolve_radial_convention_rules():
-    from seisforge.ant.aftan.phase import resolve_radial_convention
-
-    assert resolve_radial_convention("auto", None) == ("lin2008", "assumed_default")
-    assert resolve_radial_convention("auto", "legacy") == ("legacy", "sac_kuser0")
-    assert resolve_radial_convention("legacy", None) == ("legacy", "config")
-    assert resolve_radial_convention("legacy", "legacy") == ("legacy", "sac_kuser0")
-    with pytest.raises(ValueError, match="records lin2008"):
-        resolve_radial_convention("legacy", "lin2008")
-    with pytest.raises(ValueError, match="radial_convention"):
-        resolve_radial_convention("aki", None)
 
 
 def test_component_from_sac_reads_the_rotation_header(tmp_path):

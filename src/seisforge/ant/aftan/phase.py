@@ -19,19 +19,21 @@ Rayleigh waves, Love waves on TT; derivation in docs/aftan_phase_constants.md)
 ----------------------------------------------------------------------------
 They belong to the **stored** component and are the same on both lag branches
 (the acausal half of ``J_n`` carries the same ``phi0`` after time reversal).
-ZZ, RR and TT do not depend on the R/T axis convention of the rotation; ZR
-and RZ change sign with it (``seisforge.ant.rotation``):
+They assume the R/T axes of ``seisforge.ant.rotation`` (Lin et al. 2008:
+R along the propagation at both stations), where ZR = +eps J1 and
+RZ = -eps J1 (``J1 ~ cos(kr - 3 pi / 4)``):
 
-=========  ========  ========
-component  lin2008   legacy
-=========  ========  ========
-ZZ, RR, TT    -1        -1
-ZR            -3        +1
-RZ            +1        -3
-=========  ========  ========
+=========  ====
+component   p
+=========  ====
+ZZ, RR, TT  -1
+ZR          -3
+RZ          +1
+=========  ====
 
-``lin2008``: ZR = +eps J1, RZ = -eps J1 (``J1 ~ cos(kr - 3 pi / 4)``);
-``legacy``: opposite signs. ZT, TZ, RT, TR have no automatic value.
+ZR/RZ rotated by SeisForge before 0.2.0 (R and T reversed) have the opposite
+sign, so these constants are pi off for them; such files must be rotated
+again. ZT, TZ, RT, TR have no automatic value.
 
 Negative branch and reciprocity: the time-reversed negative lag of ``ZR`` of
 pair A_B is the physical ``RZ`` of pair B_A *with a sign*,
@@ -42,12 +44,6 @@ constant is never taken from the reciprocal component.
 """
 
 from __future__ import annotations
-
-from seisforge.ant.rotation import (
-    CONVENTION_DEPENDENT_COMPONENTS,
-    DEFAULT_RADIAL_CONVENTION,
-    RADIAL_CONVENTIONS,
-)
 
 
 _ZRT_RECIPROCAL_COMPONENTS = {
@@ -63,60 +59,21 @@ _ZRT_RECIPROCAL_COMPONENTS = {
 }
 
 # Stored component -> pi_over_4, both lag branches (module docstring).
-AUTOMATIC_PI_OVER_4 = {
-    "lin2008": {"ZZ": -1.0, "RR": -1.0, "TT": -1.0, "ZR": -3.0, "RZ": 1.0},
-    "legacy": {"ZZ": -1.0, "RR": -1.0, "TT": -1.0, "ZR": 1.0, "RZ": -3.0},
-}
-RADIAL_CONVENTION_MODES = ("auto", *RADIAL_CONVENTIONS)
+AUTOMATIC_PI_OVER_4 = {"ZZ": -1.0, "RR": -1.0, "TT": -1.0, "ZR": -3.0, "RZ": 1.0}
 _PHASE_PAGE = "docs/aftan_phase_constants.md"
-
-
-def resolve_radial_convention(
-    configured: str,
-    recorded: str | None,
-) -> tuple[str, str]:
-    """R/T convention of one CCF file and where it came from.
-
-    ``configured`` is ``aftan.radial_convention`` (``auto``, ``lin2008`` or
-    ``legacy``); ``recorded`` is the value written by `seisforge ant
-    rotate-ccf` into the file (SAC ``kuser0``), or None. Returns
-    ``(convention, source)`` with source ``sac_kuser0``, ``config`` or
-    ``assumed_default``. A recorded value that contradicts an explicit
-    configured one raises ValueError: the ZR/RZ phase constants would be off
-    by pi.
-    """
-    configured = str(configured).strip().lower()
-    if configured not in RADIAL_CONVENTION_MODES:
-        raise ValueError(
-            f"aftan.radial_convention must be one of {RADIAL_CONVENTION_MODES}; got {configured!r}."
-        )
-    if recorded is not None:
-        if configured != "auto" and recorded != configured:
-            raise ValueError(
-                f"aftan.radial_convention is {configured}, but the file records "
-                f"{recorded} (SAC kuser0, written by rotate-ccf)."
-            )
-        return recorded, "sac_kuser0"
-    if configured != "auto":
-        return configured, "config"
-    return DEFAULT_RADIAL_CONVENTION, "assumed_default"
 
 
 def phase_constant_warning(
     component: str | None,
     pi_over_4: float,
     *,
-    radial_convention: str = DEFAULT_RADIAL_CONVENTION,
-    convention_source: str = "config",
     component_note: str = "",
 ) -> str | None:
     """Warning text when ``pi_over_4`` is not known to fit the stored component.
 
     ``component`` is the stored (file) component, or None when it is unknown
     (``component_note`` then says why). Returns None when the value matches
-    `AUTOMATIC_PI_OVER_4` for ZZ, RR or TT, or for ZR/RZ when the R/T
-    convention is known (recorded in the file or set in the config). Pure
-    diagnostic: it changes no measurement.
+    `AUTOMATIC_PI_OVER_4`. Pure diagnostic: it changes no measurement.
     """
     unaffected = "group velocity is unaffected"
     if component is None:
@@ -124,11 +81,10 @@ def phase_constant_warning(
         return (
             f"component unknown{note}: pi_over_4={pi_over_4:g} was not checked "
             "against it; phase velocity is right only if it fits the component "
-            "(ZZ/RR/TT -1; lin2008 ZR -3, RZ +1; legacy ZR +1, RZ -3); " + unaffected
+            "(ZZ/RR/TT -1, ZR -3, RZ +1); " + unaffected
         )
     component = normalize_component(component)
-    table = AUTOMATIC_PI_OVER_4[radial_convention]
-    expected = table.get(component)
+    expected = AUTOMATIC_PI_OVER_4.get(component)
     if expected is None:
         return (
             f"pi_over_4 for {component} has not been checked; phase velocity "
@@ -138,15 +94,7 @@ def phase_constant_warning(
     if not (abs(remainder) < 1e-9 or abs(remainder - 8.0) < 1e-9):
         return (
             f"pi_over_4={pi_over_4:g} for stored {component} differs from the "
-            f"derived {expected:g} ({radial_convention} R/T axes, {_PHASE_PAGE}): "
-            f"phase velocity is wrong; {unaffected}"
-        )
-    if component in CONVENTION_DEPENDENT_COMPONENTS and convention_source == "assumed_default":
-        return (
-            f"R/T axis convention not recorded in the file (SAC kuser0); assumed "
-            f"{radial_convention}. ZR/RZ rotated by SeisForge before the lin2008 "
-            "change use the legacy axes: set aftan.radial_convention: legacy for "
-            f"them, or the phase velocity is wrong; {unaffected}"
+            f"derived {expected:g} ({_PHASE_PAGE}): phase velocity is wrong; {unaffected}"
         )
     return None
 
@@ -206,35 +154,23 @@ def physical_branch_for_branch(branch: str) -> str:
     raise ValueError(f"Unsupported AFTAN branch {branch!r}.")
 
 
-def rayleigh_pi_over_4(
-    component: str,
-    radial_convention: str = DEFAULT_RADIAL_CONVENTION,
-) -> float:
+def rayleigh_pi_over_4(component: str) -> float:
     """Automatic phase correction (units of pi/4) of a stored component."""
     normalized = normalize_component(component)
-    if radial_convention not in AUTOMATIC_PI_OVER_4:
-        raise ValueError(
-            f"radial_convention must be one of {RADIAL_CONVENTIONS}; got {radial_convention!r}."
-        )
-    table = AUTOMATIC_PI_OVER_4[radial_convention]
     try:
-        return table[normalized]
+        return AUTOMATIC_PI_OVER_4[normalized]
     except KeyError as exc:
         raise ValueError(
             "Automatic pi_over_4 is only defined for components "
-            f"{sorted(table)}; got {normalized!r}. "
+            f"{sorted(AUTOMATIC_PI_OVER_4)}; got {normalized!r}. "
             "Set aftan.pi_over_4 manually for this component."
         ) from exc
 
 
-def automatic_pi_over_4(
-    component: str,
-    branch: str,
-    radial_convention: str = DEFAULT_RADIAL_CONVENTION,
-) -> tuple[str, float]:
+def automatic_pi_over_4(component: str, branch: str) -> tuple[str, float]:
     """Physical component label of the branch and the automatic pi/4 coefficient.
 
     The coefficient is that of the stored ``component`` on every branch.
     """
     physical_component = physical_component_for_branch(component, branch)
-    return physical_component, rayleigh_pi_over_4(component, radial_convention)
+    return physical_component, rayleigh_pi_over_4(component)

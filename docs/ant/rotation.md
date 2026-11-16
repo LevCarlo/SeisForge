@@ -65,7 +65,6 @@ the configuration.
 ### The rotated axes used by SeisForge
 
 Writing horizontal unit vectors as (north, east) components, the package uses
-by default (`radial_convention: lin2008`)
 
 | | radial $\hat R$ | transverse $\hat T$ |
 |---|---|---|
@@ -92,7 +91,7 @@ of the mixed components:
 *The axes in this figure are computed by `rotate_zne_ccf_to_zrt` itself
 (script `docs/ant/scripts/rotation_geometry.py`), not drawn by hand.*
 
-### Relation to Lin et al. (2008) and the legacy convention
+### Relation to Lin et al. (2008) and to SeisForge before 0.2.0
 
 The coefficients of TT, RR, TR and RT in eq. 1 of Lin et al. (2008) are
 exactly those of §2 below (checked on the [executable
@@ -101,23 +100,20 @@ horizontal axes each, so they would be the same if R and T were reversed at
 both stations; the direction of the axes is fixed by their Fig. 2, and it
 matters only for ZR, RZ, ZT and TZ, which contain one horizontal axis.
 
-SeisForge before this change used the opposite axes: R and T reversed at both
-stations (R pointing from the receiver back towards the virtual source). The
-option `radial_convention: legacy` (`rotate-ccf` config key under `rotation:`,
-CLI `--radial-convention legacy`, argument of `rotate_zne_ccf_to_zrt` and
-`rotate_zrt_ccf_to_zne`) restores it:
+SeisForge before 0.2.0 used the opposite axes (R and T reversed at both
+stations). This is the only convention now; there is no option for the old
+one:
 
-| component | lin2008 vs legacy |
+| component | now vs before 0.2.0 |
 |---|---|
 | ZZ, RR, RT, TR, TT | identical, bit for bit (same floating-point operations) |
 | ZR, RZ, ZT, TZ | opposite sign (negation is exact in floating point) |
 
-`rotate-ccf` writes the convention used into `rotate_ccf.log` and into SAC
-`kuser0` (`lin2008` or `legacy`) of every output file. AFTAN reads `kuser0` to
-choose the ZR/RZ phase constants ([Dispersion](dispersion.md)). Files rotated
-by SeisForge before the change carry no such mark and use the legacy axes; for
-ZR/RZ from such files set `aftan.radial_convention: legacy` (AFTAN warns when
-it has to assume the default for ZR/RZ).
+**ZR, RZ, ZT and TZ files rotated before 0.2.0 are not recognised** by the
+package. Rotate them again from the ZNE files, or negate them; otherwise the
+AFTAN phase constants for ZR/RZ are off by pi
+([Dispersion](dispersion.md)). `rotate-ccf` writes `lin2008` into SAC `kuser0`
+as a record of how a file was made; no code reads it.
 
 Other codes may use yet other conventions (flipping only $\hat R$ changes the
 sign of ZR, RZ, RT and TR). Results from different codes can be compared only
@@ -142,8 +138,8 @@ S = \begin{pmatrix} 1 & 0 & 0\\ 0 & \cos\theta & \sin\theta\\ 0 & -\sin\theta & 
 \mathsf R = \begin{pmatrix} 1 & 0 & 0\\ 0 & -\cos\psi & -\sin\psi\\ 0 & \sin\psi & -\cos\psi \end{pmatrix}.
 $$
 
-(legacy: both multiplied from the left by $D = \mathrm{diag}(1,-1,-1)$, so
-$C'_\text{legacy} = D\,C'\,D$.)
+(Before 0.2.0 both were multiplied from the left by
+$D = \mathrm{diag}(1,-1,-1)$, so $C'_\text{old} = D\,C'\,D$.)
 
 Then, with $C$ the tensor whose row index is the source component and column
 index the receiver component,
@@ -235,8 +231,8 @@ Checks in the repository:
 | check | what it shows |
 |---|---|
 | [executable derivation](scripts/rotation_derivation.py) | symbolic $C'=SC\mathsf R^{\mathsf T}$ equals the code; inverse; the invariants above |
-| `tests/test_rotation.py` | identity angles, required inputs, round trip ZNE → ZRT → ZNE in both conventions, a north-pointing path; R along the propagation at both stations; Lin et al. (2008) eq. 1; legacy equals the old formulas bit for bit and lin2008 differs from them only in the sign of ZR, RZ, ZT, TZ |
-| `tests/test_ant_synthetic.py::test_plane_wave_rayleigh_ccfs_match_the_bessel_closed_forms_after_rotation` | a diffuse Rayleigh field, rotated, gives the Bessel-function forms of [Dispersion §1](dispersion.md#1-the-phase-of-a-noise-correlation) (ZR $= +\varepsilon J_1$, RZ $= -\varepsilon J_1$ in lin2008; opposite in legacy) |
+| `tests/test_rotation.py` | identity angles, required inputs, round trip ZNE → ZRT → ZNE, a north-pointing path; R along the propagation at both stations; Lin et al. (2008) eq. 1; differs from the pre-0.2 formulas only in the sign of ZR, RZ, ZT, TZ, bit for bit |
+| `tests/test_ant_synthetic.py::test_plane_wave_rayleigh_ccfs_match_the_bessel_closed_forms_after_rotation` | a diffuse Rayleigh field, rotated, gives the Bessel-function forms of [Dispersion §1](dispersion.md#1-the-phase-of-a-noise-correlation) (ZR $= +\varepsilon J_1$, RZ $= -\varepsilon J_1$) |
 | `examples/01_ccf_rotate` | a known ZRT field turned into noisy ZNE and back; residual 3-4 noise standard deviations |
 
 ## 5. What to expect after rotation, and what an angle error does
@@ -302,9 +298,7 @@ swap the causal and acausal branches. A missing input file is an error.
 
 `seisforge ant rotate-ccf -c config.yml` reads the nine (or fewer) ZNE SAC
 files of each pair, resolves the angles as described in §1, and writes ZRT
-SAC files plus `rotate_ccf.log`. `rotation.radial_convention` (default
-`lin2008`, or `legacy`) selects the axes of §1; the value is in the log and
-in SAC `kuser0` of each output. The configuration keys and file layout are
+SAC files plus `rotate_ccf.log`. The configuration keys and file layout are
 on the [previous page](../ant_workflow.md) until they are moved here.
 
 ## References

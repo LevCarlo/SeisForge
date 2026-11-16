@@ -1,4 +1,4 @@
-"""Figure rotation_geometry.png: station geometry and the R/T axes of the package (default lin2008 convention).
+"""Figure rotation_geometry.png: station geometry and the R/T axes of the package (Lin et al. 2008).
 
 The R and T unit vectors are not typed in by hand: they are read off
 `seisforge.ant.rotation.rotate_zne_ccf_to_zrt` by rotating unit CCFs (for
@@ -76,8 +76,8 @@ ax.set_ylim(-2.2, 4.6)
 ax.set_xlabel("east (arbitrary units)")
 ax.set_ylabel("north (arbitrary units)")
 ax.set_title(r"rotate_zne_ccf_to_zrt: $\theta$ = azimuth at A, $\psi$ = back azimuth at B"
-             "\nlin2008: both radial axes point from A towards B (Lin et al. 2008, Fig. 2);"
-             "\n$\\hat T = \\hat R$ turned 90° clockwise. legacy: R and T reversed")
+             "\nboth radial axes point from A towards B (Lin et al. 2008, Fig. 2);"
+             "\n$\\hat T = \\hat R$ turned 90° clockwise")
 _style.save(fig, __file__)
 
 # Consistency with seisforge.ant.rotation (flat Earth: R_A = R_B = x_hat, T_A = T_B).

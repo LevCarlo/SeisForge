@@ -8,8 +8,7 @@ Conventions
   propagation A -> B).
 - Angles: ``theta`` = azimuth from A to B, ``psi`` = back azimuth (from B to
   A), clockwise from north. Unit vectors are written as (N, E).
-- Radial/transverse axes, ``radial_convention="lin2008"`` (default): at *both*
-  stations R points from A towards B (along the propagation of the positive
+- Radial/transverse axes: at *both* stations R points from A towards B (along the propagation of the positive
   lag) and T is R turned 90 degrees clockwise (seen from above), as drawn in
   Fig. 2 of Lin, Moschetti & Ritzwoller (2008):
 
@@ -20,15 +19,13 @@ Conventions
   ``M_s = [[1,0,0],[0,cos theta,sin theta],[0,-sin theta,cos theta]]`` and
   ``M_r = [[1,0,0],[0,-cos psi,-sin psi],[0,sin psi,-cos psi]]``.
   The coefficients of TT, RR, TR and RT agree with Lin et al. (2008), eq. 1.
-- ``radial_convention="legacy"``: the convention of SeisForge before the
-  change (CHANGELOG, "Changed results"): R and T reversed at both stations
-  (R points from B towards A). RR, RT, TR, TT are the same in both
-  conventions (two sign flips); ZR, RZ, ZT and TZ change sign. ZZ never
-  changes. Kept so that older results can be reproduced.
+- SeisForge before 0.2.0 reversed R and T at both stations; its ZR, RZ, ZT
+  and TZ have the opposite sign (RR, RT, TR, TT and ZZ are the same). Such
+  files are not recognised: rotate them again (CHANGELOG, "Changed results").
 
-`seisforge ant rotate-ccf` writes the convention used into SAC ``kuser0``
-(`RADIAL_CONVENTION_SAC_HEADER`), so that AFTAN can pick the right phase
-constants for ZR/RZ.
+`seisforge ant rotate-ccf` writes ``lin2008`` into SAC ``kuser0``
+(`RADIAL_CONVENTION_SAC_HEADER`) as a record of how the file was made; no
+code reads it.
 
 Reference: Lin, F.-C., Moschetti, M. P., Ritzwoller, M. H. (2008). Surface
 wave tomography of the western United States from ambient seismic noise:
@@ -39,9 +36,7 @@ doi:10.1111/j.1365-246X.2008.03720.x.
 import numpy as np
 
 __all__ = [
-    "CONVENTION_DEPENDENT_COMPONENTS",
-    "DEFAULT_RADIAL_CONVENTION",
-    "RADIAL_CONVENTIONS",
+    "RADIAL_CONVENTION",
     "RADIAL_CONVENTION_SAC_HEADER",
     "REQUIRED_ZNE_BY_ZRT_COMPONENT",
     "ZRT_COMPONENTS",
@@ -49,14 +44,11 @@ __all__ = [
     "required_zne_components",
     "rotate_zne_ccf_to_zrt",
     "rotate_zrt_ccf_to_zne",
-    "validate_radial_convention",
 ]
 
-RADIAL_CONVENTIONS = ("lin2008", "legacy")
-DEFAULT_RADIAL_CONVENTION = "lin2008"
+# Provenance label written by rotate-ccf (SAC kuser0, 8 characters max).
+RADIAL_CONVENTION = "lin2008"
 RADIAL_CONVENTION_SAC_HEADER = "kuser0"
-# Components whose sign depends on the radial convention (one R or T axis).
-CONVENTION_DEPENDENT_COMPONENTS = frozenset({"ZR", "RZ", "ZT", "TZ"})
 
 ZRT_COMPONENTS = ("ZZ", "ZR", "ZT", "RZ", "RR", "RT", "TZ", "TR", "TT")
 
@@ -75,32 +67,21 @@ _ZRT_COMPONENTS = ZRT_COMPONENTS
 _REQUIRED_BY_COMPONENT = REQUIRED_ZNE_BY_ZRT_COMPONENT
 
 
-def validate_radial_convention(radial_convention: str) -> str:
-    """Return the normalized radial convention name or raise ValueError."""
-    normalized = str(radial_convention).strip().lower()
-    if normalized not in RADIAL_CONVENTIONS:
-        raise ValueError(
-            f"radial_convention must be one of {RADIAL_CONVENTIONS}; got {radial_convention!r}."
-        )
-    return normalized
-
-
-def horizontal_axes(azimuth, back_azimuth, radial_convention=DEFAULT_RADIAL_CONVENTION, degrees=True):
+def horizontal_axes(azimuth, back_azimuth, degrees=True):
     """Unit vectors (N, E) of R and T at the source and receiver stations.
 
     Returns ``(source, receiver)``, each ``{"R": (n, e), "T": (n, e)}``; see the
-    module docstring for the conventions.
+    module docstring for the convention.
     """
-    sign = 1.0 if validate_radial_convention(radial_convention) == "lin2008" else -1.0
     theta = np.deg2rad(azimuth) if degrees else azimuth
     psi = np.deg2rad(back_azimuth) if degrees else back_azimuth
     source = {
-        "R": (sign * np.cos(theta), sign * np.sin(theta)),
-        "T": (-sign * np.sin(theta), sign * np.cos(theta)),
+        "R": (np.cos(theta), np.sin(theta)),
+        "T": (-np.sin(theta), np.cos(theta)),
     }
     receiver = {
-        "R": (-sign * np.cos(psi), -sign * np.sin(psi)),
-        "T": (sign * np.sin(psi), -sign * np.cos(psi)),
+        "R": (-np.cos(psi), -np.sin(psi)),
+        "T": (np.sin(psi), -np.cos(psi)),
     }
     return source, receiver
 
@@ -135,7 +116,6 @@ def rotate_zne_ccf_to_zrt(
     components=None,
     degrees=True,
     check=True,
-    radial_convention=DEFAULT_RADIAL_CONVENTION,
 ):
     """Rotate nine-component cross-correlation functions from ZNE to ZRT.
 
@@ -167,19 +147,11 @@ def rotate_zne_ccf_to_zrt(
     check : bool, optional
         If True, check missing input components and shape consistency among the
         input components required for the requested outputs.
-    radial_convention : {"lin2008", "legacy"}, optional
-        Direction of the R and T axes (module docstring). ``"lin2008"``
-        (default): R along the propagation A -> B at both stations, as in
-        Lin et al. (2008), Fig. 2. ``"legacy"``: the pre-change SeisForge
-        convention (R and T reversed); ZR, RZ, ZT, TZ change sign, the other
-        components are bit for bit the same.
-
     Returns
     -------
     rotated_ccf : dict
         Rotated cross-correlation functions in the ZRT coordinate system.
     """
-    radial_convention = validate_radial_convention(radial_convention)
     if components is None:
         components = ZRT_COMPONENTS
     else:
@@ -217,7 +189,7 @@ def rotate_zne_ccf_to_zrt(
 
     rotated_ccf = {}
 
-    # lin2008 axes (module docstring): source R = (cth, sth), T = (-sth, cth);
+    # Axes (module docstring): source R = (cth, sth), T = (-sth, cth);
     # receiver R = (-cps, -sps), T = (sps, -cps).
     if "ZZ" in components:
         rotated_ccf["ZZ"] = np.asarray(ccf["ZZ"])
@@ -234,8 +206,8 @@ def rotate_zne_ccf_to_zrt(
     if "TZ" in components:
         rotated_ccf["TZ"] = -sth * np.asarray(ccf["NZ"]) + cth * np.asarray(ccf["EZ"])
 
-    # Two axes each: the same expressions (and floating-point operations) in
-    # both conventions.
+    # Two horizontal axes each: the same expressions (and floating-point
+    # operations) as before 0.2.0, so these are bit for bit unchanged.
     if "RR" in components:
         rotated_ccf["RR"] = (
             -cth * cps * np.asarray(ccf["NN"])
@@ -268,12 +240,6 @@ def rotate_zne_ccf_to_zrt(
             - cth * cps * np.asarray(ccf["EE"])
         )
 
-    if radial_convention == "legacy":
-        # Negation is exact in floating point, so these equal the old
-        # formulas bit for bit.
-        for comp in CONVENTION_DEPENDENT_COMPONENTS.intersection(rotated_ccf):
-            rotated_ccf[comp] = -rotated_ccf[comp]
-
     return rotated_ccf
 
 
@@ -282,12 +248,11 @@ def rotate_zrt_ccf_to_zne(
     azimuth,
     back_azimuth,
     degrees=True,
-    radial_convention=DEFAULT_RADIAL_CONVENTION,
 ):
     """Rotate nine-component CCFs from ZRT back to ZNE (inverse of `rotate_zne_ccf_to_zrt`).
 
-    Same conventions as `rotate_zne_ccf_to_zrt` (module docstring), including
-    ``radial_convention``; the unit vectors come from `horizontal_axes`. Both
+    Same conventions as `rotate_zne_ccf_to_zrt` (module docstring); the unit
+    vectors come from `horizontal_axes`. Both
     bases are orthonormal, so the inverse is the transpose:
     ``C_ij = sum_ab S_a[i] R_b[j] X_ab`` with ``i, j`` in N/E and ``a, b`` in
     R/T (Z passes through). All nine ZRT components are required; all nine
@@ -297,9 +262,7 @@ def rotate_zrt_ccf_to_zne(
     missing = [comp for comp in ZRT_COMPONENTS if comp not in ccf]
     if missing:
         raise KeyError(f"Missing ZRT components: {missing}")
-    source_axes, receiver_axes = horizontal_axes(
-        azimuth, back_azimuth, radial_convention, degrees=degrees
-    )
+    source_axes, receiver_axes = horizontal_axes(azimuth, back_azimuth, degrees=degrees)
     source = {"Z": None, **source_axes}
     receiver = {"Z": None, **receiver_axes}
     horizontal = {"N": 0, "E": 1}

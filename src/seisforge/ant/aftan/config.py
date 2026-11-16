@@ -23,7 +23,7 @@ from .models import (
     AFTANTimeTaperConfig,
     StationAFTANConfig,
 )
-from .phase import RADIAL_CONVENTION_MODES, normalize_component
+from .phase import normalize_component
 from .taper import TIME_TAPER_MODES
 
 
@@ -51,6 +51,10 @@ _SNR_LOCAL_KEYS = (
 )
 _SNR_PYFTAN_KEYS = ("bfact", "efact", "vmax", "vmin", "fill")
 REMOVED_AFTAN_KEYS: dict[tuple[str, ...], str] = {
+    ("aftan", "radial_convention"): (
+        "nothing: only the Lin et al. (2008) R/T axes are supported; rotate "
+        "ZR/RZ made before 0.2.0 again"
+    ),
     ("component",): "components",
     ("io", "source_station"): "source_station (top level)",
     ("io", "receiver_station"): "receiver_station (top level)",
@@ -230,7 +234,6 @@ def _build_aftan_config(
         velocity_max=float(velocity_window.get("max", 5.5)),
         pi_over_4=pi_over_4,
         pi_over_4_mode=pi_over_4_mode,
-        radial_convention=str(config.get("radial_convention", "auto")).strip().lower(),
         branch=branch,
         prediction_file=(
             _resolve_path(prediction_file, base_path) if prediction_file else None
@@ -331,10 +334,6 @@ def _validate_aftan_config(config: AFTANConfig) -> None:
         raise ValueError("aftan.qc.min_valid_fraction must be between 0 and 1.")
     if config.pi_over_4_mode not in _PI_OVER_4_MODES:
         raise ValueError(f"aftan.pi_over_4.mode must be one of {sorted(_PI_OVER_4_MODES)}.")
-    if config.radial_convention not in RADIAL_CONVENTION_MODES:
-        raise ValueError(
-            f"aftan.radial_convention must be one of {list(RADIAL_CONVENTION_MODES)}."
-        )
 
 
 def _build_short_distance_guard_config(config: Any) -> AFTANShortDistanceGuardConfig:
