@@ -506,6 +506,8 @@ def _dat_metadata(
         "pi_over_4": branch_config.pi_over_4,
         "pi_over_4_mode": branch_config.pi_over_4_mode,
     }
+    if stage == "pmf":
+        metadata["pmf_clean_window"] = branch_config.pmf.clean_window
     if phase_warning:
         metadata["phase_velocity_warning"] = phase_warning
     if taper_attrs:

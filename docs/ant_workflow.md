@@ -70,11 +70,11 @@ Requested output ZRT `obj_components` automatically determine which input ZNE
 components are read. The log records this inferred `required_input_components`
 list for each job, so configs do not need a separate input-component list.
 
-For input lookup, SeisForge always searches the source-receiver pair first:
-`CC_ZNE/STA1/STA1_STA2`. Only the diagonal ZNE components `ZZ`, `NN`, and `EE`
-may fall back to the reciprocal pair `CC_ZNE/STA2/STA2_STA1`, because those
-components are equivalent under station reversal in this storage convention.
-Off-diagonal components such as `ZN`, `NZ`, `NE`, and `EN` must match the
-requested source-receiver definition and are never read from the reciprocal
-directory. Files read from the reciprocal directory are still written with the
-current job's station-pair name in the output directory.
+For input lookup, SeisForge reads only the source-receiver pair of the job,
+`CC_ZNE/STA1/STA1_STA2`, and raises an error naming the missing file if a
+required component is not there. It never falls back to the reciprocal
+directory `CC_ZNE/STA2/STA2_STA1`, not even for `ZZ`, `NN` or `EE`: the
+reciprocal correlation describes propagation in the opposite direction,
+$C^{BA}_{ij}(t) = C^{AB}_{ji}(-t)$, so its lags are reversed and it cannot
+stand in for the requested file (see
+[Rotation, reversing source and receiver](ant/rotation.md#reversing-source-and-receiver)).

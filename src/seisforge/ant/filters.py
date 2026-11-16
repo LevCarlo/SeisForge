@@ -1,4 +1,19 @@
-"""Frequency- and time-domain filters used by ANT dispersion workflows."""
+"""Frequency- and time-domain filters used by ANT dispersion workflows.
+
+The phase-matched filter (`PhaseMatchedFilter`) follows Fortran AFTAN
+(``aftanipg.f`` with ``tgauss.f``, M. Barmine, CIEI, CU; Levshin & Ritzwoller
+2001, Pure Appl. Geophys. 158, 1531-1545) and its Python translation PyAFTAN
+(S. Zhang), which were run locally as references only. Its cleaning window
+(`PhaseMatchedFilter.clean_undispersed`) keeps the compressed pulse at full
+weight between the first qualifying envelope minima on either side of the
+peak and tapers it outside with half-Gaussians. When both sides have such a
+minimum, the inner limits are made symmetric about the peak and both outer
+limits sit one outer width beyond the inner limits, as in ``tgauss.f``
+(``clean_window="symmetric"``). PyAFTAN instead adds the outer width to the
+unsymmetrised right outer limit, which widens the right taper, and starts
+the left taper one sample outside the inner limit; ``clean_window="pyaftan"``
+reproduces both (SeisForge before 0.2.0).
+"""
 
 from __future__ import annotations
 
@@ -68,9 +83,17 @@ class GaussianFTANFilter:
         return int(self.nfft) if self.nfft is not None else np.asarray(data).size
 
 
+PMF_CLEAN_WINDOW_MODES = ("symmetric", "pyaftan")
+
+
 @dataclass(frozen=True)
 class PhaseMatchedFilter:
-    """Phase-matched filter stage between basic FTAN and cleaned FTAN."""
+    """Phase-matched filter stage between basic FTAN and cleaned FTAN.
+
+    ``clean_window`` selects how the outer limits of the cleaning window are
+    set (see the module docstring): ``"symmetric"`` (Fortran AFTAN
+    ``tgauss.f``, default) or ``"pyaftan"`` (PyAFTAN, old SeisForge results).
+    """
 
     dt: float
     distance_km: float
@@ -82,6 +105,13 @@ class PhaseMatchedFilter:
     amplitude_ratio: float = 0.2
     window_factor: float = 1.0
     nfft: int | None = None
+    clean_window: str = "symmetric"
+
+    def __post_init__(self) -> None:
+        if self.clean_window not in PMF_CLEAN_WINDOW_MODES:
+            raise ValueError(
+                f"clean_window must be one of {PMF_CLEAN_WINDOW_MODES}, got {self.clean_window!r}."
+            )
 
     def apply(self, data: np.ndarray) -> np.ndarray:
         """Return the redispersed PMF-cleaned signal."""
@@ -148,7 +178,7 @@ class PhaseMatchedFilter:
         return _four_corner_frequency_taper(freqs, f1, f2, f3, f4)
 
     def clean_undispersed(self, spectrum: np.ndarray, npts: int) -> np.ndarray:
-        """Clean the compressed PMF signal using PyAFTAN-style Gaussian skirts."""
+        """Clean the compressed PMF signal with half-Gaussian skirts (``tgauss.f``)."""
         analytic = ifft(spectrum)[:npts]
         signal_data = analytic.real
         envelope = np.abs(analytic)
@@ -186,17 +216,25 @@ class PhaseMatchedFilter:
             left_inner = peak_index - inner_width
             right_inner = peak_index + inner_width
             left_outer = left_inner - outer_width
-            right_outer = right_outer + outer_width
+            if self.clean_window == "symmetric":
+                right_outer = right_inner + outer_width
+            else:  # "pyaftan": PyAFTAN adds the width to the old outer limit.
+                right_outer = right_outer + outer_width
         if left_inner is not None:
+            # tgauss.f gives weight 1 at the inner limit on both sides; PyAFTAN
+            # starts the left taper one sample further out (weight 1 at
+            # left_inner - 1 and left_inner).
+            symmetric = self.clean_window == "symmetric"
             left_inner, left_outer, left_window = _pyftan_clean_gauss(
                 npts,
                 left_inner,
                 left_outer,
                 peak_index,
                 self.window_factor,
-                edge=0,
+                edge=-1 if symmetric else 0,
             )
-            window[:left_inner] = left_window[::-1]
+            stop = left_inner + 1 if symmetric else left_inner
+            window[:stop] = left_window[::-1]
         if right_inner is not None:
             right_inner, right_outer, right_window = _pyftan_clean_gauss(
                 npts,

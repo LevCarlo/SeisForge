@@ -187,6 +187,7 @@ class AFTANMeasurement:
             amplitude_ratio=self.config.pmf.amplitude_ratio,
             window_factor=self.config.pmf.window_factor,
             nfft=self.nfft,
+            clean_window=self.config.pmf.clean_window,
         ).apply(self.trace.data)
         measured = self._measure_signal(
             cleaned,
@@ -333,7 +334,7 @@ class AFTANMeasurement:
         alpha: float,
         target_period: np.ndarray,
     ) -> dict[str, object]:
-        return {
+        attrs = {
             "stage": stage,
             "branch": branch,
             "input_file": str(source_file),
@@ -348,6 +349,9 @@ class AFTANMeasurement:
             "period_max": float(np.nanmax(target_period)),
             "period_sampling_mode": self.config.period_sampling.mode,
         }
+        if stage != "basic":
+            attrs["pmf_clean_window"] = self.config.pmf.clean_window
+        return attrs
 
     def energy_map_dataset(
         self,

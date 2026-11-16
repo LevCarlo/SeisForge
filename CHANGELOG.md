@@ -8,6 +8,25 @@ switch that restores the old behaviour where one exists.
 
 ### Changed results
 
+- **PMF cleaning window.** `PhaseMatchedFilter.clean_undispersed` now sets the
+  window as Fortran AFTAN `tgauss.f` does: after the inner limits are made
+  symmetric about the compressed pulse, both outer limits lie one outer
+  width beyond them, and both half-Gaussian tapers start at weight 1 on the
+  inner limit (`aftan.pmf.clean_window: symmetric`, default). The previous
+  code followed PyAFTAN, which adds the outer width to the unsymmetrised
+  right outer limit (a wider right taper) and starts the left taper one
+  sample outside the inner limit. Only PMF outputs change (`*.pmf.dat`,
+  `*.pmf_ftan.nc`, `*.pmf.vph.nc`); basic FTAN is unchanged. Noise-free
+  synthetic ZZ CCFs (6-40 s, alpha 20): PMF group velocity changes by up to
+  0.19 / 0.08 / 0.04 / 0.02 km/s at 100 / 200 / 400 / 1000 km, phase
+  velocity by up to 0.06 / 0.02 / 0.01 / 0.004 km/s; the largest group
+  velocity error against the truth drops from 0.127 to 0.093 km/s at
+  400 km. Benchmark pair M07A-M15A (`examples/benchmarks/aftan_vs_fortran`):
+  up to 0.016 km/s in group and 0.008 km/s in phase velocity inside the
+  Fortran reference's period range (5-55 s); the stored outputs were
+  regenerated. Old behaviour: `aftan.pmf.clean_window: pyaftan`
+  (bit-for-bit). The choice is recorded as `pmf_clean_window` in PMF
+  `.dat` headers and dataset attrs.
 - **STA001 example: data from a finer layering, graded inversion layering,
   parallel chains.** `tools/make_sta001_synthetic.py` now forwards the truth
   in uniform 1/32 km layers (`TRUTH_DZ_KM`) instead of the inversion's own

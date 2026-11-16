@@ -6,6 +6,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from seisforge.ant.filters import PMF_CLEAN_WINDOW_MODES
+
 from .io import _resolve_path
 from .models import (
     AFTANAlphaConfig,
@@ -189,6 +191,7 @@ def _build_aftan_config(
             min_half_length=float(pmf.get("min_half_length", 5.0)),
             amplitude_ratio=float(pmf.get("amplitude_ratio", 0.2)),
             window_factor=float(pmf.get("window_factor", 1.0)),
+            clean_window=str(pmf.get("clean_window", "symmetric")),
         ),
         snr=_build_snr_config(snr),
         time_taper=_build_time_taper_config(config.get("time_taper", {})),
@@ -251,6 +254,10 @@ def _validate_aftan_config(config: AFTANConfig) -> None:
         raise ValueError("aftan.pmf.amplitude_ratio must be non-negative.")
     if config.pmf.window_factor <= 0:
         raise ValueError("aftan.pmf.window_factor must be positive.")
+    if config.pmf.clean_window not in PMF_CLEAN_WINDOW_MODES:
+        raise ValueError(
+            f"aftan.pmf.clean_window must be one of {PMF_CLEAN_WINDOW_MODES}."
+        )
     if config.energy_map.velocity_count < 2:
         raise ValueError("aftan.energy_map.velocity_count must be at least 2.")
     if config.energy_map.phase_cycle_count < 0:

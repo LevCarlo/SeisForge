@@ -44,7 +44,7 @@ this choice.
 
 ## 1. The phase of a noise correlation
 
-### Where the $\pi/4$ comes from
+### Where the π/4 comes from
 
 That noise correlations contain usable surface waves was shown by Shapiro &
 Campillo (2004); the stationary-phase argument behind it is in Snieder
@@ -160,7 +160,7 @@ $S$ is complex and $A$, $\varphi$ are defined at every sample without a
 separate Hilbert transform (the code also computes one, `hilbert_phase`,
 as a diagnostic).
 
-### What $\alpha$ means
+### What the filter width α means
 
 Writing the Gaussian as $\exp[-(\omega-\omega_0)^2/2\sigma_\omega^2]$ and
 transforming it to time,
@@ -187,7 +187,7 @@ response: the envelope agrees with the closed form
 $e^{-\omega_0^2 t^2/4\alpha}$ (dashed) to 0.1 %. (c) The trade-off.
 Script: `docs/ant/scripts/gaussian_filters.py`.*
 
-### Choosing $\alpha$
+### Choosing the filter width α
 
 A dispersed wave packet is spread in time by the change of group delay
 across the filter band. To first order the group delay inside the band
@@ -233,7 +233,7 @@ band at long periods.
 
 ## 3. Group velocity
 
-### The envelope peak travels at $U$
+### The envelope peak travels at the group velocity
 
 Write the branch spectrum near $\omega_0$ as
 $\hat x_a(\omega) = a(\omega)\,e^{-i\psi(\omega)}$ with
@@ -475,9 +475,12 @@ code looks for the first envelope minimum on each side that is more than
 `min_half_length` (5 s) from the peak and below `amplitude_ratio` (0.2) of
 it, keeps the signal at full weight between these points (made symmetric
 about the peak), and tapers it outside with half-Gaussians
-$e^{-n^2/2w^2}$ whose width $w$ (samples) is set by the next minimum
+$e^{-n^2/2w^2}$ whose width $w$ (samples) is set by the next minimum; when
+both sides have a minimum, $w$ is the larger of the two inner-to-outer
+distances and is used on both sides, as in Fortran AFTAN `tgauss.f`
 (`clean_undispersed`, `_pyftan_clean_gauss`; `window_factor` scales the
-distances).
+distances). `clean_window: pyaftan` reproduces PyAFTAN's variant, whose
+right taper is wider (SeisForge before 0.2.0; see the changelog).
 
 **(4) Redispersion.** Transform back with $e^{-i\Phi}$ and take the real
 part (`redisperse`). The result is the original wave with the off-pulse
@@ -495,25 +498,38 @@ the window keeps it. (c) The redispersed output has lost the interfering
 arrival and most of the noise. (d) Group velocities. Script:
 `docs/ant/scripts/pmf_comparison.py`.*
 
-!!! warning "Observed in this draft, not yet understood: PMF bias at its longest periods"
-    On the **noise-free** synthetic the PMF group velocity is low by up to
-    0.13 km/s at the long-period end of its band (37.9 s here), while the
-    basic FTAN is within 0.03 km/s; phase velocity is not affected (both
-    within 0.03 km/s). In (c) the long-period part of the waveform is
-    attenuated. A likely cause is the band taper: its lower corners straddle
-    $1/T_{\max}$, so the spectrum falls steeply there and, by the argument
-    of §3, the effective frequency of the longest filters moves up. This
-    has not been tested. In this example PMF therefore does not improve the
-    RMS group-velocity error (0.049 vs 0.028 km/s for basic FTAN); it helps
-    where an interfering arrival overlaps the main one in the FTAN diagram.
+!!! warning "PMF group velocity is biased low at the long-period end of its band"
+    On the **noise-free** synthetic the PMF group velocity is low by
+    0.09 km/s at the longest period of its band (38.1 s here), while basic
+    FTAN is within 0.03 km/s; phase velocity is not affected (both within
+    0.03 km/s). This is an edge effect of the method, not of this
+    implementation: PyAFTAN, run on the same trace, is low by 0.15 km/s there.
+    The cause is the cleaning window of step (3). Its half-width is set by
+    the first deep envelope minimum of the compressed pulse, whose width
+    follows the *short* periods of the band (here 14 s on each side, about
+    a third of $T_{\max}$), so the window cuts part of the long-period
+    energy; the cosine band taper, which is 0.5 at $1/T_{\max}$, adds to
+    it. Removing the window removes the bias, and widening it
+    (`window_factor` 2-3) reduces it to 0.03-0 km/s; the extrapolation of
+    $\Phi$ beyond the band and the period range of the second FTAN play no
+    part.
 
-!!! warning "Unverified: window construction"
-    In `PhaseMatchedFilter.clean_undispersed`, the symmetric outer limits are
-    set as `left_outer = left_inner - outer_width` but
-    `right_outer = right_outer + outer_width` (old right limit plus the
-    width), so the right taper is wider than the left. This may be
-    inherited from PyAFTAN or may be a slip; it has not been compared with
-    the reference code.
+    Measured on noise-free synthetics with the defaults (`alpha` 20,
+    `window_factor` 1): the PMF error exceeds 0.03 km/s, and basic FTAN by
+    more than 0.02 km/s, for periods above about $0.75\,T_{\max}$ (0.7-0.9
+    for 200-1500 km and bands 6-30 to 6-40 s), with at most 0.08-0.09 km/s
+    at the band edge, nearly independent of distance. It grows for smaller
+    `alpha` (0.14 km/s at `alpha` 10) and nearly vanishes for `alpha` 40.
+    Below $0.7\,T_{\max}$ the PMF error is no larger than the basic-FTAN
+    error (at most 0.025 km/s on bands up to 40 s; a 6-60 s band at 400 km,
+    under two wavelengths at 60 s, does worse).
+    **Use PMF group velocities only up to about $0.7\,T_{\max}$** of the
+    PMF band (set `max_period` about 1.4 times the longest period you
+    need), or compare with basic FTAN there; a larger `window_factor`
+    removes the bias on clean data but keeps more noise. In this example
+    PMF therefore does not improve the RMS group-velocity error (0.036 vs
+    0.028 km/s for basic FTAN); it helps where an interfering arrival
+    overlaps the main one in the FTAN diagram.
 
 ## 6. Quality control
 
