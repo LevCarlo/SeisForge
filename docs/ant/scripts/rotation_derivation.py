@@ -51,30 +51,32 @@ C
 # ## The two bases
 #
 # Each row of a rotation matrix is one new unit vector written in the old
-# (Z, N, E) components. At the virtual source the radial unit vector is
-# $\hat R_A = (-\cos\theta, -\sin\theta)$ in (N, E): it points *away* from B.
-# At the receiver $\hat R_B = (\cos\psi, \sin\psi)$ points *towards* A. In
-# both cases $\hat T$ is $\hat R$ turned by +90° (clockwise seen from above,
-# north → east). These are the vectors the package code uses (see the
-# docstring of `rotate_zrt_ccf_to_zne`).
+# (Z, N, E) components. In the default convention (`radial_convention:
+# lin2008`, Lin, Moschetti & Ritzwoller 2008, Fig. 2) the radial unit vector
+# at the virtual source is $\hat R_A = (\cos\theta, \sin\theta)$ in (N, E):
+# it points *towards* B. At the receiver $\hat R_B = (-\cos\psi, -\sin\psi)$
+# points *away from* A. Both point along the propagation of the positive-lag
+# arrival. In both cases $\hat T$ is $\hat R$ turned by +90° (clockwise seen
+# from above, north → east). These are the vectors of
+# `seisforge.ant.rotation.horizontal_axes`.
 
 # %%
 S = sp.Matrix([
     [1, 0, 0],
-    [0, -sp.cos(theta), -sp.sin(theta)],
-    [0, sp.sin(theta), -sp.cos(theta)],
+    [0, sp.cos(theta), sp.sin(theta)],
+    [0, -sp.sin(theta), sp.cos(theta)],
 ])  # rows: Z, R_A, T_A (virtual source A)
 R = sp.Matrix([
     [1, 0, 0],
-    [0, sp.cos(psi), sp.sin(psi)],
-    [0, -sp.sin(psi), sp.cos(psi)],
+    [0, -sp.cos(psi), -sp.sin(psi)],
+    [0, sp.sin(psi), -sp.cos(psi)],
 ])  # rows: Z, R_B, T_B (receiver B)
 display(Math(r"S = " + sp.latex(S) + r",\qquad \mathsf{R} = " + sp.latex(R)))
 
 # %% [markdown]
 # Both are proper rotations: orthogonal with determinant +1. The source block
-# is a rotation of the (N, E) axes by $\theta + \pi$, the receiver block a
-# rotation by $\psi$.
+# is a rotation of the (N, E) axes by $\theta$, the receiver block a rotation
+# by $\psi + \pi$.
 
 # %%
 assert sp.simplify(S * S.T - sp.eye(3)) == sp.zeros(3)
@@ -105,24 +107,35 @@ for i in range(3):
 # The expressions above, evaluated for random angles and random tensors, agree
 # with `rotate_zne_ccf_to_zrt` to rounding error (each entry is a sum of at
 # most four products of numbers of order one, so `1e-12` is generous).
+#
+# The `legacy` convention (SeisForge before the change) reverses R and T at
+# both stations: $S_\text{legacy} = D S$, $\mathsf R_\text{legacy} = D \mathsf R$
+# with $D = \mathrm{diag}(1, -1, -1)$. Then $C'_\text{legacy} = D C' D$: the
+# entries with exactly one horizontal index (ZR, ZT, RZ, TZ) change sign, the
+# others do not.
 
 # %%
 from seisforge.ant.rotation import ZRT_COMPONENTS, rotate_zne_ccf_to_zrt  # noqa: E402
 
+D = sp.diag(1, -1, -1)
+Cp_legacy = sp.expand((D * S) * C * (D * R).T)
+assert sp.expand(Cp_legacy - D * Cp * D) == sp.zeros(3)
 rng = np.random.default_rng(0)
-f = sp.lambdify((theta, psi, *list(C)), Cp, "numpy")
-worst = 0.0
-for _ in range(200):
-    az, baz = rng.uniform(0, 360, 2)
-    values = rng.normal(size=9)
-    ccf = {zne[i] + zne[j]: values[3 * i + j] for i in range(3) for j in range(3)}
-    package = rotate_zne_ccf_to_zrt(ccf, az, baz)
-    symbolic = np.asarray(f(np.deg2rad(az), np.deg2rad(baz), *values), dtype=float)
-    for comp in ZRT_COMPONENTS:
-        i, j = zrt.index(comp[0]), zrt.index(comp[1])
-        worst = max(worst, abs(package[comp] - symbolic[i, j]))
-print(f"largest difference over 200 random cases: {worst:.1e}")
-assert worst < 1e-12
+worst = {}
+for convention, matrix in (("lin2008", Cp), ("legacy", Cp_legacy)):
+    f = sp.lambdify((theta, psi, *list(C)), matrix, "numpy")
+    worst[convention] = 0.0
+    for _ in range(200):
+        az, baz = rng.uniform(0, 360, 2)
+        values = rng.normal(size=9)
+        ccf = {zne[i] + zne[j]: values[3 * i + j] for i in range(3) for j in range(3)}
+        package = rotate_zne_ccf_to_zrt(ccf, az, baz, radial_convention=convention)
+        symbolic = np.asarray(f(np.deg2rad(az), np.deg2rad(baz), *values), dtype=float)
+        for comp in ZRT_COMPONENTS:
+            i, j = zrt.index(comp[0]), zrt.index(comp[1])
+            worst[convention] = max(worst[convention], abs(package[comp] - symbolic[i, j]))
+    print(f"{convention}: largest difference over 200 random cases: {worst[convention]:.1e}")
+assert max(worst.values()) < 1e-12
 
 # %% [markdown]
 # ## Inverse rotation
@@ -201,15 +214,40 @@ for name, expr in leaks.items():
 # ## Where the radial axes point
 #
 # With $\hat x = (\cos\theta, \sin\theta)$ the unit vector from A towards B
-# (flat Earth), both radial axes equal $-\hat x$ and both transverse axes are
-# equal: the package's R points from the receiver back towards the virtual
-# source at *both* stations.
+# (flat Earth), both radial axes equal $+\hat x$ and both transverse axes are
+# equal: R points along the propagation of the positive-lag arrival at *both*
+# stations, as in Fig. 2 of Lin et al. (2008); in the legacy convention both
+# equal $-\hat x$.
 
 # %%
 x_hat = sp.Matrix([sp.cos(theta), sp.sin(theta)])
 R_A, T_A = S[1, 1:].T, S[2, 1:].T
 R_B, T_B = R[1, 1:].T.subs(flat), R[2, 1:].T.subs(flat)
-assert sp.simplify(R_A + x_hat) == sp.zeros(2, 1)
-assert sp.simplify(R_B + x_hat) == sp.zeros(2, 1)
+assert sp.simplify(R_A - x_hat) == sp.zeros(2, 1)
+assert sp.simplify(R_B - x_hat) == sp.zeros(2, 1)
 assert sp.simplify(T_A - T_B) == sp.zeros(2, 1)
-print("R_A = R_B = -x_hat,  T_A = T_B")
+assert sp.simplify(T_A - sp.Matrix([-sp.sin(theta), sp.cos(theta)])) == sp.zeros(2, 1)
+print("R_A = R_B = x_hat,  T_A = T_B = x_hat turned 90 deg clockwise")
+
+# %% [markdown]
+# ## Lin et al. (2008), eq. 1
+#
+# Lin et al. give TT, RR, TR and RT as combinations of EE, EN, NN and NE. The
+# coefficients below are those of their eq. 1 (as compared with the paper when
+# the convention was changed); they are the horizontal block of $C'$ in
+# *both* conventions, because reversing R and T at both stations leaves every
+# product of two horizontal axes unchanged.
+
+# %%
+ct, st, cp, sp_ = sp.cos(theta), sp.sin(theta), sp.cos(psi), sp.sin(psi)
+CEE, CEN, CNN, CNE = C[2, 2], C[2, 1], C[1, 1], C[1, 2]
+lin_eq1 = {
+    "TT": -ct * cp * CEE + ct * sp_ * CEN - st * sp_ * CNN + st * cp * CNE,
+    "RR": -st * sp_ * CEE - st * cp * CEN - ct * cp * CNN - ct * sp_ * CNE,
+    "TR": -ct * sp_ * CEE - ct * cp * CEN + st * cp * CNN + st * sp_ * CNE,
+    "RT": -st * cp * CEE + st * sp_ * CEN + ct * sp_ * CNN - ct * cp * CNE,
+}
+for comp, expr in lin_eq1.items():
+    i, j = zrt.index(comp[0]), zrt.index(comp[1])
+    assert sp.expand(Cp[i, j] - expr) == 0 and sp.expand(Cp_legacy[i, j] - expr) == 0, comp
+print("TT, RR, TR, RT equal Lin et al. (2008) eq. 1 in both conventions")

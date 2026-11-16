@@ -80,42 +80,72 @@ sum is a Fresnel integral, and a Fresnel integral over a quadratic phase
 contributes $e^{\pm i\pi/4}$. In a 3-D (body-wave) field the same argument
 gives $\pi/2$.
 
-!!! note "C or its derivative"
-    Several papers relate the Green's function to the *time derivative* of
-    the correlation. Differentiating multiplies the spectrum by $i\omega$ and
-    shifts every phase constant by $+\pi/2$. SeisForge measures the CCF
-    itself, so the constants below are for $C$, not for $dC/dt$.
+### Correlation or Green's function: the π/2
+
+Lin, Moschetti & Ritzwoller (2008, sec. 2) point out that the empirical
+Green's function is the negative time derivative of the correlation,
+$G_{AB}(t) = -\,dC_{AB}(t)/dt$, a phase difference of $\pi/2$, and that
+Bensen et al. (2007) had treated the two as the same thing. Differentiating
+multiplies the spectrum by $i\omega$ (phase $+\pi/2$), the minus sign adds
+$\pi$: for ZZ, $C$ has $\phi_0 = +\pi/4$ and $G = -dC/dt$ has
+$\phi_0 = +\pi/4 + \pi/2 - \pi = -\pi/4$.
+
+**SeisForge's AFTAN measures the correlation itself.** No derivative or
+Hilbert transform is applied before the filter bank: `AFTANMeasurement`
+filters the input trace (`_ftan_complex`) and reads the phase of its analytic
+signal; `pi_over_4` enters only as $p\pi/4$ added to that phase (`_interp`).
+The constants on this page are therefore for $C$, and the ZZ value $p = -1$
+already contains the $\pi/2$ relative to $G$, for which the constant would be
+$p = +1$. Checked numerically: AFTAN on the diffuse-field ZZ correlation is
+right with $p = -1$ (0.001 km/s at 150 km) and wrong by 0.24 km/s with
+$p = +1$; on $-dC/dt$ of the same trace it is right with $p = +1$ (0.001 km/s)
+and wrong with $p = -1$
+(`tests/test_ant_aftan_components.py::test_empirical_greens_function_needs_the_pi_over_2_shifted_constant`;
+positive lag only, since $-dC/dt$ of a symmetric $C$ is antisymmetric). If you
+feed AFTAN Green's functions instead of correlations, set `pi_over_4`
+manually.
 
 ### Component by component
 
-The same average (Lin et al. 2008; for ZR and RZ, Lin et al. 2014) with the horizontal polarisation of a retrograde Rayleigh
-wave, $H = i\varepsilon\,\hat d\,Z$ ($\varepsilon > 0$ the H/V ratio), and
-the package's radial axes (both pointing from B back to A, see
-[Rotation §1](rotation.md#the-rotated-axes-used-by-seisforge)) gives
-$\hat C_{ZR} = -\varepsilon J_1$, $\hat C_{RZ} = +\varepsilon J_1$,
-$\hat C_{RR} = \varepsilon^2(J_0 - J_2)/2$, and for Love waves on TT
-$(J_0 - J_2)/2$. With $J_n(x) \simeq \sqrt{2/\pi x}\cos(x - n\pi/2 - \pi/4)$:
+The same average (Lin et al. 2008; for ZR and RZ, Lin et al. 2014) with the
+horizontal polarisation of a retrograde Rayleigh wave,
+$H = i\varepsilon\,\hat d\,Z$ ($\varepsilon > 0$ the H/V ratio), and the
+package's radial axes (default `lin2008`: both pointing from A towards B,
+along the propagation; see
+[Rotation §1](rotation.md#the-rotated-axes-used-by-seisforge)) gives, with
+$\langle\cos a\,e^{-ikr\cos a}\rangle = -iJ_1(kr)$,
 
-| component | far-field form of $\hat C$ | $\phi_0$ | $p$ needed | $p$ in the code today |
+$$
+\hat C_{ZR} = \overline{Z_A}\,(i\varepsilon\cos a)\,Z_B \to +\varepsilon J_1,\qquad
+\hat C_{RZ} = \overline{(i\varepsilon\cos a)\,Z_A}\,Z_B \to -\varepsilon J_1,
+$$
+
+$\hat C_{RR} = \varepsilon^2(J_0 - J_2)/2$, and for Love waves on TT
+$(J_0 - J_2)/2$. With $J_n(x) \simeq \sqrt{2/\pi x}\cos(x - n\pi/2 - \pi/4)$
+the far-field constants are those of `seisforge.ant.aftan.phase`
+(`AUTOMATIC_PI_OVER_4`), for the **stored** component on **both** lag
+branches (the acausal half has the same $\phi_0$ after time reversal):
+
+| component | far-field form of $\hat C$ (lin2008) | $\phi_0$ | $p$, lin2008 | $p$, legacy axes |
 |---|---|---|---|---|
 | ZZ | $+\cos(kr - \pi/4)$ | $+\pi/4$ | $-1$ | $-1$ |
 | RR | $+\cos(kr - \pi/4)$ ($J_2 \simeq -J_0$) | $+\pi/4$ | $-1$ | $-1$ |
 | TT (Love) | $+\cos(kr - \pi/4)$ | $+\pi/4$ | $-1$ | $-1$ |
-| ZR | $-\cos(kr - 3\pi/4)$ | $-\pi/4$ | $+1$ | $+1$ (positive lag), $-1$ (negative lag) |
-| RZ | $+\cos(kr - 3\pi/4)$ | $+3\pi/4$ | $-3$ | $-1$ (positive lag), $+1$ (negative lag) |
+| ZR | $+\cos(kr - 3\pi/4)$ | $+3\pi/4$ | $-3$ | $+1$ |
+| RZ | $-\cos(kr - 3\pi/4) = \cos(kr + \pi/4)$ | $-\pi/4$ | $+1$ | $-3$ |
 
-The full derivation, the numerical check with synthetic diffuse fields, and
-the history of the table are on the page
+With the legacy axes (R reversed at both stations) ZR and RZ change sign,
+i.e. $\phi_0$ shifts by $\pi$ and $p$ by 4. ZR and RZ differ by $\pi$ in
+either convention, as they must: one is the other with the radial axis
+reversed. With `pi_over_4: auto` (the default) AFTAN takes the convention from
+SAC `kuser0` (written by `rotate-ccf`), else from `aftan.radial_convention`,
+else assumes `lin2008` and warns for ZR/RZ. ZT, TZ, RT and TR have no
+automatic value.
+
+The full derivation, the numerical checks with synthetic diffuse fields (both
+conventions, both run modes, both branches: 0.001-0.010 km/s at 150 km), and
+the history of the earlier, wrong ZR/RZ table are on the page
 [AFTAN phase constants](../aftan_phase_constants.md).
-
-!!! danger "Known issue, not fixed: ZR and RZ phase constants"
-    The automatic `pi_over_4` for **RZ** (both branches) and for **ZR on the
-    negative branch** in `ant/aftan/phase.py` (`_RAYLEIGH_PI_OVER_4` with
-    the ZR↔RZ swap of `physical_component_for_branch`) does not match the
-    package rotation. Phase velocities of these cases are wrong by
-    0.25-0.6 km/s at 150 km; group velocities and ZZ, RR, TT are not
-    affected. Affected outputs carry a `phase_velocity_warning`. A separate
-    task applies the fix described on the phase-constant page.
 
 ### How far is "far field"?
 
@@ -343,7 +373,8 @@ Term by term:
 - $\varphi_m$: what the filter actually shows at $t_g$; the difference
   $\omega t_g - \varphi_m$ is how far crests have moved relative to the
   energy.
-- $\phi_0$: the constant of §1 ($+\pi/4$ for ZZ). The code adds
+- $\phi_0$: the constant of §1 ($+\pi/4$ for ZZ, for the correlation; see
+  §1 for the Green's function). The code adds
   $p\pi/4 = -\phi_0$ to $\varphi_m$ (`_interp`, the term
   `self.config.pi_over_4 * np.pi / 4`), so its formula reads
   $c = \omega r / (\omega t_g - (\varphi_m + p\pi/4) + 2\pi N)$.

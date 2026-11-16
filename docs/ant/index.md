@@ -30,10 +30,12 @@ flowchart TD
 ## How the stages connect
 
 - **Component and branch bookkeeping.** The rotation fixes which way R and T
-  point (in SeisForge both radial axes point from the receiver back to the
-  virtual source). The phase constant $\phi_0$ that AFTAN removes depends on
-  the component *and* on this convention, so the two pages must agree; for
-  ZR and RZ they currently do not ([known issue](../aftan_phase_constants.md)).
+  point (by default both radial axes point from the virtual source towards
+  the receiver, along the propagation, as in Lin et al. 2008, Fig. 2; the
+  `legacy` option reverses them). The phase constant $\phi_0$ that AFTAN
+  removes depends on the component *and*, for ZR and RZ, on this convention;
+  `rotate-ccf` records the convention in SAC `kuser0` and AFTAN reads it
+  ([derivation](../aftan_phase_constants.md)).
 - **Negative lags.** A CCF has a causal branch (A → B) and an acausal one
   (B → A). AFTAN measures either or both; `seisforge ant collect-dispersion`
   stores a negative-branch measurement as the reversed station pair, so the

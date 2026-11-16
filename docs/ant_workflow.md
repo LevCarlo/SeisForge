@@ -49,6 +49,16 @@ not set. To force a custom output name, set `output_template`; supported fields
 are `{component}`, `{name}`, `{source_component}`, `{source_name}`, and
 `{source_stem}`.
 
+R and T follow `rotation.radial_convention` (CLI `--radial-convention`):
+`lin2008` (default) points R from the virtual source towards the receiver at
+both stations, along the propagation, as in Fig. 2 of Lin, Moschetti &
+Ritzwoller (2008), with T turned 90 degrees clockwise from R; `legacy`
+reproduces SeisForge before that change, where R and T were reversed, so
+ZR, RZ, ZT and TZ have the opposite sign (ZZ, RR, RT, TR, TT are bit for bit
+the same). The value is written to `rotate_ccf.log` and to SAC `kuser0` of
+each output file, which AFTAN reads to pick the ZR/RZ phase constants. See
+[Rotation](ant/rotation.md#relation-to-lin-et-al-2008-and-the-legacy-convention).
+
 By default, azimuth and back azimuth are inferred from SAC headers. The workflow
 first uses `az/baz` when both are present. If they are missing, it computes the
 angles from coordinates, assuming `evla/evlo` describe the virtual-source

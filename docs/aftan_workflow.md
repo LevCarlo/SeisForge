@@ -79,9 +79,10 @@ aftan:
 `branch: both` writes one result for each positive and negative lag. Output
 filenames preserve the input station pair/component and append the selected
 branch, for example `<input_stem>.negative.dat`. With `pi_over_4.mode: auto`,
-SeisForge still uses the reciprocal physical component for the negative branch
-when choosing the Rayleigh-wave phase correction, and records that interpretation
-in `aftan.log`. `branch: stack` averages the positive lag and the time-reversed
+the phase correction is that of the stored component on both branches; the
+log also names the reciprocal physical component (ZR negative lag -> RZ of the
+reversed pair) as a label.
+`branch: stack` averages the positive lag and the time-reversed
 negative lag and is only well-defined for self-reciprocal components such as
 `ZZ`, `RR`, or `TT`; asymmetric components should be measured with `positive` or
 `negative` instead. If a two-sided branch is requested for a one-sided trace,
@@ -90,27 +91,44 @@ SeisForge falls back to the positive branch and records a warning in `aftan.log`
 ### Components and the phase constant
 
 `pi_over_4` (p) adds `p * pi / 4` to the picked phase; it affects phase
-velocity only. How it is chosen depends on the config:
+velocity only. AFTAN measures the correlation itself, not the Green's
+function `-dC/dt`, and the constants include that pi/2
+([Dispersion §1](ant/dispersion.md#1-the-phase-of-a-noise-correlation)).
+The default is `auto` in both run modes: the value of the **stored**
+component, the same on both lag branches (`AUTOMATIC_PI_OVER_4` in
+`seisforge/ant/aftan/phase.py`):
+
+| stored component | lin2008 R/T axes (default rotation) | legacy axes |
+|---|---|---|
+| ZZ, RR, TT | -1 | -1 |
+| ZR | -3 | +1 |
+| RZ | +1 | -3 |
 
 - **Pair mode** (`source_station`, `receiver_station`, `component(s)`): the
-  component comes from the config and `pi_over_4` defaults to `auto`, a lookup
-  in `_RAYLEIGH_PI_OVER_4` (`seisforge/ant/aftan/phase.py`: ZZ -1, ZR +1,
-  RZ -1, RR -1, TT -1). On the negative branch the lookup uses the reciprocal
-  component (ZR <-> RZ).
+  component comes from the config. A ZRT code in SAC `kcmpnm` or the file name
+  that contradicts it stops the run.
 - **Station mode** (`station`, `io.input_dir`, `sac_pattern`, no
-  `component`): every file is measured with the same value, `-1` unless
-  `pi_over_4` is set manually; `auto` is refused because no component is known.
-  The component is read from SAC `kcmpnm` or the file name only to check the
-  value (below), never to choose it.
+  `component`): the component of each file is read from SAC `kcmpnm` (written
+  by `rotate-ccf`), else from the one ZRT code in the file name
+  (`*_ZR.SAC`, `*_ZR_pws.SAC`). If neither gives one, `auto` stops with an
+  explanation instead of assuming ZZ; set `pi_over_4` to a number (manual
+  mode) to measure such files. Both modes then use the same code path and
+  give identical results on the same file.
+- **R/T convention** (`aftan.radial_convention`: `auto` (default), `lin2008`,
+  `legacy`): matters for ZR and RZ only. `auto` uses SAC `kuser0`, which
+  `rotate-ccf` writes, and otherwise assumes `lin2008` and adds a warning for
+  ZR/RZ. Files rotated by SeisForge before the lin2008 change have no
+  `kuser0` and legacy axes: set `radial_convention: legacy` for them. An
+  explicit value that contradicts `kuser0` stops the run.
+- ZT, TZ, RT, TR have no automatic value; set `pi_over_4` manually (the
+  result carries a "not been checked" warning).
 
-!!! warning "Known issue: ZR and RZ phase velocities"
-    The ZR/RZ values and the negative-branch swap do not match this package's
-    rotation; see [AFTAN phase constants](aftan_phase_constants.md) for the
-    derivation, the error table and the planned fix. ZZ, RR and TT are right;
-    group velocities are not affected. When the value used does not match the
-    independently checked one (ZZ/RR/TT -1, ZR +1, RZ -3 on both branches), or
-    the component is ZR/RZ or unknown, the `.dat` header gets a
-    `phase_velocity_warning` line and `aftan.log` a warning.
+The `.dat` header records `pi_over_4`, `pi_over_4_mode`, `stored_component`
+(with its source) and `radial_convention` (with its source). When the value
+used does not match the table, the component is unknown or unchecked, or the
+convention of a ZR/RZ file had to be assumed, the header gets a
+`phase_velocity_warning` line and `aftan.log` a warning. The derivation and
+the checks are on [AFTAN phase constants](aftan_phase_constants.md).
 
 `period_sampling` defines the target filter periods. `uniform` uses a fixed
 period step or a fixed count; `list` uses the periods supplied in the config;
