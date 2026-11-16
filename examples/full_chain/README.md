@@ -1,6 +1,9 @@
 # Full chain: from cross-correlations to Vs(z)
 
-One small synthetic data set taken through the whole ambient-noise chain:
+One small synthetic data set taken along one possible ambient-noise route
+(Eikonal maps, then a depth inversion under one station; path tomography
+followed by depth inversion at grid points is another common route, and
+SeisForge's tools can serve either):
 
 ```text
 CCFs -> AFTAN -> collect-dispersion -> Eikonal maps -> station curve -> inversion

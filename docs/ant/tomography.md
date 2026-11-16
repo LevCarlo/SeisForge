@@ -314,15 +314,17 @@ Practical consequences:
   azimuthal coverage is even (hence the weighting). SeisForge does not
   estimate anisotropy.
 
-## 6. From the map to a station curve
+## 6. Input and output
 
-`seisforge ant collect-dispersion` gathers the AFTAN `.dat` files of all
+The maps can be used directly, or sampled at stations or grid points for a
+depth inversion of any kind. Two optional helper commands link this tool to
+AFTAN and to `seisforge inv`: `seisforge ant collect-dispersion` gathers the AFTAN `.dat` files of all
 pairs into one (path, period) dataset (negative-lag branches become the
 reversed pair; values are resampled onto integer periods), `seisforge ant
 eikonal` builds and stacks the fields, and `seisforge ant
 extract-station-curve` samples the stack at one station (bilinear in
 longitude and latitude, NaN unless all four nodes are valid) and writes the
-`period velocity sigma` file read by the inversion. Configuration keys are
+`period velocity sigma` file that `seisforge inv` reads. Configuration keys are
 on the [previous page](../eikonal_workflow.md) until they move here.
 
 ## References

@@ -79,7 +79,7 @@ result should be and which config lines to change for your own data.
 | `04_rf_qc_hk` | receiver-function QC and H-k stacking |
 | `05_hvsr_forward` | diffuse-field H/V of a layered model |
 | `06_inversion` | Bayesian Vs(z) from phase velocity and H/V |
-| `full_chain` | CCFs to Vs(z), all steps |
+| `full_chain` | CCFs to Vs(z) along one possible route (Eikonal maps, station inversion) |
 
 `seisforge init <workflow> [directory]` copies an example's config to start
 your own project. Full commented configs are in `examples/reference_configs/`;
