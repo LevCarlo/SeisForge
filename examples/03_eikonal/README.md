@@ -15,8 +15,9 @@ should show the same known velocity everywhere inside the array
 | `data/true_phase_velocity.dat` | the truth (only for checking) |
 | `config.yml` | settings |
 
-`measurements.nc` is the file `seisforge ant collect-dispersion` writes from
-AFTAN results (see `full_chain`). It has dimensions `path` (one per directed
+`measurements.nc` is the Eikonal input dataset; with real data you write it
+from your dispersion measurements with your own script (`full_chain/glue.py`
+does it for AFTAN results). It has dimensions `path` (one per directed
 pair) and `period`, the variable `phase_velocity_km_s(path, period)`, the
 integer `period_s(period)`, and per path `source_station`,
 `receiver_station`, `source_longitude_deg`, `source_latitude_deg`,
@@ -69,7 +70,7 @@ Common wrong-looking results:
 
 ## Using your own data
 
-1. `input.dataset`: your `measurements.nc` (from `seisforge ant collect-dispersion`).
+1. `input.dataset`: your `measurements.nc` (written by your own script, see `full_chain/glue.py`).
 2. `input.periods_s`: integer periods in your dataset.
 3. `grid.*`: a box around your stations, and the cell size (about a
    quarter to a half of the station spacing).

@@ -123,8 +123,9 @@ def _bessel_ccf(time, distance, period, c, order_weights, band):
 
 def test_plane_wave_rayleigh_ccfs_match_the_bessel_closed_forms_after_rotation():
     # Independent check of the azimuth average and of its pairing with the
-    # package's ZNE -> ZRT rotation: ZZ = J0, ZR = -e J1, RZ = +e J1,
-    # RR = e^2 (J0 - J2) / 2, TT = e^2 J1 / (k r) (module docstring), computed with scipy.special.
+    # package's ZNE -> ZRT rotation (R along the propagation at both
+    # stations): ZZ = J0, ZR = +e J1, RZ = -e J1, RR = e^2 (J0 - J2) / 2,
+    # TT = e^2 J1 / (k r) (module docstring), computed with scipy.special.
     from seisforge.ant.rotation import rotate_zne_ccf_to_zrt
     from seisforge.ant.synthetic import synthetic_rayleigh_ccf_zne
 
@@ -139,8 +140,8 @@ def test_plane_wave_rayleigh_ccfs_match_the_bessel_closed_forms_after_rotation()
     zrt = rotate_zne_ccf_to_zrt(zne, azimuth, azimuth + 180.0)
     expected = {
         "ZZ": {0: 1.0},
-        "ZR": {1: -e},
-        "RZ": {1: e},
+        "ZR": {1: e},
+        "RZ": {1: -e},
         "RR": {0: e**2 / 2, 2: -(e**2) / 2},
         # J1(x) / x = (J0(x) + J2(x)) / 2: Rayleigh near field only, no Love waves.
         "TT": {0: e**2 / 2, 2: e**2 / 2},

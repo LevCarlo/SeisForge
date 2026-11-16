@@ -1,53 +1,60 @@
-# Ambient Noise: Overview
+# Ambient-Noise Tools: Overview
 
 !!! note "Draft"
     These method pages replace the older workflow pages step by step. The
     older pages (listed under *Previous pages* in the navigation) still hold
     the configuration keys and command details.
 
-From ambient-noise cross-correlations to a phase-velocity curve under one
-station, SeisForge runs four stages. Each page below derives one stage: what
-is computed, why it works, which convention the code uses, and how it was
-checked.
+`seisforge.ant` is a small set of tools for ambient-noise tomography (ANT),
+not a complete pipeline. It has three independent tools. Each can be used on
+its own: its input may come from other software, and its output can go to
+other software. SeisForge does not compute cross-correlations and does not do
+path (ray) tomography.
 
-```mermaid
-flowchart TD
-    A["CCF, ZNE<br/>9 components per pair<br/>(computed elsewhere)"] -->|"rotate-ccf<br/>rotation"| B["CCF, ZRT"]
-    B -->|"aftan<br/>FTAN + PMF"| C["pair dispersion<br/>U(T), c(T) per branch"]
-    C -->|"collect-dispersion"| D["(path, period)<br/>dataset"]
-    D -->|"eikonal<br/>Eikonal / Helmholtz"| E["phase-velocity maps<br/>c(x, T) ± σ"]
-    E -->|"extract-station-curve"| F["station curve<br/>c(T) ± σ"]
-    F -->|"inv"| G["Vs(z) posterior"]
-```
+| tool | page | input | output |
+|---|---|---|---|
+| CCF rotation (`rotate-ccf`) | [Rotation of multi-component CCFs](rotation.md) | nine ZNE CCFs of a pair, azimuth $\theta$, back azimuth $\psi$ | nine ZRT CCFs |
+| FTAN/PMF dispersion (`aftan`) | [Dispersion measurement](dispersion.md) | one CCF (any component), distance $r$ | group and phase velocity vs period, per lag branch |
+| Eikonal/Helmholtz imaging (`eikonal`) | [Eikonal and Helmholtz tomography](tomography.md) | path-average phase velocities of many station pairs | local phase-velocity maps $c(x, T)$ with a spread |
 
-| stage | page | what goes in | what comes out | the key idea |
-|---|---|---|---|---|
-| rotation | [Rotation of multi-component CCFs](rotation.md) | nine ZNE CCFs, azimuth $\theta$, back azimuth $\psi$ | nine ZRT CCFs | $C' = S\,C\,\mathsf R^{\mathsf T}$, a different rotation at each station |
-| dispersion | [Dispersion measurement](dispersion.md) | one ZRT CCF branch, distance $r$ | group and phase velocity vs period | envelope peak → $U$; phase at the peak → $c$, up to $2\pi N$ |
-| tomography | [Eikonal and Helmholtz tomography](tomography.md) | path-average phase velocities of all pairs | local phase velocity per grid cell and period | $\lvert\nabla\tau\rvert = 1/c$, averaged over virtual sources |
-| station curve | (glue, this page) | the stack | `period velocity sigma` for `seisforge inv` | bilinear sampling, uncertainty floor |
+## Where they fit in common ANT workflows
 
-## How the stages connect
+Two common routes from pair dispersion to a depth model; neither is the only
+or the recommended one:
 
-- **Component and branch bookkeeping.** The rotation fixes which way R and T
-  point (in SeisForge both radial axes point from the receiver back to the
-  virtual source). The phase constant $\phi_0$ that AFTAN removes depends on
-  the component *and* on this convention, so the two pages must agree; for
-  ZR and RZ they currently do not ([known issue](../aftan_phase_constants.md)).
+- **(a)** pair dispersion → path tomography (outside SeisForge) → phase- or
+  group-velocity maps → depth inversion at each grid point.
+- **(b)** pair dispersion → Eikonal/Helmholtz phase-velocity maps → a
+  dispersion curve at a station or grid point → depth inversion
+  (`seisforge inv` is one choice).
+
+The FTAN/PMF tool serves both routes; the rotation is needed only for
+multi-component work (R and T components). Linking the tools (file formats,
+resampling, choosing an uncertainty) is done by the user's own scripts;
+`examples/full_chain` has one example of route (b).
+
+## Conventions to watch when using the tools together
+
+- **Components and branches.** The rotation fixes which way R and T point
+  (both radial axes from the virtual source towards the receiver, along the
+  propagation, as in Lin et al. 2008, Fig. 2). The phase constant AFTAN
+  removes depends on the component and, for ZR and RZ, on this convention
+  ([derivation](../aftan_phase_constants.md)). ZR/RZ rotated elsewhere, or by
+  SeisForge before 0.2.0, need the convention checked (negate if reversed).
 - **Negative lags.** A CCF has a causal branch (A → B) and an acausal one
-  (B → A). AFTAN measures either or both; `seisforge ant collect-dispersion`
-  stores a negative-branch measurement as the reversed station pair, so the
-  Eikonal stage sees two directed paths per pair.
-- **Periods.** AFTAN reports measurements at instantaneous periods;
-  `collect-dispersion` resamples phase velocity and SNR linearly onto
-  integer periods, without extrapolation.
-- **Cycle choices happen twice.** AFTAN picks the $2\pi$ branch of each pair
-  against a reference curve; the Eikonal stage corrects remaining whole-period
-  travel-time errors between neighbouring stations (at long periods only).
-- **Uncertainty.** Only the last two stages produce one: the spread of
-  single-source estimates in the Eikonal stack. `seisforge ant
-  extract-station-curve` writes the standard error of the mean (default) or
-  the spread, with a floor, as the one-sigma of the station curve.
+  (B → A). A negative-branch measurement belongs to the reversed station pair
+  when it is passed on to tomography.
+- **Periods.** AFTAN reports measurements at instantaneous periods; a
+  tomography code usually wants fixed periods, so the curves are resampled
+  (`examples/full_chain/glue.py` interpolates linearly, without
+  extrapolation).
+- **Cycle choices.** AFTAN picks the $2\pi$ branch of each pair against a
+  reference curve; the Eikonal tool can additionally correct whole-period
+  travel-time errors between neighbouring stations (long periods only).
+- **Uncertainty.** AFTAN gives none for phase velocity; the Eikonal stack
+  gives a spread of single-source estimates. Whatever is passed to a depth
+  inversion as one sigma (standard error, spread, a floor) is a choice to
+  state.
 
 ## Checks shared by all pages
 

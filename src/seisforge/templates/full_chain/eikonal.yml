@@ -1,7 +1,7 @@
 # Step 3: Eikonal tomography. Reference: examples/reference_configs/eikonal.yml
 input:
   dataset: output/measurements.nc
-  periods_s: [4, 5, 6, 7, 8]           # change this: the periods of collect-dispersion
+  periods_s: [4, 5, 6, 7, 8]           # change this: PERIODS_S of glue.py
 grid:                                  # change this: box around your stations
   min_longitude_deg: 109.8
   max_longitude_deg: 111.8

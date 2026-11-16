@@ -1,10 +1,20 @@
 # Full chain: from cross-correlations to Vs(z)
 
-One small synthetic data set taken through the whole ambient-noise chain:
+One small synthetic data set taken along one possible ambient-noise route
+(Eikonal maps, then a depth inversion under one station; path tomography
+followed by depth inversion at grid points is another common route, and
+SeisForge's tools can serve either):
 
 ```text
-CCFs -> AFTAN -> collect-dispersion -> Eikonal maps -> station curve -> inversion
+CCFs -> AFTAN -> [glue.py] -> Eikonal maps -> [glue.py] -> station curve -> inversion
 ```
+
+`glue.py` is this example's own short script, not a SeisForge command: it
+turns the AFTAN `.dat` files into the Eikonal input (one directed path per
+lag branch, phase velocity linearly interpolated onto integer periods) and
+samples the Eikonal stack under one station into the `period velocity sigma`
+file of the inversion. It holds only what this example needs; rewrite it for
+your own file names, periods and uncertainty choices.
 
 25 stations on a 5 x 5 grid about 40 km apart. The Earth under them is the
 same everywhere: the model of `examples/06_inversion` (a 1 km sediment
@@ -96,8 +106,8 @@ stations 40 km apart, the map is 1-2 % too slow near the station rows
 (checked against the truth; with 20 km spacing in `03_eikonal` the error is
 below 0.7 %), and it is worse at 2-3 s, so those periods are not used. The
 stack's own standard error (0.006-0.01 km/s) does not include this error,
-so `run.sh` raises the sigma floor to 0.05 km/s (`--sigma-floor-km-s`, an
-assumed value; the default is 0.01). The 40 km spacing itself comes from
+so `glue.py` sets a sigma floor of 0.05 km/s (`SIGMA_FLOOR_KM_S`, an
+assumed value). The 40 km spacing itself comes from
 Eikonal's quality control: cells within about 70 km of a virtual source are
 rejected, so with 20 km spacing on a 5 x 5 grid the centre station had no
 valid period at all.
@@ -106,7 +116,7 @@ Common wrong-looking results:
 
 - **Phase velocity jumps by 0.5-1 km/s on some paths** (AFTAN step):
   wrong 2 pi cycle; give a better `prediction_file` (see `02_aftan`).
-- **"no valid period at ..."** from `extract-station-curve`: the station has
+- **No period left in `output/vph_disp.dat`** (`glue.py station-curve`): the station has
   too few distant virtual sources; a larger array or lower
   `stacking.min_raw_measurements_per_cell`.
 - **Posterior band misses the truth by a lot**: the dispersion sigma is too
@@ -119,11 +129,12 @@ Common wrong-looking results:
 2. `data/stations.txt`: your stations.
 3. `aftan.yml`: `io.input_dir`, `io.sac_pattern`, period band,
    `velocity_window`, `prediction_file` (see `02_aftan`).
-4. `run.sh`, `--periods 4:8:1` of `collect-dispersion`: your integer periods;
-   the same list in `eikonal.yml` `input.periods_s`.
+4. `glue.py`: `PERIODS_S` (your integer periods; the same list in
+   `eikonal.yml` `input.periods_s`), and the file-name parsing if your names
+   differ.
 5. `eikonal.yml`: `grid` box and `stacking.min_raw_measurements_per_cell`
    (see `03_eikonal`).
-6. `run.sh`, `STATION=`: the station to invert; `--sigma-floor-km-s`:
-   your estimate of the map error.
+6. `run.sh`, `STATION=`: the station to invert; `glue.py`
+   `SIGMA_FLOOR_KM_S`: your estimate of the map error.
 7. `obs.yaml`: your H/V file; `inv.yaml`: model and priors for your area
    (see `06_inversion`).

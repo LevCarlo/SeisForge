@@ -149,9 +149,19 @@ For one virtual source $s$ at one period $T$:
    equirectangular kilometres: a thin-plate-spline radial basis function
    (SciPy `RBFInterpolator`, default, `smoothing: 0` so the surface passes
    through the data) or GMT `surface`, a minimum-curvature spline in tension
-   (Smith & Wessel 1990). The surface must be smooth enough to
-   differentiate but must not invent structure; this is the main free choice
-   of the method.
+   (Smith & Wessel 1990; `interpolation.method: gmt_surface`, needs PyGMT
+   and GMT). Both pass through the data; the thin-plate spline minimises the
+   bending energy of a surface fitted to scattered points in one global
+   solve, GMT `surface` iterates a minimum-curvature solution on the grid
+   itself, after a block median of the data, and with `tension > 0` relaxes
+   towards a surface with fewer overshoots. Lin, Ritzwoller & Snieder (2009,
+   sec. 3) fitted a minimum-curvature surface on a 0.2° grid, with a second,
+   tensioned fit as a comparison; `gmt_surface` with `tension: 0` is that
+   choice. On an analytic field ($t = r/c$, stations about 40 km apart) the
+   two backends agree to 0.012 km/s inside the array and each is within
+   0.025 km/s of the truth (`tests/test_ant_eikonal.py`). The surface must
+   be smooth enough to differentiate but must not invent structure; this is
+   the main free choice of the method.
 
 4. **Stability check.** The same data are interpolated a second time with
    different smoothing or tension (`comparison_smoothing`, 0.2); cells where
@@ -274,7 +284,7 @@ The standard error assumes the sources are independent. They are not: the
 same stations enter every source's surface, and neighbouring sources see
 almost the same wavefront. $\sigma_{\bar c}$ is therefore a lower bound,
 and it becomes implausibly small where many sources overlap
-(`extract-station-curve` applies a floor for this reason). Systematic errors
+(a floor on it is advisable for this reason; `examples/full_chain` uses one). Systematic errors
 common to all sources (a wrong phase constant, a biased interpolant at the
 edges, as in panel (d) above) are not in either number. The cell also
 records the directional coverage, $360°$ minus the largest azimuthal gap
@@ -314,16 +324,15 @@ Practical consequences:
   azimuthal coverage is even (hence the weighting). SeisForge does not
   estimate anisotropy.
 
-## 6. From the map to a station curve
+## 6. Input and output
 
-`seisforge ant collect-dispersion` gathers the AFTAN `.dat` files of all
-pairs into one (path, period) dataset (negative-lag branches become the
-reversed pair; values are resampled onto integer periods), `seisforge ant
-eikonal` builds and stacks the fields, and `seisforge ant
-extract-station-curve` samples the stack at one station (bilinear in
-longitude and latitude, NaN unless all four nodes are valid) and writes the
-`period velocity sigma` file read by the inversion. Configuration keys are
-on the [previous page](../eikonal_workflow.md) until they move here.
+The input is a (path, period) dataset of path-average phase velocities and
+station coordinates, written by the user's own script from the dispersion
+measurements; the output is the stack of maps with their spreads. The maps
+can be used directly, or sampled at stations or grid points for a depth
+inversion of any kind (`examples/full_chain/glue.py` samples one station
+bilinearly for `seisforge inv`). Configuration keys and the input contract
+are on the [previous page](../eikonal_workflow.md) until they move here.
 
 ## References
 

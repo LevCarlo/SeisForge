@@ -43,9 +43,16 @@ io:
   input_template: "{source_station}_{receiver_station}_{component}_pws.SAC"
 ```
 
-`component` may be used instead of `components` for a single component.
+`components` is a list, also for a single component (`components: [ZZ]`).
 
-`input_template` is formatted for each requested component. Supported fields are `{source_station}`, `{receiver_station}`, `{name}` (`source_station_receiver_station`), and `{component}`. SeisForge first looks under `<input_root>/<source_station>/<name>/`; if nothing matches, it also tries `<input_root>/` for flat demo-style inputs.
+`input_template` is formatted for each requested component. Supported fields are `{source_station}`, `{receiver_station}`, `{name}` (`source_station_receiver_station`), and `{component}`. Files are read only from `<input_root_datadir>/<source_station>/<name>/`.
+
+Only the key names of `examples/reference_configs/aftan.yml` are read. Older
+spellings removed in 0.2.0 (for example `component`, `io.input_root_dir`,
+`aftan.velocity_min`, flat `aftan.trig_threshold`, flat
+`aftan.period_sampling.step`, flat `aftan.basic.alpha.value`, flat
+`aftan.snr.dsn`) stop the run with an error that names the current key; the
+full list is in the changelog.
 
 The current config uses explicit branch and alpha choices:
 
@@ -79,9 +86,10 @@ aftan:
 `branch: both` writes one result for each positive and negative lag. Output
 filenames preserve the input station pair/component and append the selected
 branch, for example `<input_stem>.negative.dat`. With `pi_over_4.mode: auto`,
-SeisForge still uses the reciprocal physical component for the negative branch
-when choosing the Rayleigh-wave phase correction, and records that interpretation
-in `aftan.log`. `branch: stack` averages the positive lag and the time-reversed
+the phase correction is that of the stored component on both branches; the
+log also names the reciprocal physical component (ZR negative lag -> RZ of the
+reversed pair) as a label.
+`branch: stack` averages the positive lag and the time-reversed
 negative lag and is only well-defined for self-reciprocal components such as
 `ZZ`, `RR`, or `TT`; asymmetric components should be measured with `positive` or
 `negative` instead. If a two-sided branch is requested for a one-sided trace,
@@ -90,27 +98,41 @@ SeisForge falls back to the positive branch and records a warning in `aftan.log`
 ### Components and the phase constant
 
 `pi_over_4` (p) adds `p * pi / 4` to the picked phase; it affects phase
-velocity only. How it is chosen depends on the config:
+velocity only. AFTAN measures the correlation itself, not the Green's
+function `-dC/dt`, and the constants include that pi/2
+([Dispersion §1](ant/dispersion.md#1-the-phase-of-a-noise-correlation)).
+The default is `auto` in both run modes: the value of the **stored**
+component, the same on both lag branches (`AUTOMATIC_PI_OVER_4` in
+`seisforge/ant/aftan/phase.py`):
 
-- **Pair mode** (`source_station`, `receiver_station`, `component(s)`): the
-  component comes from the config and `pi_over_4` defaults to `auto`, a lookup
-  in `_RAYLEIGH_PI_OVER_4` (`seisforge/ant/aftan/phase.py`: ZZ -1, ZR +1,
-  RZ -1, RR -1, TT -1). On the negative branch the lookup uses the reciprocal
-  component (ZR <-> RZ).
+| stored component | pi_over_4 |
+|---|---|
+| ZZ, RR, TT | -1 |
+| ZR | -3 |
+| RZ | +1 |
+
+ZR and RZ values assume the R/T axes of `seisforge ant rotate-ccf` (Lin et al.
+2008). ZR/RZ rotated by SeisForge before 0.2.0 have the opposite sign and are
+not recognised: rotate them again (or negate them) first.
+
+- **Pair mode** (`source_station`, `receiver_station`, `components`): the
+  component comes from the config. A ZRT code in SAC `kcmpnm` or the file name
+  that contradicts it stops the run.
 - **Station mode** (`station`, `io.input_dir`, `sac_pattern`, no
-  `component`): every file is measured with the same value, `-1` unless
-  `pi_over_4` is set manually; `auto` is refused because no component is known.
-  The component is read from SAC `kcmpnm` or the file name only to check the
-  value (below), never to choose it.
+  `components`): the component of each file is read from SAC `kcmpnm` (written
+  by `rotate-ccf`), else from the one ZRT code in the file name
+  (`*_ZR.SAC`, `*_ZR_pws.SAC`). If neither gives one, `auto` stops with an
+  explanation instead of assuming ZZ; set `pi_over_4` to a number (manual
+  mode) to measure such files. Both modes then use the same code path and
+  give identical results on the same file.
+- ZT, TZ, RT, TR have no automatic value; set `pi_over_4` manually (the
+  result carries a "not been checked" warning).
 
-!!! warning "Known issue: ZR and RZ phase velocities"
-    The ZR/RZ values and the negative-branch swap do not match this package's
-    rotation; see [AFTAN phase constants](aftan_phase_constants.md) for the
-    derivation, the error table and the planned fix. ZZ, RR and TT are right;
-    group velocities are not affected. When the value used does not match the
-    independently checked one (ZZ/RR/TT -1, ZR +1, RZ -3 on both branches), or
-    the component is ZR/RZ or unknown, the `.dat` header gets a
-    `phase_velocity_warning` line and `aftan.log` a warning.
+The `.dat` header records `pi_over_4`, `pi_over_4_mode` and
+`stored_component` (with its source). When the value used does not match the
+table, or the component is unknown or unchecked, the header gets a
+`phase_velocity_warning` line and `aftan.log` a warning. The derivation and
+the checks are on [AFTAN phase constants](aftan_phase_constants.md).
 
 `period_sampling` defines the target filter periods. `uniform` uses a fixed
 period step or a fixed count; `list` uses the periods supplied in the config;
@@ -208,20 +230,22 @@ count, and whether the shift reached `max_shift`. The `.dat` header records
 `phase_cycle_selection_source` and `phase_cycle_shift`.
 
 If visual inspection still identifies the wrong branch, preview an absolute
-manual shift relative to `picked_phase_velocity_uncorrected`:
+manual shift relative to `picked_phase_velocity_uncorrected` with the
+stand-alone tool `tools/aftan_cycle_set.py` (in the repository, not part of
+the installed package or CLI):
 
 ```bash
-seisforge ant aftan-cycle-set path/to/pair.negative.pmf.vph.nc --shift 0
+python tools/aftan_cycle_set.py path/to/pair.negative.pmf.vph.nc --shift 0
 ```
 
 The preview changes no files. Apply it explicitly with:
 
 ```bash
-seisforge ant aftan-cycle-set path/to/pair.negative.pmf.vph.nc \
+python tools/aftan_cycle_set.py path/to/pair.negative.pmf.vph.nc \
   --shift 0 --in-place --reason "visual cycle inspection"
 ```
 
-The in-place command updates the phase-map NetCDF and its inferred companion
+The in-place run updates the phase-map NetCDF and its inferred companion
 `.dat` file. It preserves the original automatic curve and diagnostics under
 `*_automatic` variables and records the manual shift, UTC time, and optional
 reason. Repeated overrides are deterministic because every branch is rebuilt
@@ -252,7 +276,6 @@ Inside `seisforge.ant.aftan`, each module has a single role:
 | `products` | energy and phase-velocity diagnostic maps and their xarray datasets |
 | `qc` | period-mismatch and retained-branch QC |
 | `io`, `plot` | SAC/path helpers, `.dat` writer, summary figure |
-| `cycle` | post-pick manual phase-cycle override (`aftan-cycle-set`) |
 | `driver` | per-file/per-branch orchestration, overwrite policy, logs |
 
 The alpha helpers keep the three common choices explicit:
@@ -517,10 +540,16 @@ signal_window = [t_pick - signal_half_width_factor * T,
 snr:
   definition: local  # local, pyftan, or aftan
   output_db: false
-  noise_mode: tail  # tail or complement
-  signal_half_width_factor: 1.0
-  noise_guard_factor: 1.0
+  local:
+    noise_mode: tail  # tail or complement
+    signal_half_width_factor: 1.0
+    noise_guard_factor: 1.0
+    tail: {dsn: 500.0, nlen: 500.0}
+  pyftan: {bfact: 1.0, efact: 0.0, dsn: 500.0, nlen: 500.0, vmax: 4.5, vmin: 1.0}
 ```
+
+The tail-noise window is read from the section of the definition in use:
+`local.tail.dsn/nlen` for `local`, `pyftan.dsn/nlen` for `pyftan`.
 
 `definition: local` uses the period-scaled picked-arrival window above.
 `noise_mode: tail` keeps a trailing noise window: after the signal window,
@@ -621,3 +650,4 @@ Current differences and simplifications:
   `definition: local` is the current SeisForge default for short CCF tests.
 - `qc.period_rel_warning` only logs target/instant period mismatch. It does not
   reject, trim, or smooth the picked branch.
+

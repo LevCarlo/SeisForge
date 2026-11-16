@@ -1,9 +1,9 @@
 source_station: M07A
 receiver_station: M15A
-component: ZZ
+components: [ZZ]
 
 io:
-  input_root_datadir: .
+  input_root_datadir: CCF
   output_root_datadir: FTAN_seisforge
   input_template: "COR_{source_station}_{receiver_station}.SAC"
   overwrite: true

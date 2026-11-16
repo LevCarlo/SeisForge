@@ -11,15 +11,17 @@ energy. A known ZRT wavefield is set first:
 
 - ZZ, RR, ZR, RZ: Rayleigh waves with the phase velocity of the shared truth
   model (`tools/example_truth.py`), built with `seisforge.ant.synthetic` and
-  the AFTAN phase convention of each component (pi_over_4 -1 for ZZ, RR,
-  RZ; +1 for ZR); relative amplitudes 1, 0.6, 0.5, 0.5 (assumed);
+  the far-field phase constant of each component in the default ``lin2008``
+  rotation convention (AFTAN pi_over_4 -1 for ZZ and RR, -3 for ZR, +1 for
+  RZ; `seisforge.ant.aftan.phase`); relative amplitudes 1, 0.6, 0.5, 0.5
+  (assumed);
 - TT: a Love-like wave, the same curve times `LOVE_VELOCITY_FACTOR` = 1.1
   (assumed), amplitude 0.8;
 - ZT, TZ, RT, TR: zero (no Rayleigh-Love coupling in a laterally
   homogeneous, isotropic medium).
 
 It is rotated to ZNE with `seisforge.ant.rotation.rotate_zrt_ccf_to_zne`
-using the geodesic azimuth and back azimuth of the pair (obspy), and
+(default ``lin2008`` R/T axes) using the geodesic azimuth and back azimuth of the pair (obspy), and
 independent Gaussian noise of `NOISE_FRACTION` = 1 % of the largest ZZ
 amplitude is added to every ZNE component (`numpy.random.default_rng(SEED)`).
 Rotating back must therefore return the ZRT wavefield, with the four cross
@@ -53,7 +55,7 @@ MAX_LAG_S = 100.0
 MIN_PERIOD_S, MAX_PERIOD_S = 2.0, 8.0
 LOVE_VELOCITY_FACTOR = 1.1
 # component: (pi_over_4 of the AFTAN convention, relative amplitude), assumed amplitudes
-RAYLEIGH = {"ZZ": (-1.0, 1.0), "RR": (-1.0, 0.6), "ZR": (1.0, 0.5), "RZ": (-1.0, 0.5)}
+RAYLEIGH = {"ZZ": (-1.0, 1.0), "RR": (-1.0, 0.6), "ZR": (-3.0, 0.5), "RZ": (1.0, 0.5)}
 LOVE_AMPLITUDE = 0.8
 NOISE_FRACTION = 0.01
 SEED = 20261115

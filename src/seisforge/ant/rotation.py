@@ -1,5 +1,55 @@
+"""Rotation of nine-component ambient-noise CCFs between ZNE and ZRT.
+
+Conventions
+-----------
+- CCF component ``ab``: first letter = component at the virtual-source station
+  A, second letter = component at the receiver station B
+  (``C_ab(t) = sum_tau u_a^A(tau) u_b^B(tau + t)``; positive lag is
+  propagation A -> B).
+- Angles: ``theta`` = azimuth from A to B, ``psi`` = back azimuth (from B to
+  A), clockwise from north. Unit vectors are written as (N, E).
+- Radial/transverse axes: at *both* stations R points from A towards B (along the propagation of the positive
+  lag) and T is R turned 90 degrees clockwise (seen from above), as drawn in
+  Fig. 2 of Lin, Moschetti & Ritzwoller (2008):
+
+      source A:   R = ( cos theta,  sin theta),  T = (-sin theta,  cos theta)
+      receiver B: R = (-cos psi,   -sin psi),    T = ( sin psi,   -cos psi)
+
+  In matrix form ``C_ZRT = M_s C_ZNE M_r^T`` with
+  ``M_s = [[1,0,0],[0,cos theta,sin theta],[0,-sin theta,cos theta]]`` and
+  ``M_r = [[1,0,0],[0,-cos psi,-sin psi],[0,sin psi,-cos psi]]``.
+  The coefficients of TT, RR, TR and RT agree with Lin et al. (2008), eq. 1.
+- SeisForge before 0.2.0 reversed R and T at both stations; its ZR, RZ, ZT
+  and TZ have the opposite sign (RR, RT, TR, TT and ZZ are the same). Such
+  files are not recognised: rotate them again (CHANGELOG, "Changed results").
+
+`seisforge ant rotate-ccf` writes ``lin2008`` into SAC ``kuser0``
+(`RADIAL_CONVENTION_SAC_HEADER`) as a record of how the file was made; no
+code reads it.
+
+Reference: Lin, F.-C., Moschetti, M. P., Ritzwoller, M. H. (2008). Surface
+wave tomography of the western United States from ambient seismic noise:
+Rayleigh and Love wave phase velocity maps. Geophys. J. Int. 173, 281-298,
+doi:10.1111/j.1365-246X.2008.03720.x.
+"""
+
 import numpy as np
 
+__all__ = [
+    "RADIAL_CONVENTION",
+    "RADIAL_CONVENTION_SAC_HEADER",
+    "REQUIRED_ZNE_BY_ZRT_COMPONENT",
+    "ZRT_COMPONENTS",
+    "interstation_azimuths",
+    "horizontal_axes",
+    "required_zne_components",
+    "rotate_zne_ccf_to_zrt",
+    "rotate_zrt_ccf_to_zne",
+]
+
+# Provenance label written by rotate-ccf (SAC kuser0, 8 characters max).
+RADIAL_CONVENTION = "lin2008"
+RADIAL_CONVENTION_SAC_HEADER = "kuser0"
 
 ZRT_COMPONENTS = ("ZZ", "ZR", "ZT", "RZ", "RR", "RT", "TZ", "TR", "TT")
 
@@ -16,6 +66,55 @@ REQUIRED_ZNE_BY_ZRT_COMPONENT = {
 }
 _ZRT_COMPONENTS = ZRT_COMPONENTS
 _REQUIRED_BY_COMPONENT = REQUIRED_ZNE_BY_ZRT_COMPONENT
+
+
+def interstation_azimuths(
+    *,
+    az=None,
+    baz=None,
+    evla=None,
+    evlo=None,
+    stla=None,
+    stlo=None,
+):
+    """Azimuth (A to B) and back azimuth (B to A) in degrees, and where they came from.
+
+    ``az``/``baz`` (SAC header convention) are used when both are given;
+    otherwise they are computed on the WGS84 ellipsoid from the virtual
+    source ``evla/evlo`` and the receiver ``stla/stlo`` (degrees) with
+    `obspy.geodetics.gps2dist_azimuth`. Missing values are None. Returns
+    ``(azimuth, back_azimuth, source)``; raises ValueError when neither set
+    is complete.
+    """
+    if az is not None and baz is not None:
+        return float(az), float(baz), "SAC headers az/baz"
+    if None in (evla, evlo, stla, stlo):
+        raise ValueError(
+            "azimuth/back_azimuth need SAC az and baz, or evla, evlo, stla and stlo."
+        )
+    from obspy.geodetics.base import gps2dist_azimuth
+
+    _, azimuth, back_azimuth = gps2dist_azimuth(evla, evlo, stla, stlo)
+    return azimuth, back_azimuth, "computed from SAC evla/evlo/stla/stlo"
+
+
+def horizontal_axes(azimuth, back_azimuth, degrees=True):
+    """Unit vectors (N, E) of R and T at the source and receiver stations.
+
+    Returns ``(source, receiver)``, each ``{"R": (n, e), "T": (n, e)}``; see the
+    module docstring for the convention.
+    """
+    theta = np.deg2rad(azimuth) if degrees else azimuth
+    psi = np.deg2rad(back_azimuth) if degrees else back_azimuth
+    source = {
+        "R": (np.cos(theta), np.sin(theta)),
+        "T": (-np.sin(theta), np.cos(theta)),
+    }
+    receiver = {
+        "R": (-np.cos(psi), -np.sin(psi)),
+        "T": (np.sin(psi), -np.cos(psi)),
+    }
+    return source, receiver
 
 
 def required_zne_components(components=None):
@@ -55,7 +154,7 @@ def rotate_zne_ccf_to_zrt(
     the virtual-source station component and the second letter denoting the
     receiver-station component. For example, ``NZ`` means the correlation
     between the N component at the virtual-source station and the Z component
-    at the receiver station.
+    at the receiver station. Axis conventions are in the module docstring.
 
     Parameters
     ----------
@@ -79,7 +178,6 @@ def rotate_zne_ccf_to_zrt(
     check : bool, optional
         If True, check missing input components and shape consistency among the
         input components required for the requested outputs.
-
     Returns
     -------
     rotated_ccf : dict
@@ -122,21 +220,25 @@ def rotate_zne_ccf_to_zrt(
 
     rotated_ccf = {}
 
+    # Axes (module docstring): source R = (cth, sth), T = (-sth, cth);
+    # receiver R = (-cps, -sps), T = (sps, -cps).
     if "ZZ" in components:
         rotated_ccf["ZZ"] = np.asarray(ccf["ZZ"])
 
     if "ZR" in components:
-        rotated_ccf["ZR"] = cps * np.asarray(ccf["ZN"]) + sps * np.asarray(ccf["ZE"])
+        rotated_ccf["ZR"] = -cps * np.asarray(ccf["ZN"]) - sps * np.asarray(ccf["ZE"])
 
     if "ZT" in components:
-        rotated_ccf["ZT"] = -sps * np.asarray(ccf["ZN"]) + cps * np.asarray(ccf["ZE"])
+        rotated_ccf["ZT"] = sps * np.asarray(ccf["ZN"]) - cps * np.asarray(ccf["ZE"])
 
     if "RZ" in components:
-        rotated_ccf["RZ"] = -cth * np.asarray(ccf["NZ"]) - sth * np.asarray(ccf["EZ"])
+        rotated_ccf["RZ"] = cth * np.asarray(ccf["NZ"]) + sth * np.asarray(ccf["EZ"])
 
     if "TZ" in components:
-        rotated_ccf["TZ"] = sth * np.asarray(ccf["NZ"]) - cth * np.asarray(ccf["EZ"])
+        rotated_ccf["TZ"] = -sth * np.asarray(ccf["NZ"]) + cth * np.asarray(ccf["EZ"])
 
+    # Two horizontal axes each: the same expressions (and floating-point
+    # operations) as before 0.2.0, so these are bit for bit unchanged.
     if "RR" in components:
         rotated_ccf["RR"] = (
             -cth * cps * np.asarray(ccf["NN"])
@@ -172,29 +274,28 @@ def rotate_zne_ccf_to_zrt(
     return rotated_ccf
 
 
-def rotate_zrt_ccf_to_zne(ccf, azimuth, back_azimuth, degrees=True):
+def rotate_zrt_ccf_to_zne(
+    ccf,
+    azimuth,
+    back_azimuth,
+    degrees=True,
+):
     """Rotate nine-component CCFs from ZRT back to ZNE (inverse of `rotate_zne_ccf_to_zrt`).
 
-    Same conventions as `rotate_zne_ccf_to_zrt`: the first letter is the
-    virtual-source component, the second the receiver component. With
-    theta = azimuth and psi = back azimuth, the unit vectors in (N, E) are
-
-        source:   R = (-cos theta, -sin theta),  T = (sin theta, -cos theta)
-        receiver: R = (cos psi, sin psi),        T = (-sin psi, cos psi)
-
-    (read off the forward rotation). Both bases are orthonormal, so the
-    inverse is the transpose: ``C_ij = sum_ab S_a[i] R_b[j] X_ab`` with
-    ``i, j`` in N/E and ``a, b`` in R/T (Z passes through). All nine ZRT
-    components are required; all nine ZNE components are returned. Used to
-    build synthetic ZNE input; checked by a round trip in the tests.
+    Same conventions as `rotate_zne_ccf_to_zrt` (module docstring); the unit
+    vectors come from `horizontal_axes`. Both
+    bases are orthonormal, so the inverse is the transpose:
+    ``C_ij = sum_ab S_a[i] R_b[j] X_ab`` with ``i, j`` in N/E and ``a, b`` in
+    R/T (Z passes through). All nine ZRT components are required; all nine
+    ZNE components are returned. Used to build synthetic ZNE input; checked
+    by a round trip in the tests.
     """
     missing = [comp for comp in ZRT_COMPONENTS if comp not in ccf]
     if missing:
         raise KeyError(f"Missing ZRT components: {missing}")
-    theta = np.deg2rad(azimuth) if degrees else azimuth
-    psi = np.deg2rad(back_azimuth) if degrees else back_azimuth
-    source = {"Z": None, "R": (-np.cos(theta), -np.sin(theta)), "T": (np.sin(theta), -np.cos(theta))}
-    receiver = {"Z": None, "R": (np.cos(psi), np.sin(psi)), "T": (-np.sin(psi), np.cos(psi))}
+    source_axes, receiver_axes = horizontal_axes(azimuth, back_azimuth, degrees=degrees)
+    source = {"Z": None, **source_axes}
+    receiver = {"Z": None, **receiver_axes}
     horizontal = {"N": 0, "E": 1}
 
     def weight(basis, rotated, physical):

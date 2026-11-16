@@ -1,34 +1,12 @@
-# AFTAN Phase Constants per Component (Known Issue)
+# AFTAN Phase Constants: Derivation and History
 
-!!! warning "Status: known issue, not fixed"
-    The automatic `pi_over_4` values for **ZR and RZ**, and the negative-branch
-    ZR <-> RZ swap in pair mode, do not match this package's CCF rotation.
-    Phase velocities of the affected cases below are wrong by 0.25-0.6 km/s at
-    150 km. **Group velocities are not affected**, and ZZ, RR and TT are
-    correct. No number has been changed yet; affected measurements carry a
-    `phase_velocity_warning` in the `.dat` header and a warning in
-    `aftan.log`. A follow-up task applies the [recommended fix](#recommended-fix).
-
-## Affected cases
-
-Synthetic CCFs with a known phase velocity (diffuse Rayleigh field, 150 km,
-5-14 s, true curve given as `prediction_file` so that the 2 pi cycle choice does
-not enter); largest `|c_measured - c_true|` in km/s, current code:
-
-| Stored component | Pair, positive | Pair, negative | Station, positive | Station, negative |
-|---|---|---|---|---|
-| ZZ | 0.001 | 0.001 | 0.001 | 0.001 |
-| RR | 0.010 | 0.010 | 0.010 | 0.010 |
-| TT | 0.002 | 0.002 | 0.002 | 0.002 |
-| ZR | 0.006 | **0.25** | **0.25** | **0.25** |
-| RZ | **0.28** | **0.62** | **0.28** | **0.28** |
-
-"Pair" is a config with `component(s)` (automatic `pi_over_4`); "station" is a
-config without them, which uses `pi_over_4 = -1` for every file. TT here is a
-Love-like waveform built with the ZZ phase constant (`synthetic_ccf`), so its
-row only pins the code path; the Love-wave check is in [RR and TT](#rr-and-tt).
-The cases are `tests/aftan_component_cases.py`; the wrong ones are
-`xfail(strict=True)` in `tests/test_ant_aftan_components.py`.
+!!! success "Status: fixed"
+    Until 0.2.0 (CHANGELOG, "Changed results") the automatic
+    `pi_over_4` values for **ZR and RZ**, the negative-branch ZR <-> RZ swap,
+    and station mode's fixed `-1` did not match the package rotation; phase
+    velocities of the affected cases were wrong by 0.25-0.6 km/s at 150 km.
+    This page derives the constants now in `seisforge.ant.aftan.phase`, shows
+    how they were checked, and records what was wrong before.
 
 ## What `pi_over_4` is
 
@@ -44,29 +22,50 @@ measured at `c` exactly when
 
     p = -4 phi0 / pi        (mod 8).
 
-The ZZ value `p = -1` (`phi0 = +pi/4`) is the long-standing AFTAN choice and
-agrees with the Fortran AFTAN comparison in `examples/benchmarks/aftan_vs_fortran`.
+## Correlation, not Green's function
+
+Lin, Moschetti & Ritzwoller (2008, sec. 2) note that the empirical Green's
+function is the negative time derivative of the correlation,
+`G_AB(t) = -dC_AB(t)/dt`, a phase difference of pi/2, and that Bensen et al.
+(2007) treated the two as the same. SeisForge's AFTAN runs the Gaussian
+filter bank directly on the input trace (`AFTANMeasurement._ftan_complex`)
+and adds `p * pi / 4` to the phase of its analytic signal (`_interp`); it
+never differentiates. So the constants are for the **correlation**, and the
+ZZ value `p = -1` (`phi0 = +pi/4`, from `J0`) already contains the pi/2: for
+`-dC/dt` the ZZ constant would be `+1` (`phi0 = pi/4 + pi/2 - pi = -pi/4`).
+
+Checked numerically (ZZ diffuse-field CCF, 150 km, positive lag, largest
+phase-velocity error in km/s):
+
+| input | p = -3 | p = -1 | p = +1 | p = +3 |
+|---|---|---|---|---|
+| `C(t)` | 0.246 | **0.001** | 0.286 | 0.626 |
+| `-dC/dt` | 0.605 | 0.240 | **0.001** | 0.277 |
+
+(`tests/test_ant_aftan_components.py::test_empirical_greens_function_needs_the_pi_over_2_shifted_constant`.
+Only the positive lag: `-dC/dt` of a symmetric `C` is antisymmetric, so its
+time-reversed negative lag has the opposite shift.)
 
 ## Conventions the constants depend on
 
 - **CCF**: `C_ab(t) = sum_tau u_a^A(tau) u_b^B(tau + t)` for virtual source A
   (first letter) and receiver B (second letter); positive lag is propagation
-  A -> B. This is what the AFTAN positive branch assumes.
-- **Rotation** (`seisforge.ant.rotation.rotate_zne_ccf_to_zrt`): with
-  azimuth `theta` (A to B) and back azimuth `psi = theta + 180 deg`, the radial
-  unit vectors are `R_A = (-cos theta, -sin theta)` and
-  `R_B = (cos psi, sin psi)` in (N, E). Both equal `-x`, where `x` is the unit
-  vector from A to B: **both radial axes point from the receiver towards the
-  source.** The transverse axes are equal too: `T_A = T_B`.
+  A -> B.
+- **Rotation** (`seisforge.ant.rotation`): with azimuth `theta` (A to B) and
+  back azimuth `psi = theta + 180 deg` (flat Earth), the axes are `R_A = (cos theta, sin theta)` and `R_B = (-cos psi, -sin psi)` in
+  (N, E): both equal `+x`, the unit vector from A to B, **along the
+  propagation** (Lin et al. 2008, Fig. 2). The axes of SeisForge before
+  0.2.0 were both `-x` (no longer supported). The transverse axes are equal at
+  the two stations.
 - **Polarisation**: fundamental-mode Rayleigh waves are retrograde at the
   free surface (Aki & Richards 2002, sec. 7.2.2). For a plane wave travelling
   along `d`, `z = cos(omega t - k d.x)` and the horizontal motion along `d` is
-  `cos(omega t - k d.x + pi/2)`: radial (along propagation) leads vertical by
-  pi/2. In complex form `Z = exp(-i k d.x)`, `H = i epsilon d Z`, `epsilon > 0`.
+  `cos(omega t - k d.x + pi/2)`. In complex form `Z = exp(-i k d.x)`,
+  `H = i epsilon d Z`, `epsilon > 0`.
 
 ## Analytic derivation
 
-Average the plane-wave products over directions `d` at angle `alpha` from `x`
+Average the plane-wave products over directions `d` at angle `a` from `x`
 (diffuse field; Snieder 2004; Lin et al. 2008; Lin, Tsai & Schmandt 2014),
 with `X = k r`:
 
@@ -75,13 +74,14 @@ with `X = k r`:
     <cos^2 a exp(-i X cos a)>  = (J0(X) - J2(X)) / 2
     <sin^2 a exp(-i X cos a)>  = (J0(X) + J2(X)) / 2 = J1(X) / X
 
-The spectrum of `C_ab` is `conj(U_a^A) U_b^B`. With `d.R_A = d.R_B = -cos a`:
+The spectrum of `C_ab` is `conj(U_a^A) U_b^B`. With `s = +1` for the
+package axes (`s = -1` for the pre-0.2 axes), `d.R_A = d.R_B = s cos a`:
 
 | Component | Product averaged | Result |
 |---|---|---|
 | ZZ | `exp(-i X cos a)` | `J0` |
-| ZR | `i epsilon (-cos a) exp(...)` | `-epsilon J1` |
-| RZ | `conj(i epsilon (-cos a)) exp(...)` = `i epsilon cos a exp(...)` | `+epsilon J1` |
+| ZR | `i epsilon s cos a exp(...)` | `+s epsilon J1` |
+| RZ | `conj(i epsilon s cos a) exp(...)` = `-i epsilon s cos a exp(...)` | `-s epsilon J1` |
 | RR | `epsilon^2 cos^2 a exp(...)` | `epsilon^2 (J0 - J2) / 2` |
 | TT, Rayleigh | `epsilon^2 sin^2 a exp(...)` | `epsilon^2 J1 / X` (near field only) |
 | TT, Love (motion along `T`) | `cos^2 a exp(...)` | `(J0 - J2) / 2` |
@@ -91,64 +91,85 @@ Writing `cos(X - theta) = [exp(i(X - theta)) + exp(-i(X - theta))] / 2`, the
 term `exp(-i(k r - theta))` times `exp(i omega t)` is the causal arrival
 `cos(omega (t - r / c) + theta)`; the other term is the acausal arrival, which
 after time reversal has the same `phi0 = theta`. So **both lag branches carry
-the same constant**:
+the same constant**, that of the stored component:
 
-| Component | Far-field form | `phi0` | `p` |
-|---|---|---|---|
-| ZZ | `+cos(X - pi/4)` | `+pi/4` | **-1** |
-| RR | `+cos(X - pi/4)` (since `J2 ~ -J0`) | `+pi/4` | **-1** |
-| TT (Love) | `+cos(X - pi/4)` | `+pi/4` | **-1** |
-| ZR | `-cos(X - 3 pi/4)` = `cos(X + pi/4)` | `-pi/4` | **+1** |
-| RZ | `+cos(X - 3 pi/4)` | `+3 pi/4` | **-3** (= +5) |
+| Component | Far-field form (`s = +1`) | `phi0` | `p` | `p` with pre-0.2 axes |
+|---|---|---|---|---|
+| ZZ | `+cos(X - pi/4)` | `+pi/4` | **-1** | -1 |
+| RR | `+cos(X - pi/4)` (since `J2 ~ -J0`) | `+pi/4` | **-1** | -1 |
+| TT (Love) | `+cos(X - pi/4)` | `+pi/4` | **-1** | -1 |
+| ZR | `+cos(X - 3 pi/4)` | `+3 pi/4` | **-3** | +1 |
+| RZ | `-cos(X - 3 pi/4)` = `cos(X + pi/4)` | `-pi/4` | **+1** | -3 |
 
-The current table has ZR `+1` (right) and RZ `-1` (wrong), and pair mode on the
-negative branch uses the other component's value (ZR negative -1, RZ negative
-+1: both wrong).
+The last column is for reference only: the package supports one convention.
+The `p` column is `AUTOMATIC_PI_OVER_4` in `seisforge/ant/aftan/phase.py`.
 
-## Is the check independent of the table?
+## Numerical check, independent of the table
 
 The synthetic CCFs (`seisforge.ant.synthetic.synthetic_rayleigh_ccf_zne`) use
 only the three conventions above: the retrograde polarisation (textbook
-physics), the CCF lag definition (shared with the AFTAN positive branch, which
-is not under test), and the package rotation (the thing the table must match).
-They do not read `_RAYLEIGH_PI_OVER_4`, `pi_over_4` or the negative-branch
-swap. The direction average is checked against the Bessel closed forms above,
-computed with `scipy.special.jv`
+physics), the CCF lag definition, and the package rotation (the thing the
+table must match). They never read `AUTOMATIC_PI_OVER_4` or `pi_over_4`. The
+direction average is checked against the Bessel closed forms with
+`scipy.special.jv` in both rotation conventions
 (`tests/test_ant_synthetic.py::test_plane_wave_rayleigh_ccfs_match_the_bessel_closed_forms_after_rotation`),
-so the numerical table and the analytic derivation are two separate routes to
-the same constants. The ZZ result `p = -1` reproduces the established AFTAN
-value, which anchors the overall sign.
+so the analytic table and the numerical one are separate routes to the same
+constants; the ZZ value `p = -1` is the established AFTAN value and agrees
+with the Fortran AFTAN comparison in `examples/benchmarks/aftan_vs_fortran`,
+which anchors the overall sign.
 
-Running AFTAN on these CCFs with every `p` in {-3, -1, +1, +3, +5} at 200 km
-gives the smallest error (0.002-0.006 km/s) at exactly the `p` of the last table
-on both branches, and 0.19-0.45 km/s elsewhere. The older `synthetic_ccf` builds
-its phase from a given `pi_over_4` and is therefore *not* an independent check
-of the table (its docstring says so).
+Running AFTAN (station mode, manual `pi_over_4`) on these CCFs with every `p`
+in {-3, -1, +1, +3, +5} picks, at 80, 150 and 300 km and on both branches,
+exactly the `p` of the last table, for both axis directions (the pre-0.2
+column too; checked while both were still in the package). At 150 km the error is
+0.001-0.010 km/s at the right `p` and 0.25-0.63 km/s at every other value.
 
-## Where the current values come from
+With the automatic constants (`tests/test_ant_aftan_components.py`), largest
+`|c_measured - c_true|` in km/s at 150 km, 5-14 s, true curve given as
+`prediction_file` so that the 2 pi cycle choice does not enter; "before" is
+the code before the fix on CCFs rotated with the then-current (pre-0.2)
+axes, "after" the fixed code with the current rotation:
 
-- `_RAYLEIGH_PI_OVER_4` (`ZZ -1, ZR +1, RZ -1, RR -1, TT -1`) and the
-  negative-branch swap (`physical_component_for_branch`) were added together in
-  commit `7d5c2de` (2026-07-10, message "optimize seisforge inv"), with no
-  derivation, reference or test of the ZR/RZ values. Before that, AFTAN used a
-  single `pi_over_4: -1.0` for everything.
-- The rotation formulas date from commit `8865b26` and have not changed since.
+| Stored component | Pair, + | Pair, - | Station, + | Station, - |
+|---|---|---|---|---|
+| ZZ | 0.001 -> 0.001 | 0.001 -> 0.001 | 0.001 -> 0.001 | 0.001 -> 0.001 |
+| RR | 0.010 -> 0.010 | 0.010 -> 0.010 | 0.010 -> 0.010 | 0.010 -> 0.010 |
+| TT | 0.002 -> 0.002 | 0.002 -> 0.002 | 0.002 -> 0.002 | 0.002 -> 0.002 |
+| ZR | 0.006 -> 0.006 | **0.250** -> 0.006 | **0.250** -> 0.006 | **0.250** -> 0.006 |
+| RZ | **0.280** -> 0.006 | **0.620** -> 0.006 | **0.280** -> 0.006 | **0.280** -> 0.006 |
 
-**No sign convention makes the table right.** Each of ZR and RZ is ZZ shifted
-by +-pi/2 (they are `J1`-type); reversing one radial axis adds pi. So under any
-choice of radial directions, ZR and RZ differ by 0 or pi, never by pi/2 as in
-the table (`+1` vs `-1`). Reversing the CCF lag definition only swaps the two
-branches, which carry the same constant, so it does not help either. A
-prograde polarisation (some higher modes or strong sediments) flips ZR and RZ
-together (ZR -3, RZ +1); their difference stays pi.
+TT here is a Love-like waveform built with the ZZ phase constant
+(`synthetic_ccf`), so its row only pins the code path; the Love-wave check is
+in [RR and TT](#rr-and-tt). The tests also check that pair and station mode
+give bit-identical results on
+the same file, and that ZZ, RR and TT are bit for bit as before
+(`tests/data/aftan_component_baseline.npz`). The test tolerance, 0.03 km/s,
+separates the right constant (<= 0.010 km/s) from a pi/2 error (about
+0.25 km/s) with margin on both sides.
 
-**The swap needs a sign.** The negative lag of `ZR` for pair A_B is the
-physical `RZ` of pair B_A only if station B's radial axis is the same whether
-B acts as receiver or as source. In this rotation it is not: as receiver of
-A_B, `R_B` points towards A; as source of B_A, it points away from A. Hence
-`ZR_AB(-t) = -RZ_BA(t)` (a pi shift), and the swap without that sign gives the
-wrong constant. With radial axes pointing *away from the other station* at both
-ends, the plain swap would be right, but then ZR = RZ = -3, not the table.
+## Negative branch and reciprocity
+
+The time-reversed negative lag of `ZR` for pair A_B is the physical `RZ` of
+pair B_A only up to a sign: as receiver of A_B, `R_B` points away from A; as
+source of B_A, it points towards A. Hence
+`ZR_AB(-t) = -RZ_BA(t)`, a pi shift, which turns RZ's constant into ZR's
+(`+1 + 4 = 5 = -3 mod 8`). AFTAN therefore takes the constant of
+the **stored** component on the negative branch; `physical_component_for_branch`
+still labels the branch as the reciprocal component of the reversed pair
+(in `aftan.log`), but that label never chooses `pi_over_4`.
+
+## Files rotated before 0.2.0
+
+ZZ, RR and TT do not depend on the R/T axis direction; ZR and RZ do (their
+constants differ by pi between the two directions). SeisForge before 0.2.0
+reversed R and T, so its ZR/RZ (and ZT/TZ) are the negative of today's. The
+package supports only the current axes and does not recognise old files
+(`rotate-ccf` writes `lin2008` into SAC `kuser0` as a record, but nothing
+reads it): measured as they are, old ZR/RZ are pi off (about 0.6 km/s at
+150 km); rotated again or negated, they are right
+(`tests/test_ant_aftan_components.py::test_pre_0_2_rotations_are_pi_off_until_negated`).
+Files from other codes need the same care; see
+[Rotation](ant/rotation.md#relation-to-lin-et-al-2008-and-to-seisforge-before-020).
 
 ## RR and TT
 
@@ -159,46 +180,59 @@ ends, the plain swap would be right, but then ZR = RZ = -3, not the table.
   Love polarisation gave 0.010 km/s at `p = -1` and >= 0.25 km/s otherwise
   (not in the test suite). A Rayleigh field leaks only the near-field
   `J1 / (k r)` term into TT.
-- **ZT, TZ, RT, TR**: no automatic value exists and none was checked.
+- **ZT, TZ, RT, TR**: no automatic value exists and none was checked; a
+  manual value gets a "has not been checked" warning.
 
-## Recommended fix
+## History: what was wrong
 
-A follow-up task (it changes ZR and RZ results; "Changed results" in
-`CHANGELOG.md`):
-
-1. `ant/aftan/phase.py`: look the constant up by the **stored** component on
-   both branches, with `ZZ -1, RR -1, TT -1, ZR +1, RZ -3` (these are
-   `_CHECKED_PI_OVER_4`; merge the two tables). Keep
-   `physical_component_for_branch` for labels and logs, documenting that the
-   physical reciprocal component carries a sign: `ZR_AB(-t) = -RZ_BA(t)`.
-2. Station mode (`ant/aftan/driver.py`, `config.py`): read the component per
-   file with `io._component_from_sac` (SAC `kcmpnm`, else the one ZRT token in
-   the file name), default `pi_over_4` to `auto` there too, stop with an
-   explanation when auto mode finds no component, and pass the component to the
-   existing `_aftan_config_for_branch` so both modes share one path.
-3. Tests: drop the `xfail` marks in `tests/test_ant_aftan_components.py`, take
-   the ZR/RZ cases out of `UNCHANGED`, and keep ZZ/RR/TT bit for bit against
-   `tests/data/aftan_component_baseline.npz`.
-4. `phase_constant_warning`: drop the "under revision" note; keep the mismatch
-   warning (it also catches manual values).
-5. Old ZR/RZ phase velocities were wrong; no option to restore them is
-   recommended.
+- `_RAYLEIGH_PI_OVER_4` (`ZZ -1, ZR +1, RZ -1, RR -1, TT -1`) and the
+  negative-branch swap (`physical_component_for_branch` used to choose the
+  constant) were added together in commit `7d5c2de` (2026-07-10, message
+  "optimize seisforge inv"), with no derivation, reference or test of the
+  ZR/RZ values. Before that, AFTAN used a single `pi_over_4: -1.0`.
+- With the rotation of that time (pre-0.2 axes) the right values were ZR +1,
+  RZ -3. The table had RZ -1, a pi/2 error. **No R/T convention made it
+  right**: ZR and RZ are `J1`-type and differ by 0 or pi under any choice of
+  radial directions, never by pi/2 as in the table (`+1` vs `-1`); reversing
+  the lag definition only swaps the branches, which carry the same constant.
+- The negative-branch swap used RZ's constant for the negative lag of ZR (and
+  ZR's for RZ) without the sign of `ZR_AB(-t) = -RZ_BA(t)`; with the table's
+  RZ value this gave ZR negative -1 and RZ negative +1, both wrong.
+- Station mode used `-1` for every file, right for ZZ/RR/TT only.
+- Task T19 added the warning, the baseline and `xfail` tests without changing
+  numbers; 0.2.0 (CHANGELOG, "Changed results") switched the rotation to
+  Lin et al. (2008) Fig. 2, replaced the table by `AUTOMATIC_PI_OVER_4`,
+  dropped the swap from the constant lookup and made station mode look the
+  component up per file. For a while a `legacy` option kept the old axes and
+  a matching constant set; it was removed because no old ZR/RZ result had to
+  be reproduced. The old ZR/RZ constants were wrong for every convention.
 
 ## Not verified
 
 Real data; spherical geometry (flat-earth plane waves only); short distances
 where `k r` is small and the far-field constants do not hold (about
-`1 / (8 k r)` rad); higher modes or prograde motion; ZT/TZ/RT/TR; the PMF
-stage on ZR/RZ (only the basic FTAN stage was checked).
+`1 / (8 k r)` rad); higher modes or prograde motion (which flip ZR and RZ
+together); ZT/TZ/RT/TR; the PMF stage on ZR/RZ (only the basic FTAN stage was
+checked); Lin et al. (2008) sec. 2 and Fig. 2 were not re-read for this page
+(the convention and the pi/2 statement follow the check made when the change
+was planned; the DOI was checked against Crossref).
 
 ## References
 
 - Aki, K., Richards, P. G. (2002). *Quantitative Seismology*, 2nd ed., sec. 7.2.
+- Bensen, G. D., Ritzwoller, M. H., Barmin, M. P., Levshin, A. L., Lin, F.,
+  Moschetti, M. P., Shapiro, N. M., Yang, Y. (2007). Processing seismic
+  ambient noise data to obtain reliable broad-band surface wave dispersion
+  measurements. *Geophys. J. Int.* 169, 1239-1260,
+  doi:10.1111/j.1365-246X.2007.03374.x.
 - Snieder, R. (2004). Extracting the Green's function from the correlation of
-  coda waves: a derivation based on stationary phase. *Phys. Rev. E* 69, 046610.
+  coda waves: a derivation based on stationary phase. *Phys. Rev. E* 69,
+  046610, doi:10.1103/PhysRevE.69.046610.
 - Lin, F.-C., Moschetti, M. P., Ritzwoller, M. H. (2008). Surface wave
   tomography of the western United States from ambient seismic noise: Rayleigh
-  and Love wave phase velocity maps. *Geophys. J. Int.* 173, 281-298.
+  and Love wave phase velocity maps. *Geophys. J. Int.* 173, 281-298,
+  doi:10.1111/j.1365-246X.2008.03720.x.
 - Lin, F.-C., Tsai, V. C., Schmandt, B. (2014). 3-D crustal structure of the
   western United States: application of Rayleigh-wave ellipticity extracted
-  from noise cross-correlations. *Geophys. J. Int.* 198, 656-670.
+  from noise cross-correlations. *Geophys. J. Int.* 198, 656-670,
+  doi:10.1093/gji/ggu160.

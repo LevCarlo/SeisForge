@@ -8,6 +8,46 @@ switch that restores the old behaviour where one exists.
 
 ### Changed results
 
+- **CCF rotation: R and T along the propagation (Lin et al. 2008).**
+  `rotate_zne_ccf_to_zrt`, `rotate_zrt_ccf_to_zne` and `seisforge ant
+  rotate-ccf` now point R from the virtual source towards the receiver at
+  both stations and T 90 degrees clockwise from R, as in Fig. 2 of Lin,
+  Moschetti & Ritzwoller (2008, GJI 173, 281-298). Before, R and T were
+  reversed at both stations. **ZR, RZ, ZT and TZ change sign** (exact
+  negation); ZZ, RR, RT, TR and TT are bit for bit the same (RR/RT/TR/TT
+  agree with Lin et al. eq. 1 either way). No option restores the old axes:
+  the old ones were not wrong, but only one convention is kept, since no
+  old ZR/RZ/ZT/TZ result had to be reproduced and a second convention
+  doubles the phase-constant bookkeeping. **ZR/RZ/ZT/TZ files rotated
+  before 0.2.0 are not recognised**: rotate them again from the ZNE files
+  (or negate them) before AFTAN; measured as they are, their phase
+  velocities are pi off. `rotate-ccf` writes `lin2008` into
+  `rotate_ccf.log` and SAC `kuser0` as a record (nothing reads it).
+  `examples/01_ccf_rotate`: data regenerated in the new convention, with the
+  RZ truth now built with the correct phase constant (only `NZ`, `EZ` files
+  and `true_zrt.npz`, `expected_result.png` changed; residuals still
+  0.029-0.040 of max ZZ).
+- **AFTAN ZR/RZ phase constants fixed; station mode picks the constant per
+  file.** The automatic `pi_over_4` is now that of the stored component on
+  both lag branches: ZZ, RR, TT -1, ZR -3, RZ +1, for the R/T axes above
+  (derivation and checks: `docs/aftan_phase_constants.md`). The
+  negative-branch ZR <-> RZ swap no longer chooses the constant (it only
+  labels the physical component). Station mode (no `components` in the
+  config) now defaults to `pi_over_4: auto` and reads the component of each
+  file from SAC `kcmpnm` or the file name; when neither names one, auto mode
+  stops (set `pi_over_4` to a number to measure such files). Pair mode stops
+  when the configured component contradicts the file's `kcmpnm` or name. On
+  the diffuse-field synthetics at 150 km (`tests/aftan_component_cases.py`),
+  largest phase-velocity error before -> after: ZR pair positive 0.006 ->
+  0.006, ZR pair negative and station both branches 0.250 -> 0.006; RZ pair
+  positive and station both branches 0.280 -> 0.006, RZ pair negative 0.620
+  -> 0.006. Group velocities are unchanged. ZZ, RR and TT results are bit
+  for bit the same in both modes (regression baseline, `examples/02_aftan`,
+  `examples/full_chain`, `examples/benchmarks/aftan_vs_fortran`); their
+  `.dat` headers now also show `pi_over_4_mode: auto` in station mode and
+  `stored_component`. No option restores the old ZR/RZ constants (they were
+  wrong for every rotation convention). `tests/data/aftan_component_baseline.npz`
+  regenerated (only ZR/RZ arrays changed).
 - **PMF cleaning window.** `PhaseMatchedFilter.clean_undispersed` now sets the
   window as Fortran AFTAN `tgauss.f` does: after the inner limits are made
   symmetric about the compressed pulse, both outer limits lie one outer
@@ -85,12 +125,16 @@ switch that restores the old behaviour where one exists.
   it from SAC `kcmpnm` or the file name only for this check). No number
   changes. Regression baseline `tests/data/aftan_component_baseline.npz`
   (ZZ/ZR/RZ/RR/TT, pair and station mode, both branches;
-  `tools/make_aftan_component_baseline.py`).
+  `tools/make_aftan_component_baseline.py`). The ZR/RZ issue it flagged is
+  fixed (see "Changed results"); the warning now covers manual values that
+  do not fit, unchecked components (ZT/TZ/RT/TR), unknown components, and
+  ZR/RZ files whose R/T convention had to be assumed.
 
 - **Runnable examples with a known answer.** `examples/01_ccf_rotate`,
   `02_aftan`, `03_eikonal`, `04_rf_qc_hk`, `05_hvsr_forward`,
-  `06_inversion` and `full_chain` (CCFs -> AFTAN -> collect-dispersion ->
-  Eikonal -> station curve -> inversion), each with small synthetic data,
+  `06_inversion` and `full_chain` (one possible route: CCFs -> AFTAN ->
+  Eikonal -> station curve -> inversion, linked by the example's own
+  `glue.py` script, not by package code), each with small synthetic data,
   a minimal config (lines to edit marked `# change this`), `run.sh`, an
   expected figure and a README with the same five sections. Data scripts
   `tools/make_example_*.py` (fixed seeds, `tools/example_truth.py` shares the
@@ -107,17 +151,6 @@ switch that restores the old behaviour where one exists.
   analytic non-dispersive pulse, the envelope arrival at r/U, and AFTAN.
 - **`seisforge.ant.rotation.rotate_zrt_ccf_to_zne`**: inverse of the CCF
   rotation (round-trip tested), used to build synthetic ZNE input.
-- **Glue commands between AFTAN, Eikonal and the inversion.**
-  `seisforge ant collect-dispersion` gathers AFTAN `.dat` files into the
-  Eikonal `(path, period)` input dataset (negative branch = reversed pair,
-  coordinates from a station table or SAC headers, linear resampling on the
-  instantaneous period onto integer periods without extrapolation, `snr` and
-  `snr_scale` carried over). `seisforge ant extract-station-curve` samples an
-  Eikonal stack at a station or point and writes the inversion's
-  `period velocity sigma` file; `sigma` is the stack's standard error of the
-  mean by default (`--sigma std` for the single-source spread) with a lower
-  bound `--sigma-floor-km-s` (assumed default 0.01 km/s), all recorded in the
-  file header. Package `seisforge.ant.glue`.
 - **Parallel tempering** (`Sampler.tempering`): each chain becomes a
   ladder of tempered replicas with state swaps between neighbours; only the
   `T = 1` replica is stored. Swap acceptance is written to `*_mcmc.nc`.
@@ -140,8 +173,9 @@ switch that restores the old behaviour where one exists.
   `seisforge.inv.predict_receiver_function`): Thomson-Haskell motion-stress
   propagator, full reverberations, per-layer density, adaptive FFT padding;
   validated against PyGRT; about 0.5 ms for a 67-layer model.
-- `seisforge ant aftan-cycle-set` to inspect or override a phase-cycle
-  choice.
+- `tools/aftan_cycle_set.py`, a stand-alone script (not a package command)
+  to preview or apply a manual phase-cycle shift to saved AFTAN outputs;
+  preview by default, `--in-place` to write.
 - `--overwrite` for `seisforge rf hkseq`.
 - Documentation site (MkDocs) with getting started, conventions, model guide,
   configuration reference, API reference, and references.
@@ -254,16 +288,66 @@ switch that restores the old behaviour where one exists.
 
 ### Removed
 
+- **`seisforge ant rotate-ccf` handles one station pair, given by path
+  templates.** The config now has only `io.input_template` and
+  `io.output_template` (file paths with `{component}`; wildcards allowed if
+  exactly one file matches), `io.overwrite`, `rotation.components`,
+  `rotation.azimuth`, `rotation.back_azimuth` (degrees, both or neither);
+  unknown keys are an error. Removed keys: `io.root_datadir`,
+  `io.output_root_datadir`, `io.source_station`, `io.receiver_station`,
+  `name`, `jobs` / `job` (batches are a loop in the user's script),
+  `obj_components` (now `components`), `degrees` (angles are always
+  degrees), the output-template fields `{name}`, `{source_component}`,
+  `{source_name}`, `{source_stem}`, and the default output naming that
+  replaced the component token in the input file name. CLI options removed:
+  `--root-datadir`, `--output-root-datadir`, `--source-station`,
+  `--receiver-station`, `--obj-components` (now `--components`),
+  `--radians`. Giving only one of azimuth / back azimuth (and filling the
+  other from the header) is no longer allowed. Angle resolution (config, SAC
+  `az`/`baz`, else `evla/evlo/stla/stlo`) moved to the pure function
+  `seisforge.ant.rotation.interstation_azimuths`; the rotated data and SAC
+  headers of `examples/01_ccf_rotate` are bit for bit unchanged. The
+  reference config shows a shell loop over pairs.
+- **Old AFTAN config key names** (aliases kept from earlier SeisForge
+  configs). Only the names of `examples/reference_configs/aftan.yml` are
+  read; a removed name stops the run with an error naming the current key
+  (`seisforge.ant.aftan.config.REMOVED_AFTAN_KEYS`). Removed -> current:
+  `component` -> `components` (a list); `io.source_station`,
+  `io.receiver_station`, `io.station`, `io.component(s)` -> the top-level
+  keys; `io.input_root_dir` / `io.output_root_dir` -> `io.input_root_datadir`
+  / `io.output_root_datadir`; `io.sac_pattern` in a pair config ->
+  `io.input_template`; `aftan.velocity_min/max` ->
+  `aftan.velocity_window.min/max`; `aftan.trig_threshold`,
+  `aftan.jump_points` -> `aftan.basic.*` and `aftan.pmf.*`;
+  `aftan.reference_velocity`, `aftan.max_period_nwl`,
+  `short_distance_period_guard.reference_velocity_km_s`,
+  `short_distance_period_guard.min_wavelengths` ->
+  `short_distance_period_guard.reference_velocity` / `max_period_nwl`;
+  flat `aftan.snr.{noise_mode, signal_half_width_factor,
+  signal_before_periods, signal_after_periods, noise_guard_factor}` ->
+  `aftan.snr.local.*`; `signal_half_width_periods`, `noise_guard_periods` ->
+  `signal_half_width_factor`, `noise_guard_factor`; flat
+  `aftan.snr.{bfact, efact, vmax, vmin, fill}` -> `aftan.snr.pyftan.*`; flat
+  `aftan.snr.{dsn, nlen}` -> `aftan.snr.local.tail.*` or
+  `aftan.snr.pyftan.*`; flat `aftan.time_taper.ramp_s` / `fraction` ->
+  `aftan.time_taper.velocity_window.ramp_s` /
+  `legacy_edge_fraction.fraction`; flat `aftan.period_sampling.{count, step,
+  dfreq, min_count, periods}` -> `aftan.period_sampling.<mode>.*`;
+  `<mode>.min_nfreq` -> `<mode>.min_count`; flat
+  `aftan.{basic,pmf}.alpha.{value, factor, distance_nodes, alpha_nodes}` ->
+  `aftan.{basic,pmf}.alpha.<mode>.*`. The SNR tail window is now read only
+  from the section of the definition in use (`local.tail` for `local`,
+  `pyftan` for `pyftan`); before, `pyftan.dsn/nlen` also overrode
+  `local.tail` (a config that set both differently gets different `local`
+  SNR values). `examples/benchmarks/aftan_vs_fortran/aftan_seisforge.yml`
+  now uses `components`. All example and benchmark AFTAN results are bit
+  for bit unchanged.
+- **AFTAN flat input directory fallback.** A pair config reads files only
+  from `<input_root_datadir>/<source>/<source>_<receiver>/`; it no longer
+  also looks in `<input_root_datadir>/` itself. The benchmark CCF moved to
+  `examples/benchmarks/aftan_vs_fortran/CCF/M07A/M07A_M15A/`.
 - `examples/configs/joint_inversion.yml` (no longer loadable;
   `examples/STA001` replaces it).
-
-### Known issues
-
-- **AFTAN ZR/RZ phase velocities are wrong** in some cases (0.25-0.6 km/s at
-  150 km on synthetics; group velocity unaffected): the automatic RZ value
-  (-1, should be -3), the pair-mode negative-branch ZR <-> RZ swap, and station
-  mode's fixed -1 for ZR (should be +1) and RZ. ZZ, RR and TT are right.
-  Details and the planned fix: `docs/aftan_phase_constants.md`.
 
 ## 0.1.0 (branch `main`)
 

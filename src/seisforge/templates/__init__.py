@@ -24,7 +24,7 @@ WORKFLOWS: dict[str, tuple[str, tuple[str, ...]]] = {
     "rf": ("04_rf_qc_hk", ("rf_qc.yml", "hkseq.yml")),
     "hvsr-forward": ("05_hvsr_forward", ("config.yml", "hvsr_forward.py")),
     "inversion": ("06_inversion", ("inv.yaml", "obs.yaml")),
-    "full-chain": ("full_chain", ("aftan.yml", "eikonal.yml", "inv.yaml", "obs.yaml", "run.sh")),
+    "full-chain": ("full_chain", ("aftan.yml", "eikonal.yml", "inv.yaml", "obs.yaml", "run.sh", "glue.py")),
 }
 
 

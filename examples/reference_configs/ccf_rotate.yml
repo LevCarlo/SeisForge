@@ -1,33 +1,29 @@
+# seisforge ant rotate-ccf: one station pair, ZNE -> ZRT.
+# For many pairs, loop in a shell script and override the templates:
+#   for pair in A_B A_C B_C; do
+#     seisforge ant rotate-ccf -c ccf_rotate.yml \
+#       --input-template "CCF_ZNE/${pair}_{component}_pws.SAC" \
+#       --output-template "CCF_ZRT/${pair}_{component}_pws.SAC"
+#   done
 io:
-  # SeisForge builds input paths as:
-  #   root_datadir/source_station/source_station_receiver_station
-  root_datadir: /path/to/CCF_ZNE
-  output_root_datadir: /path/to/CCF_ZRT
-  source_station: NET.STA1
-  receiver_station: NET.STA2
-  # Template fields: {name}, {component}.
-  # Put the desired stack product directly in the template, e.g. pws or ls.
-  input_template: "*_{component}_pws.SAC"
-  # Output names preserve the matched input filename by default, replacing only
-  # the component token. For example:
-  # NET.STA1_NET.STA2_ZN_pws.SAC -> NET.STA1_NET.STA2_ZR_pws.SAC
-
-rotation:
-  obj_components: [ZZ, ZR, ZT, RZ, RR, RT, TZ, TR, TT]
-  degrees: true
+  # Input SAC path with {component} = ZZ, ZN, ZE, NZ, NN, NE, EZ, EN, EE.
+  # Shell wildcards are allowed if exactly one file matches each component.
+  # Relative paths are relative to this file.
+  input_template: /path/to/CCF_ZNE/NET.STA1_NET.STA2_{component}_pws.SAC
+  # Output SAC path with {component} = ZZ, ZR, ZT, RZ, RR, RT, TZ, TR, TT.
+  # rotate_ccf.log is written next to the outputs.
+  output_template: /path/to/CCF_ZRT/NET.STA1_NET.STA2_{component}_pws.SAC
+  # Existing outputs are never replaced unless this is true (or --overwrite).
   overwrite: false
 
-# By default, azimuth/back_azimuth are inferred from SAC headers.
-# The workflow reads az/baz first, then computes them from coordinates when
-# az/baz are missing:
-# evla/evlo = virtual-source station, stla/stlo = receiver station.
-# Uncomment these to override header-based inference.
-# azimuth: 120.0
-# back_azimuth: 300.0
-
-# For multiple station pairs, keep the defaults above and override per job:
-# jobs:
-#   - source_station: NET.STA1
-#     receiver_station: NET.STA2
-#     azimuth: 120.0       # optional override
-#     back_azimuth: 300.0  # optional override
+rotation:
+  # ZRT components to write; only the ZNE files they need are read.
+  components: [ZZ, ZR, ZT, RZ, RR, RT, TZ, TR, TT]
+  # Azimuth (station 1 -> 2) and back azimuth (2 -> 1) in degrees. Leave both
+  # out to read SAC az/baz, or compute them from evla/evlo (virtual source)
+  # and stla/stlo (receiver). Give both or neither.
+  # azimuth: 120.0
+  # back_azimuth: 300.0
+  # R points from the source station towards the receiver at both stations
+  # (Lin et al. 2008, Fig. 2), T is R turned 90 degrees clockwise. ZR/RZ/ZT/TZ
+  # rotated by SeisForge before 0.2.0 have the opposite sign: rotate again.

@@ -2,7 +2,8 @@
 
 Inputs and the known answer come from `aftan_component_cases` (diffuse-field
 Rayleigh CCFs rotated with the package rotation; see that module and
-`seisforge.ant.synthetic`).
+`seisforge.ant.synthetic`). The synthetic does not read the AFTAN constant
+table, so the accuracy tests are an independent check of it.
 """
 
 from __future__ import annotations
@@ -17,13 +18,16 @@ from aftan_component_cases import RESULT_KEYS, baseline_cases, run, write_ccfs
 BASELINE = Path(__file__).parent / "data" / "aftan_component_baseline.npz"
 
 # (mode, component) whose numbers must stay bit for bit as in the baseline.
-# All of them for now: T19 changes no AFTAN number. The ZR/RZ fix (follow-up
-# task, docs/aftan_phase_constants.md) removes its cases from this set.
+# ZZ, RR and TT: the lin2008 change of the rotation and of the phase
+# constants leaves them untouched. ZR and RZ changed (CHANGELOG "Changed
+# results"); their baseline arrays were regenerated with the fix and are
+# checked by `test_changed_components_match_the_regenerated_baseline`.
 UNCHANGED = {
     (mode, component)
     for mode in ("pair", "station")
-    for component in ("ZZ", "ZR", "RZ", "RR", "TT")
+    for component in ("ZZ", "RR", "TT")
 }
+CHANGED = {(mode, component) for mode in ("pair", "station") for component in ("ZR", "RZ")}
 
 
 @pytest.fixture(scope="module")
@@ -35,9 +39,9 @@ def ccf_dir(tmp_path_factory):
 
 @pytest.mark.parametrize(
     "mode, component, branch",
-    [case for case in baseline_cases() if case[:2] in UNCHANGED],
+    [case for case in baseline_cases() if case[:2] in UNCHANGED | CHANGED],
 )
-def test_unchanged_components_match_baseline_bitwise(mode, component, branch, ccf_dir, tmp_path):
+def test_components_match_baseline_bitwise(mode, component, branch, ccf_dir, tmp_path):
     baseline = np.load(BASELINE)
     results = run(mode, component, branch, ccf_dir, tmp_path)
     assert results
@@ -56,48 +60,104 @@ def test_unchanged_components_match_baseline_bitwise(mode, component, branch, cc
 # 0.25 km/s at this distance and a pi error about 0.6 km/s. 0.03 km/s
 # (about 1 %) separates the two with margin on both sides.
 PHASE_VELOCITY_TOLERANCE_KM_S = 0.03
-
-# Known wrong phase constants (docs/aftan_phase_constants.md). strict=True:
-# the follow-up fix makes these pass, and pytest then asks to drop the mark.
-_KNOWN_WRONG = {
-    ("pair", "ZR", "negative"): "pair mode swaps ZR->RZ on the negative branch and uses -1; needs +1",
-    ("pair", "RZ", "positive"): "table RZ=-1; needs -3",
-    ("pair", "RZ", "negative"): "pair mode swaps RZ->ZR on the negative branch and uses +1; needs -3",
-    ("station", "ZR", "positive"): "station mode uses -1 for every file; ZR needs +1",
-    ("station", "ZR", "negative"): "station mode uses -1 for every file; ZR needs +1",
-    ("station", "RZ", "positive"): "station mode uses -1 for every file; RZ needs -3",
-    ("station", "RZ", "negative"): "station mode uses -1 for every file; RZ needs -3",
-}
+COMPONENTS = ("ZZ", "ZR", "RZ", "RR", "TT")
 
 
-def _accuracy_cases():
-    for mode in ("pair", "station"):
-        for component in ("ZZ", "ZR", "RZ", "RR", "TT"):
-            for branch in ("positive", "negative"):
-                reason = _KNOWN_WRONG.get((mode, component, branch))
-                marks = [pytest.mark.xfail(strict=True, reason=f"known issue, follow-up task: {reason}")] if reason else []
-                yield pytest.param(mode, component, branch, marks=marks, id=f"{mode}-{component}-{branch}")
-
-
-@pytest.mark.parametrize("mode, component, branch", list(_accuracy_cases()))
+@pytest.mark.parametrize("mode", ["pair", "station"])
+@pytest.mark.parametrize("component", COMPONENTS)
+@pytest.mark.parametrize("branch", ["positive", "negative"])
 def test_phase_velocity_matches_the_true_curve(mode, component, branch, ccf_dir, tmp_path):
     from aftan_component_cases import phase_velocity_error
 
     (result,) = run(mode, component, branch, ccf_dir, tmp_path)
     assert result.branch == branch
+    assert result.pi_over_4_mode == "auto"
     assert phase_velocity_error(result) < PHASE_VELOCITY_TOLERANCE_KM_S
 
 
-@pytest.mark.parametrize(
-    "component",
-    [
-        "ZZ",
-        "RR",
-        "TT",
-        pytest.param("ZR", marks=pytest.mark.xfail(strict=True, reason="known issue: station mode uses -1 for ZR")),
-        pytest.param("RZ", marks=pytest.mark.xfail(strict=True, reason="known issue: modes differ on the RZ negative branch")),
-    ],
-)
+@pytest.mark.parametrize("component", ["ZR", "RZ"])
+def test_pre_0_2_rotations_are_pi_off_until_negated(component, ccf_dir, tmp_path):
+    """ZR/RZ rotated before 0.2.0 are the negative of today's; the package does
+    not recognise them (one R/T convention only): measured as they are they are
+    pi off, negated (or rotated again) they are right."""
+    from obspy import read
+
+    from aftan_component_cases import phase_velocity_error, sac_name
+
+    for label, sign in (("old", -1.0), ("negated", 1.0)):
+        directory = tmp_path / label
+        directory.mkdir()
+        trace = read(str(ccf_dir / sac_name(component)))[0]
+        trace.data = (-1.0 * trace.data).astype(np.float32)  # as rotated before 0.2.0
+        if sign > 0:
+            trace.data = (-1.0 * trace.data).astype(np.float32)
+        trace.write(str(directory / sac_name(component)), format="SAC")
+        (directory / "prediction.dat").write_bytes((ccf_dir / "prediction.dat").read_bytes())
+        (result,) = run("station", component, "positive", directory, tmp_path / f"out_{label}")
+        error = phase_velocity_error(result)
+        if sign < 0:
+            assert error > 0.4  # pi off: about 0.6 km/s at 150 km
+        else:
+            assert error < PHASE_VELOCITY_TOLERANCE_KM_S
+
+
+def test_station_auto_mode_stops_when_the_component_is_unknown(ccf_dir, tmp_path):
+    from aftan_component_cases import sac_name
+
+    directory = tmp_path / "anonymous"
+    directory.mkdir()
+    (directory / "pair.SAC").write_bytes((ccf_dir / sac_name("ZR")).read_bytes())
+    (directory / "prediction.dat").write_bytes((ccf_dir / "prediction.dat").read_bytes())
+    with pytest.raises(ValueError, match="needs the stored component"):
+        run("station", "ZR", "positive", directory, tmp_path / "out", pattern="pair.SAC")
+    # Manual mode still runs and says the component is unknown.
+    (result,) = run(
+        "station", "ZR", "positive", directory, tmp_path / "manual", pattern="pair.SAC",
+        aftan={"pi_over_4": -3.0},
+    )
+    assert any("component unknown" in w for w in result.warnings)
+
+
+def test_pair_component_contradicting_the_file_stops(tmp_path):
+    from aftan_component_cases import sac_name
+
+    write_ccfs(tmp_path / "kc", kcmpnm=True)
+    directory = tmp_path / "mixed"
+    directory.mkdir()
+    # A ZR file (kcmpnm ZR) under the RZ name of the pair layout.
+    (directory / sac_name("RZ")).write_bytes((tmp_path / "kc" / sac_name("ZR")).read_bytes())
+    (directory / "prediction.dat").write_bytes((tmp_path / "kc" / "prediction.dat").read_bytes())
+    with pytest.raises(ValueError, match="configured component RZ"):
+        run("pair", "RZ", "positive", directory, tmp_path / "out")
+
+
+def test_empirical_greens_function_needs_the_pi_over_2_shifted_constant(ccf_dir, tmp_path):
+    """AFTAN measures C(t); G = -dC/dt (Lin et al. 2008, sec. 2) is pi/2 later in phase.
+
+    Positive branch only: -dC/dt of a symmetric CCF is antisymmetric, so its
+    time-reversed negative branch has the opposite shift.
+    """
+    from obspy import read
+
+    from aftan_component_cases import phase_velocity_error, sac_name
+
+    directory = tmp_path / "egf"
+    directory.mkdir()
+    trace = read(str(ccf_dir / sac_name("ZZ")))[0]
+    trace.data = (-np.gradient(trace.data.astype(float), trace.stats.delta)).astype(np.float32)
+    trace.write(str(directory / sac_name("ZZ")), format="SAC")
+    (directory / "prediction.dat").write_bytes((ccf_dir / "prediction.dat").read_bytes())
+    (on_ccf,) = run("station", "ZZ", "positive", ccf_dir, tmp_path / "ccf")
+    (egf_auto,) = run("station", "ZZ", "positive", directory, tmp_path / "auto")
+    (egf_shifted,) = run(
+        "station", "ZZ", "positive", directory, tmp_path / "shifted", aftan={"pi_over_4": 1.0}
+    )
+    assert on_ccf.pi_over_4 == -1.0 and phase_velocity_error(on_ccf) < PHASE_VELOCITY_TOLERANCE_KM_S
+    assert phase_velocity_error(egf_auto) > 0.2  # the CCF constant is pi/2 off on G
+    assert phase_velocity_error(egf_shifted) < PHASE_VELOCITY_TOLERANCE_KM_S
+
+
+@pytest.mark.parametrize("component", COMPONENTS)
 def test_pair_and_station_mode_agree_on_the_same_file(component, ccf_dir, tmp_path):
     pair = run("pair", component, "both", ccf_dir, tmp_path / "pair")
     station = run("station", component, "both", ccf_dir, tmp_path / "station")
@@ -109,17 +169,17 @@ def test_pair_and_station_mode_agree_on_the_same_file(component, ccf_dir, tmp_pa
 
 
 @pytest.mark.parametrize(
-    "mode, component, expected",
+    "mode, component, aftan, expected",
     [
-        ("station", "ZZ", None),
-        ("pair", "RR", None),
-        ("pair", "ZR", "under revision"),  # positive: +1, agrees with the check
-        ("station", "ZR", "phase velocity is wrong"),
-        ("station", "RZ", "phase velocity is wrong"),
+        ("station", "ZZ", None, None),
+        ("pair", "RR", None, None),
+        ("pair", "ZR", None, None),
+        ("station", "RZ", None, None),
+        ("station", "RZ", {"pi_over_4": -1.0}, "phase velocity is wrong"),
     ],
 )
-def test_phase_constant_warning_reaches_log_and_dat(mode, component, expected, ccf_dir, tmp_path):
-    (result,) = run(mode, component, "positive", ccf_dir, tmp_path)
+def test_phase_constant_warning_reaches_log_and_dat(mode, component, aftan, expected, ccf_dir, tmp_path):
+    (result,) = run(mode, component, "positive", ccf_dir, tmp_path, aftan=aftan)
     dat = result.output_dat.read_text()
     log = (result.output_dat.parent / "aftan.log").read_text()
     if expected is None:
@@ -136,9 +196,12 @@ def test_phase_constant_warning_rules():
 
     assert phase_constant_warning("ZZ", -1.0) is None
     assert phase_constant_warning("TT", 7.0) is None  # -1 + 8: same phase
+    assert phase_constant_warning("ZR", -3.0) is None
+    assert phase_constant_warning("RZ", 1.0) is None
     assert "wrong" in phase_constant_warning("RZ", -1.0)
+    assert "wrong" in phase_constant_warning("RZ", -3.0)  # the pre-0.2 axes' value
     assert "wrong" in phase_constant_warning("ZZ", 1.0)  # manual value checked too
-    assert "under revision" in phase_constant_warning("RZ", 5.0)
+    assert phase_constant_warning("ZR", 5.0) is None  # -3 + 8
     assert "not been checked" in phase_constant_warning("ZT", -1.0)
     assert "component unknown (why)" in phase_constant_warning(None, -1.0, component_note="why")
 

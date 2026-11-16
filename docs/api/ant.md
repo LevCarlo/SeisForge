@@ -8,6 +8,8 @@
         - rotate_zne_ccf_to_zrt
         - rotate_zrt_ccf_to_zne
         - required_zne_components
+        - horizontal_axes
+        - interstation_azimuths
 
 ## AFTAN
 
@@ -26,13 +28,6 @@
 
 ::: seisforge.ant.aftan.taper
 
-::: seisforge.ant.aftan.cycle
-    options:
-      members:
-        - override_phase_cycle
-        - PhaseCycleOverrideResult
-        - infer_dispersion_dat_path
-
 ## Eikonal and Helmholtz tomography
 
 ::: seisforge.ant.eikonal.driver
@@ -45,28 +40,6 @@
 ::: seisforge.ant.eikonal.core
 
 ::: seisforge.ant.eikonal.helmholtz
-
-## Glue: AFTAN -> Eikonal -> inversion
-
-::: seisforge.ant.glue.driver
-    options:
-      members:
-        - collect_dispersion
-        - run_collect_dispersion
-        - CollectResult
-        - extract_station_curve
-        - run_extract_station_curve
-        - StationCurve
-
-::: seisforge.ant.glue.models
-
-::: seisforge.ant.glue.core
-
-::: seisforge.ant.glue.io
-    options:
-      members:
-        - read_aftan_dat
-        - read_station_table
 
 ## Synthetic cross-correlations
 

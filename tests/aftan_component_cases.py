@@ -3,16 +3,16 @@
 Shared by `tests/test_ant_aftan_components.py` (accuracy against the true
 curve, pair mode vs station mode, bit-for-bit regression) and
 `tools/make_aftan_component_baseline.py` (writes
-`tests/data/aftan_component_baseline.npz`). The baseline was generated from
-commit cb03b15 plus this module, before any fix of the ZR/RZ phase constants
-(docs/aftan_phase_constants.md), so it shows what a later fix changes and
-pins that ZZ/RR/TT keep their numbers. Regenerate it only with
-the script, and only for a change listed under "Changed results" in
-`CHANGELOG.md`.
+`tests/data/aftan_component_baseline.npz`). The baseline was first generated
+from commit cb03b15, before the ZR/RZ fix; it was regenerated with the
+lin2008 rotation and the corrected phase constants (CHANGELOG, "Changed
+results"), which left every ZZ, RR and TT array bit for bit as it was and
+changed only ZR and RZ. Regenerate it only with the script, and only for a
+change listed under "Changed results" in `CHANGELOG.md`.
 
 Inputs: ZZ, ZR, RZ, RR from `synthetic_rayleigh_ccf_zne` (diffuse plane-wave
-Rayleigh field, rotated with the package rotation; independent of the AFTAN
-``pi_over_4`` table) and TT from `synthetic_ccf` with ``pi_over_4 = -1`` (a
+Rayleigh field, rotated with the package rotation (Lin et al. 2008 axes);
+independent of the AFTAN ``pi_over_4`` table) and TT from `synthetic_ccf` with ``pi_over_4 = -1`` (a
 Love-like waveform with the self-component phase constant). The 2 pi cycle is
 fixed by giving the true curve as ``prediction_file``, so cycle selection
 without a prediction (task T18) does not enter. 150 km is 2.4-9 wavelengths
@@ -22,6 +22,7 @@ over 5-14 s, so the far-field phase constants hold to within about
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -103,12 +104,17 @@ def run(
 ):
     """Run AFTAN on one component file; return the list of `AFTANResult`."""
     if mode == "pair":
+        # Pair layout <root>/<source>/<source>_<receiver>/ (the only one AFTAN reads).
+        root = output / "pair_input"
+        pair_dir = root / SOURCE / f"{SOURCE}_{RECEIVER}"
+        pair_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(directory / sac_name(component), pair_dir / sac_name(component))
         config = {
             "source_station": SOURCE,
             "receiver_station": RECEIVER,
-            "component": component,
+            "components": [component],
             "io": {
-                "input_root_datadir": str(directory),
+                "input_root_datadir": str(root),
                 "output_root_datadir": str(output),
                 "input_template": "{source_station}_{receiver_station}_{component}.SAC",
             },

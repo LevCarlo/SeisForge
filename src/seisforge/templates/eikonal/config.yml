@@ -1,7 +1,7 @@
 # Eikonal tomography: phase velocity maps from travel times of every station pair.
 # Every other key and its default: examples/reference_configs/eikonal.yml
 input:
-  dataset: data/measurements.nc        # change this: output of `seisforge ant collect-dispersion`
+  dataset: data/measurements.nc        # change this: your Eikonal input (see full_chain/glue.py)
   periods_s: [2, 3, 4, 5, 6, 7, 8]     # change this: integer periods present in the dataset
 grid:                                  # change this: map area and cell size (degrees)
   min_longitude_deg: 109.9

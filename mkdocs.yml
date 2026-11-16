@@ -53,7 +53,7 @@ nav:
       - Previous pages (to be migrated):
           - CCF rotation and filters: ant_workflow.md
           - AFTAN dispersion: aftan_workflow.md
-          - AFTAN phase constants (known issue): aftan_phase_constants.md
+          - AFTAN phase constants (derivation and history): aftan_phase_constants.md
           - Eikonal / Helmholtz tomography: eikonal_workflow.md
   - Receiver functions: rf_workflow.md
   - Inversion:

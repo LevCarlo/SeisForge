@@ -26,11 +26,11 @@ from .io import (
 )
 from .models import AFTANResult, BranchTrace, StationAFTANConfig
 from .phase import (
-    automatic_pi_over_4,
     phase_constant_warning,
     physical_branch_for_branch,
     physical_component_for_branch,
     physical_station_pair_for_branch,
+    rayleigh_pi_over_4,
     reciprocal_zrt_component,
 )
 from .plot import _write_aftan_summary_plot
@@ -93,10 +93,15 @@ def run_aftan_file(
     *,
     input_component: str | None = None,
 ) -> list[AFTANResult]:
-    """Measure dispersion for one SAC file."""
+    """Measure dispersion for one SAC file.
+
+    The stored component is ``input_component`` (pair configs) or else read
+    from the file (`_stored_component`); both run modes then choose
+    ``pi_over_4`` by the same rule (`_aftan_config_for_branch`).
+    """
     path = Path(path)
     trace = read(str(path))[0]
-    checked_component, component_note = _component_for_check(path, trace, input_component)
+    component, component_note = _stored_component(path, trace, input_component)
     branch_traces = _prepare_branch_traces(trace, config.aftan.branch)
 
     results = []
@@ -106,75 +111,63 @@ def run_aftan_file(
                 path,
                 branch_trace,
                 config,
-                input_component=input_component,
-                checked_component=checked_component,
+                component=component,
                 component_note=component_note,
             )
         )
     return results
 
 
-def _component_for_check(
+def _stored_component(
     path: Path,
     trace,
     input_component: str | None,
 ) -> tuple[str | None, str]:
-    """Stored component used only for `phase_constant_warning`, never to measure."""
-    if input_component is not None:
-        return input_component, "config"
+    """Stored ZRT component of a CCF file and where it came from.
+
+    Pair mode: the configured component, which must not contradict a ZRT
+    code in SAC ``kcmpnm`` or the file name. Station mode: SAC ``kcmpnm``,
+    else the one ZRT code in the file name (`_component_from_sac`); None with
+    the reason when neither gives one.
+    """
     try:
-        return _component_from_sac(path, trace)
-    except ValueError as exc:
+        found, how = _component_from_sac(path, trace)
+    except ValueError as exc:  # SAC kcmpnm and file name disagree
+        if input_component is not None:
+            raise ValueError(f"configured component {input_component}, but {exc}") from exc
         return None, str(exc)
+    if input_component is not None:
+        if found is not None and found != input_component:
+            raise ValueError(
+                f"{path.name}: configured component {input_component} but the "
+                f"file says {found} ({how})."
+            )
+        return input_component, "config"
+    return found, how
 
 
 def _find_component_inputs(config: StationAFTANConfig) -> list[tuple[Path, str | None]]:
     if not config.components:
         return [(path, None) for path in _find_sac_files(config.input_dir, config.sac_pattern)]
 
+    # Pair layout only: <input_root_datadir>/<source>/<source>_<receiver>/.
     inputs: list[tuple[Path, str | None]] = []
     missing: list[str] = []
     for component in config.components:
-        attempted: list[str] = []
-        for label, input_dir, pattern in _component_input_candidates(config, component):
-            attempted.append(f"{label}={input_dir / pattern}")
-            matches = _find_sac_files(input_dir, pattern)
-            if not matches:
-                continue
-            if len(matches) > 1:
-                raise FileExistsError(
-                    f"AFTAN component {component} matched multiple SAC files "
-                    f"for {label}: " + ", ".join(str(item) for item in matches)
-                )
-            inputs.append((matches[0], component))
-            break
-        else:
-            missing.append(f"{component}: " + "; ".join(attempted))
+        pattern = _component_sac_pattern(config, component)
+        matches = _find_sac_files(config.input_dir, pattern)
+        if not matches:
+            missing.append(f"{component}: {config.input_dir / pattern}")
+            continue
+        if len(matches) > 1:
+            raise FileExistsError(
+                f"AFTAN component {component} matched multiple SAC files: "
+                + ", ".join(str(item) for item in matches)
+            )
+        inputs.append((matches[0], component))
     if missing:
         raise FileNotFoundError("Missing AFTAN component input(s): " + "; ".join(missing))
     return inputs
-
-
-def _component_input_candidates(
-    config: StationAFTANConfig,
-    component: str,
-) -> list[tuple[str, Path, str]]:
-    pattern = _component_sac_pattern(config, component)
-    candidates = [("primary", config.input_dir, pattern)]
-    root_dir = _component_input_root_dir(config)
-    if root_dir is not None and root_dir != config.input_dir:
-        candidates.append(("input_root", root_dir, pattern))
-    return candidates
-
-
-def _component_input_root_dir(config: StationAFTANConfig) -> Path | None:
-    pair_name = _station_pair_name(config.source_station, config.receiver_station)
-    if pair_name is None or config.input_dir.name != pair_name:
-        return None
-    source_dir = config.input_dir.parent
-    if source_dir.name != config.source_station:
-        return None
-    return source_dir.parent
 
 
 def _component_sac_pattern(config: StationAFTANConfig, component: str) -> str:
@@ -229,14 +222,14 @@ def _run_aftan_branch(
     branch_trace: BranchTrace,
     config: StationAFTANConfig,
     *,
-    input_component: str | None = None,
-    checked_component: str | None = None,
+    component: str | None = None,
     component_note: str = "",
 ) -> AFTANResult:
     branch_config, physical_component = _aftan_config_for_branch(
         config,
         branch_trace.name,
-        input_component,
+        component,
+        component_note=component_note,
     )
     physical_source_station, physical_receiver_station = _physical_station_pair(
         config,
@@ -276,7 +269,7 @@ def _run_aftan_branch(
     measured = measurement.measure()
     qc = _period_qc(measured)
     phase_warning = phase_constant_warning(
-        checked_component,
+        component,
         branch_config.pi_over_4,
         component_note=component_note,
     )
@@ -295,6 +288,8 @@ def _run_aftan_branch(
             branch_trace.name,
             branch_config,
             stage="basic",
+            component=component,
+            component_note=component_note,
             phase_warning=phase_warning,
             taper_attrs=measurement.time_taper_attrs(),
             cycle_attrs=_phase_cycle_metadata(measured),
@@ -365,6 +360,8 @@ def _run_aftan_branch(
                 branch_trace.name,
                 branch_config,
                 stage="pmf",
+                component=component,
+                component_note=component_note,
                 phase_warning=phase_warning,
                 taper_attrs=measurement.time_taper_attrs(),
                 cycle_attrs=_phase_cycle_metadata(pmf_measured),
@@ -424,7 +421,7 @@ def _run_aftan_branch(
         alpha_mode=measurement.basic_alpha_mode,
         qc=qc,
         warnings=warnings,
-        input_component=input_component,
+        input_component=component,
         physical_component=physical_component,
         stored_source_station=config.source_station or config.station,
         stored_receiver_station=config.receiver_station,
@@ -466,25 +463,37 @@ def _run_aftan_branch(
 def _aftan_config_for_branch(
     config: StationAFTANConfig,
     branch: str,
-    input_component: str | None,
+    component: str | None,
+    *,
+    component_note: str = "",
 ):
-    if input_component is not None and branch == "stack":
-        reciprocal_component = reciprocal_zrt_component(input_component)
-        if reciprocal_component != input_component:
+    """Branch config with ``pi_over_4`` resolved, and the physical component label.
+
+    Auto mode takes the constant of the *stored* component on every branch
+    (`seisforge.ant.aftan.phase`); it stops when the component is unknown
+    instead of assuming ZZ.
+    """
+    if component is not None and branch == "stack":
+        reciprocal_component = reciprocal_zrt_component(component)
+        if reciprocal_component != component:
             raise ValueError(
                 "AFTAN stack branch is not defined for asymmetric component "
-                f"{input_component}; measure positive/negative separately."
+                f"{component}; measure positive/negative separately."
             )
 
     physical_component = None
     pi_over_4 = config.aftan.pi_over_4
-    if input_component is not None:
+    if component is not None:
+        physical_component = physical_component_for_branch(component, branch)
         if config.aftan.pi_over_4_mode == "auto":
-            physical_component, pi_over_4 = automatic_pi_over_4(input_component, branch)
-        else:
-            physical_component = physical_component_for_branch(input_component, branch)
+            pi_over_4 = rayleigh_pi_over_4(component)
     elif config.aftan.pi_over_4_mode == "auto":
-        raise ValueError("aftan.pi_over_4 auto mode requires an explicit component.")
+        raise ValueError(
+            "aftan.pi_over_4 auto mode needs the stored component of each file "
+            f"({component_note or 'not found'}). Put the ZRT code in SAC kcmpnm "
+            "or in the file name (e.g. *_ZZ.SAC), set component in a pair "
+            "config, or set aftan.pi_over_4 to a number (manual mode; -1 for ZZ)."
+        )
 
     return replace(config.aftan, pi_over_4=pi_over_4), physical_component
 
@@ -495,6 +504,8 @@ def _dat_metadata(
     branch_config,
     *,
     stage: str,
+    component: str | None = None,
+    component_note: str = "",
     phase_warning: str | None = None,
     taper_attrs: dict[str, object] | None = None,
     cycle_attrs: dict[str, object] | None = None,
@@ -505,6 +516,9 @@ def _dat_metadata(
         "selected_branch": branch,
         "pi_over_4": branch_config.pi_over_4,
         "pi_over_4_mode": branch_config.pi_over_4_mode,
+        "stored_component": (
+            f"{component} ({component_note})" if component is not None else "unknown"
+        ),
     }
     if stage == "pmf":
         metadata["pmf_clean_window"] = branch_config.pmf.clean_window
@@ -542,6 +556,8 @@ def _start_log(config: StationAFTANConfig) -> list[str]:
         f"sac_pattern: {config.sac_pattern}",
         f"output_dir: {config.output_dir}",
         f"requested_branch: {config.aftan.branch}",
+        f"pi_over_4: {config.aftan.pi_over_4_mode}"
+        + ("" if config.aftan.pi_over_4_mode == "auto" else f" {config.aftan.pi_over_4:g}"),
         "output_naming: preserve_input_station_pair_component",
         f"debug: {config.aftan.debug}",
         f"snr_output: {_snr_column_name(config.aftan.snr)}",

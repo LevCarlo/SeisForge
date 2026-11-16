@@ -1,4 +1,4 @@
-"""Figure rotation_geometry.png: station geometry and the R/T axes of the package.
+"""Figure rotation_geometry.png: station geometry and the R/T axes of the package (Lin et al. 2008).
 
 The R and T unit vectors are not typed in by hand: they are read off
 `seisforge.ant.rotation.rotate_zne_ccf_to_zrt` by rotating unit CCFs (for
@@ -49,7 +49,7 @@ ax.text(*(A + 2.0 * x_hat + 1.6 * offset), "propagation of the\npositive-lag arr
         fontsize=8, ha="left", va="top")
 
 for name, p, dxy in (("A: virtual source\n(1st letter)", A, (0.2, -0.15)),
-                     ("B: receiver\n(2nd letter)", B, (0.25, 0.75))):
+                     ("B: receiver\n(2nd letter)", B, (-2.0, 0.9))):
     ax.plot(*p, marker="^", ms=11, color="k")
     ax.text(p[0] + dxy[0], p[1] + dxy[1], name, ha="left", va="top", fontsize=8)
     ax.add_patch(FancyArrowPatch(p, p + [0, 1.2], arrowstyle="-|>", mutation_scale=10, color="0.3"))
@@ -76,8 +76,12 @@ ax.set_ylim(-2.2, 4.6)
 ax.set_xlabel("east (arbitrary units)")
 ax.set_ylabel("north (arbitrary units)")
 ax.set_title(r"rotate_zne_ccf_to_zrt: $\theta$ = azimuth at A, $\psi$ = back azimuth at B"
-             "\nboth radial axes point from B towards A; $\\hat T = \\hat R$ turned 90° clockwise")
+             "\nboth radial axes point from A towards B (Lin et al. 2008, Fig. 2);"
+             "\n$\\hat T = \\hat R$ turned 90° clockwise")
 _style.save(fig, __file__)
 
-# Consistency with the docstring of rotate_zrt_ccf_to_zne (flat Earth: R_A = R_B, T_A = T_B).
+# Consistency with seisforge.ant.rotation (flat Earth: R_A = R_B = x_hat, T_A = T_B).
 assert np.allclose(R_A, R_B) and np.allclose(T_A, T_B)
+assert np.allclose(R_A, x_hat)
+# Clockwise by 90 deg in map view (x east, y north): (x, y) -> (y, -x).
+assert np.allclose(T_A, [x_hat[1], -x_hat[0]])

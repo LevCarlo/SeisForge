@@ -1,7 +1,25 @@
-"""Post-pick phase-cycle inspection and explicit manual overrides."""
+"""Preview or apply a manual global 2 pi cycle shift to saved AFTAN outputs.
+
+A stand-alone tool, not part of the SeisForge package or CLI. Run from
+anywhere with SeisForge installed:
+
+    python tools/aftan_cycle_set.py PAIR.vph.nc --shift N            # preview only
+    python tools/aftan_cycle_set.py PAIR.vph.nc --shift N --in-place --reason "..."
+
+Without ``--in-place`` no file is changed. With it, the phase map (written by
+``aftan.energy_map.phase_velocity``) and its companion ``.dat`` are rewritten:
+the new branch is always rebuilt from ``picked_phase_velocity_uncorrected``
+(so repeated overrides do not accumulate), the automatic curve and
+diagnostics are kept as ``*_automatic`` variables, and the shift, UTC time and
+reason are recorded. The formulas are the package's
+`seisforge.ant.aftan.core.apply_phase_cycle_shift` and
+`phase_cycle_reference_misfit`; the ``.dat`` column formats are those of
+`seisforge.ant.aftan.io`.
+"""
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,8 +27,8 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
-from .core import apply_phase_cycle_shift, phase_cycle_reference_misfit
-from .io import (
+from seisforge.ant.aftan.core import apply_phase_cycle_shift, phase_cycle_reference_misfit
+from seisforge.ant.aftan.io import (
     _AFTAN_DAT_DEBUG_FORMATS,
     _AFTAN_DAT_DELIMITER,
     _AFTAN_DAT_MAIN_FORMATS,
@@ -265,3 +283,53 @@ def _atomic_write_netcdf(dataset: xr.Dataset, path: Path) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Recompute phase velocity from the uncorrected curve stored in one "
+            "AFTAN .vph.nc file. By default this is a read-only preview; pass "
+            "--in-place to update the phase map and companion .dat file."
+        )
+    )
+    parser.add_argument("phase_map", help="AFTAN phase map ending in .vph.nc (basic or PMF).")
+    parser.add_argument(
+        "--shift", type=int, required=True,
+        help="Absolute global integer cycle shift relative to the uncorrected curve.",
+    )
+    parser.add_argument("--dat-file", default=None, help="Companion .dat file; inferred from the phase-map name.")
+    parser.add_argument(
+        "--phase-map-only", action="store_true",
+        help="Update only the phase-map NetCDF and do not require a .dat file.",
+    )
+    parser.add_argument("--reason", default=None, help="Short reason stored with an in-place override.")
+    parser.add_argument(
+        "--in-place", action="store_true",
+        help="Apply the override; without this flag nothing is written.",
+    )
+    args = parser.parse_args(argv)
+    result = override_phase_cycle(
+        args.phase_map,
+        args.shift,
+        dat_file=args.dat_file,
+        phase_map_only=args.phase_map_only,
+        write=args.in_place,
+        reason=args.reason,
+    )
+    action = "updated" if result.written else "preview"
+    print(
+        f"{action}: shift {result.previous_shift:+d} -> {result.requested_shift:+d}; "
+        f"reference misfit={result.reference_misfit:.4f}; "
+        f"vph={result.phase_velocity_min_km_s:.4f}-{result.phase_velocity_max_km_s:.4f} km/s"
+    )
+    print(f"phase_map: {result.phase_map}")
+    if result.dat_file is not None:
+        print(f"dat_file: {result.dat_file}")
+    if not result.written:
+        print("No files were changed. Add --in-place to apply this override.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
