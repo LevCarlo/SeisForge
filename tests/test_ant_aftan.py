@@ -185,12 +185,16 @@ def test_build_station_aftan_config_accepts_station_pair_component_list(tmp_path
     assert built.aftan.pi_over_4_mode == "auto"
 
 
-def test_automatic_pi_over_4_uses_reciprocal_component_for_negative_branch():
-    assert automatic_pi_over_4("ZR", "positive") == ("ZR", 1.0)
-    assert automatic_pi_over_4("RZ", "positive") == ("RZ", -1.0)
-    assert automatic_pi_over_4("ZR", "negative") == ("RZ", -1.0)
+def test_automatic_pi_over_4_uses_the_stored_component_on_both_branches():
+    # Values from the far-field derivation (docs/aftan_phase_constants.md);
+    # the reciprocal component only labels the negative branch.
+    assert automatic_pi_over_4("ZR", "positive") == ("ZR", -3.0)
+    assert automatic_pi_over_4("RZ", "positive") == ("RZ", 1.0)
+    assert automatic_pi_over_4("ZR", "negative") == ("RZ", -3.0)
     assert automatic_pi_over_4("RZ", "negative") == ("ZR", 1.0)
     assert automatic_pi_over_4("ZZ", "negative") == ("ZZ", -1.0)
+    assert automatic_pi_over_4("ZR", "negative", "legacy") == ("RZ", 1.0)
+    assert automatic_pi_over_4("RZ", "positive", "legacy") == ("RZ", -3.0)
     assert physical_branch_for_branch("negative") == "positive"
     assert physical_station_pair_for_branch("WT.2001", "WT.2085", "negative") == (
         "WT.2085",
@@ -476,7 +480,7 @@ def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
     assert by_component["ZR"].physical_source_station == "WT.2085"
     assert by_component["ZR"].physical_receiver_station == "WT.2001"
     assert by_component["ZR"].physical_branch == "positive"
-    assert by_component["ZR"].pi_over_4 == -1.0
+    assert by_component["ZR"].pi_over_4 == -3.0  # stored ZR, lin2008 assumed
     assert by_component["RZ"].physical_component == "ZR"
     assert by_component["RZ"].pi_over_4 == 1.0
     assert by_component["ZR"].output_dat.name == "WT.2001_WT.2085_ZR_pws.negative.dat"
@@ -485,8 +489,9 @@ def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
     assert "components: ZR,RZ" in log_text
     assert "stored_pair=WT.2001_WT.2085->WT.2085_WT.2001" in log_text
     assert "branch=negative->positive" in log_text
-    assert "component=ZR->RZ, pi_over_4=-1 (auto)" in log_text
+    assert "component=ZR->RZ, pi_over_4=-3 (auto), radial_convention=lin2008 (assumed_default)" in log_text
     assert "component=RZ->ZR, pi_over_4=1 (auto)" in log_text
+    assert "R/T axis convention not recorded" in log_text
     zr_dat_text = by_component["ZR"].output_dat.read_text()
     assert "# input_file: WT.2001_WT.2085_ZR_pws.SAC" in zr_dat_text
     assert "# input_component:" not in zr_dat_text
@@ -494,8 +499,10 @@ def test_run_aftan_config_expands_components_and_logs_auto_phase(tmp_path):
     assert "# stored_source_station:" not in zr_dat_text
     assert "# physical_source_station:" not in zr_dat_text
     assert "# physical_component:" not in zr_dat_text
-    assert "# pi_over_4: -1.0" in zr_dat_text
+    assert "# pi_over_4: -3.0" in zr_dat_text
     assert "# pi_over_4_mode: auto" in zr_dat_text
+    assert "# stored_component: ZR (config)" in zr_dat_text
+    assert "# radial_convention: lin2008 (assumed_default)" in zr_dat_text
 
 
 def test_run_aftan_config_falls_back_to_flat_input_root(tmp_path):

@@ -23,7 +23,7 @@ from .models import (
     AFTANTimeTaperConfig,
     StationAFTANConfig,
 )
-from .phase import normalize_component
+from .phase import RADIAL_CONVENTION_MODES, normalize_component
 from .taper import TIME_TAPER_MODES
 
 
@@ -124,7 +124,6 @@ def build_station_aftan_config(
                 config.get("short_distance_period_guard"),
                 aftan_config,
             ),
-            default_auto_pi_over_4=bool(components),
         ),
         source_station=source_station,
         receiver_station=receiver_station,
@@ -139,7 +138,6 @@ def _build_aftan_config(
     *,
     phase_cycle_selection: AFTANPhaseCycleConfig | None = None,
     short_distance_guard: AFTANShortDistanceGuardConfig | None = None,
-    default_auto_pi_over_4: bool = False,
 ) -> AFTANConfig:
     basic = config.get("basic", {})
     pmf = config.get("pmf", {})
@@ -151,10 +149,7 @@ def _build_aftan_config(
     branch = str(config.get("branch", "")).lower()
     if branch not in _BRANCHES:
         raise ValueError(f"aftan.branch must be one of {sorted(_BRANCHES)}.")
-    pi_over_4, pi_over_4_mode = _build_pi_over_4_config(
-        config,
-        default_auto=default_auto_pi_over_4,
-    )
+    pi_over_4, pi_over_4_mode = _build_pi_over_4_config(config)
     aftan = AFTANConfig(
         debug=bool(config.get("debug", False)),
         min_period=float(config.get("min_period", 0.5)),
@@ -166,6 +161,7 @@ def _build_aftan_config(
         velocity_max=float(velocity_window.get("max", config.get("velocity_max", 5.5))),
         pi_over_4=pi_over_4,
         pi_over_4_mode=pi_over_4_mode,
+        radial_convention=str(config.get("radial_convention", "auto")).strip().lower(),
         branch=branch,
         prediction_file=(
             _resolve_path(prediction_file, base_path) if prediction_file else None
@@ -270,6 +266,10 @@ def _validate_aftan_config(config: AFTANConfig) -> None:
         raise ValueError("aftan.qc.min_valid_fraction must be between 0 and 1.")
     if config.pi_over_4_mode not in _PI_OVER_4_MODES:
         raise ValueError(f"aftan.pi_over_4.mode must be one of {sorted(_PI_OVER_4_MODES)}.")
+    if config.radial_convention not in RADIAL_CONVENTION_MODES:
+        raise ValueError(
+            f"aftan.radial_convention must be one of {list(RADIAL_CONVENTION_MODES)}."
+        )
 
 
 def _build_short_distance_guard_config(
@@ -322,14 +322,12 @@ def _build_phase_cycle_selection_config(
     )
 
 
-def _build_pi_over_4_config(
-    config: dict[str, Any],
-    *,
-    default_auto: bool,
-) -> tuple[float, str]:
+def _build_pi_over_4_config(config: dict[str, Any]) -> tuple[float, str]:
+    # Default auto in both run modes: the constant is looked up per file from
+    # its stored component (pair config, else SAC kcmpnm / file name).
     value = config.get("pi_over_4")
     if value is None:
-        return -1.0, "auto" if default_auto else "manual"
+        return -1.0, "auto"
     if isinstance(value, dict):
         mode = str(value.get("mode", "auto")).lower()
         if mode not in _PI_OVER_4_MODES:

@@ -19,6 +19,7 @@ from .config import (
 from .core import AFTANMeasurement
 from .io import (
     _component_from_sac,
+    _radial_convention_from_sac,
     _find_sac_files,
     _read_yaml,
     _snr_column_name,
@@ -26,12 +27,13 @@ from .io import (
 )
 from .models import AFTANResult, BranchTrace, StationAFTANConfig
 from .phase import (
-    automatic_pi_over_4,
     phase_constant_warning,
     physical_branch_for_branch,
     physical_component_for_branch,
     physical_station_pair_for_branch,
+    rayleigh_pi_over_4,
     reciprocal_zrt_component,
+    resolve_radial_convention,
 )
 from .plot import _write_aftan_summary_plot
 from .qc import (
@@ -93,10 +95,19 @@ def run_aftan_file(
     *,
     input_component: str | None = None,
 ) -> list[AFTANResult]:
-    """Measure dispersion for one SAC file."""
+    """Measure dispersion for one SAC file.
+
+    The stored component is ``input_component`` (pair configs) or else read
+    from the file (`_stored_component`); both run modes then choose
+    ``pi_over_4`` by the same rule (`_aftan_config_for_branch`).
+    """
     path = Path(path)
     trace = read(str(path))[0]
-    checked_component, component_note = _component_for_check(path, trace, input_component)
+    component, component_note = _stored_component(path, trace, input_component)
+    radial_convention, convention_source = resolve_radial_convention(
+        config.aftan.radial_convention,
+        _radial_convention_from_sac(trace),
+    )
     branch_traces = _prepare_branch_traces(trace, config.aftan.branch)
 
     results = []
@@ -106,26 +117,41 @@ def run_aftan_file(
                 path,
                 branch_trace,
                 config,
-                input_component=input_component,
-                checked_component=checked_component,
+                component=component,
                 component_note=component_note,
+                radial_convention=radial_convention,
+                convention_source=convention_source,
             )
         )
     return results
 
 
-def _component_for_check(
+def _stored_component(
     path: Path,
     trace,
     input_component: str | None,
 ) -> tuple[str | None, str]:
-    """Stored component used only for `phase_constant_warning`, never to measure."""
-    if input_component is not None:
-        return input_component, "config"
+    """Stored ZRT component of a CCF file and where it came from.
+
+    Pair mode: the configured component, which must not contradict a ZRT
+    code in SAC ``kcmpnm`` or the file name. Station mode: SAC ``kcmpnm``,
+    else the one ZRT code in the file name (`_component_from_sac`); None with
+    the reason when neither gives one.
+    """
     try:
-        return _component_from_sac(path, trace)
-    except ValueError as exc:
+        found, how = _component_from_sac(path, trace)
+    except ValueError as exc:  # SAC kcmpnm and file name disagree
+        if input_component is not None:
+            raise ValueError(f"configured component {input_component}, but {exc}") from exc
         return None, str(exc)
+    if input_component is not None:
+        if found is not None and found != input_component:
+            raise ValueError(
+                f"{path.name}: configured component {input_component} but the "
+                f"file says {found} ({how})."
+            )
+        return input_component, "config"
+    return found, how
 
 
 def _find_component_inputs(config: StationAFTANConfig) -> list[tuple[Path, str | None]]:
@@ -229,14 +255,17 @@ def _run_aftan_branch(
     branch_trace: BranchTrace,
     config: StationAFTANConfig,
     *,
-    input_component: str | None = None,
-    checked_component: str | None = None,
+    component: str | None = None,
     component_note: str = "",
+    radial_convention: str = "lin2008",
+    convention_source: str = "assumed_default",
 ) -> AFTANResult:
     branch_config, physical_component = _aftan_config_for_branch(
         config,
         branch_trace.name,
-        input_component,
+        component,
+        radial_convention=radial_convention,
+        component_note=component_note,
     )
     physical_source_station, physical_receiver_station = _physical_station_pair(
         config,
@@ -276,8 +305,10 @@ def _run_aftan_branch(
     measured = measurement.measure()
     qc = _period_qc(measured)
     phase_warning = phase_constant_warning(
-        checked_component,
+        component,
         branch_config.pi_over_4,
+        radial_convention=radial_convention,
+        convention_source=convention_source,
         component_note=component_note,
     )
     phase_warnings = (phase_warning,) if phase_warning else ()
@@ -295,6 +326,10 @@ def _run_aftan_branch(
             branch_trace.name,
             branch_config,
             stage="basic",
+            component=component,
+            component_note=component_note,
+            radial_convention=radial_convention,
+            convention_source=convention_source,
             phase_warning=phase_warning,
             taper_attrs=measurement.time_taper_attrs(),
             cycle_attrs=_phase_cycle_metadata(measured),
@@ -365,6 +400,10 @@ def _run_aftan_branch(
                 branch_trace.name,
                 branch_config,
                 stage="pmf",
+                component=component,
+                component_note=component_note,
+                radial_convention=radial_convention,
+                convention_source=convention_source,
                 phase_warning=phase_warning,
                 taper_attrs=measurement.time_taper_attrs(),
                 cycle_attrs=_phase_cycle_metadata(pmf_measured),
@@ -424,7 +463,7 @@ def _run_aftan_branch(
         alpha_mode=measurement.basic_alpha_mode,
         qc=qc,
         warnings=warnings,
-        input_component=input_component,
+        input_component=component,
         physical_component=physical_component,
         stored_source_station=config.source_station or config.station,
         stored_receiver_station=config.receiver_station,
@@ -433,6 +472,8 @@ def _run_aftan_branch(
         physical_branch=physical_branch,
         pi_over_4=branch_config.pi_over_4,
         pi_over_4_mode=branch_config.pi_over_4_mode,
+        radial_convention=radial_convention,
+        radial_convention_source=convention_source,
         output_npz=None,
         pmf_alpha=measurement.pmf_alpha if branch_config.pmf.enabled else None,
         pmf_alpha_mode=(
@@ -466,25 +507,38 @@ def _run_aftan_branch(
 def _aftan_config_for_branch(
     config: StationAFTANConfig,
     branch: str,
-    input_component: str | None,
+    component: str | None,
+    *,
+    radial_convention: str = "lin2008",
+    component_note: str = "",
 ):
-    if input_component is not None and branch == "stack":
-        reciprocal_component = reciprocal_zrt_component(input_component)
-        if reciprocal_component != input_component:
+    """Branch config with ``pi_over_4`` resolved, and the physical component label.
+
+    Auto mode takes the constant of the *stored* component on every branch
+    (`seisforge.ant.aftan.phase`); it stops when the component is unknown
+    instead of assuming ZZ.
+    """
+    if component is not None and branch == "stack":
+        reciprocal_component = reciprocal_zrt_component(component)
+        if reciprocal_component != component:
             raise ValueError(
                 "AFTAN stack branch is not defined for asymmetric component "
-                f"{input_component}; measure positive/negative separately."
+                f"{component}; measure positive/negative separately."
             )
 
     physical_component = None
     pi_over_4 = config.aftan.pi_over_4
-    if input_component is not None:
+    if component is not None:
+        physical_component = physical_component_for_branch(component, branch)
         if config.aftan.pi_over_4_mode == "auto":
-            physical_component, pi_over_4 = automatic_pi_over_4(input_component, branch)
-        else:
-            physical_component = physical_component_for_branch(input_component, branch)
+            pi_over_4 = rayleigh_pi_over_4(component, radial_convention)
     elif config.aftan.pi_over_4_mode == "auto":
-        raise ValueError("aftan.pi_over_4 auto mode requires an explicit component.")
+        raise ValueError(
+            "aftan.pi_over_4 auto mode needs the stored component of each file "
+            f"({component_note or 'not found'}). Put the ZRT code in SAC kcmpnm "
+            "or in the file name (e.g. *_ZZ.SAC), set component in a pair "
+            "config, or set aftan.pi_over_4 to a number (manual mode; -1 for ZZ)."
+        )
 
     return replace(config.aftan, pi_over_4=pi_over_4), physical_component
 
@@ -495,6 +549,10 @@ def _dat_metadata(
     branch_config,
     *,
     stage: str,
+    component: str | None = None,
+    component_note: str = "",
+    radial_convention: str | None = None,
+    convention_source: str | None = None,
     phase_warning: str | None = None,
     taper_attrs: dict[str, object] | None = None,
     cycle_attrs: dict[str, object] | None = None,
@@ -505,6 +563,12 @@ def _dat_metadata(
         "selected_branch": branch,
         "pi_over_4": branch_config.pi_over_4,
         "pi_over_4_mode": branch_config.pi_over_4_mode,
+        "stored_component": (
+            f"{component} ({component_note})" if component is not None else "unknown"
+        ),
+        "radial_convention": (
+            f"{radial_convention} ({convention_source})" if radial_convention else None
+        ),
     }
     if stage == "pmf":
         metadata["pmf_clean_window"] = branch_config.pmf.clean_window
@@ -542,6 +606,9 @@ def _start_log(config: StationAFTANConfig) -> list[str]:
         f"sac_pattern: {config.sac_pattern}",
         f"output_dir: {config.output_dir}",
         f"requested_branch: {config.aftan.branch}",
+        f"pi_over_4: {config.aftan.pi_over_4_mode}"
+        + ("" if config.aftan.pi_over_4_mode == "auto" else f" {config.aftan.pi_over_4:g}"),
+        f"radial_convention: {config.aftan.radial_convention}",
         "output_naming: preserve_input_station_pair_component",
         f"debug: {config.aftan.debug}",
         f"snr_output: {_snr_column_name(config.aftan.snr)}",
@@ -561,6 +628,8 @@ def _result_log_lines(result: AFTANResult) -> list[str]:
             f"->{result.physical_component or 'unspecified'}, "
             f"pi_over_4={_optional_float(result.pi_over_4)} "
             f"({result.pi_over_4_mode or 'manual'}), "
+            f"radial_convention={result.radial_convention} "
+            f"({result.radial_convention_source}), "
             f"alpha={result.alpha:.6g} ({result.alpha_mode}), "
             f"period_grid={_period_range(result.target_period)}, "
             f"retained={result.qc['qc_retained_period_count']}/"

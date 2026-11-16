@@ -30,6 +30,7 @@ from .phase import (
     physical_branch_for_branch,
     physical_component_for_branch,
     physical_station_pair_for_branch,
+    resolve_radial_convention,
 )
 
 __all__ = [
@@ -60,4 +61,5 @@ __all__ = [
     "physical_branch_for_branch",
     "physical_component_for_branch",
     "physical_station_pair_for_branch",
+    "resolve_radial_convention",
 ]

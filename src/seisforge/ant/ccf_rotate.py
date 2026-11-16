@@ -1,4 +1,10 @@
-"""File workflow for rotating ambient-noise cross-correlation functions."""
+"""File workflow for rotating ambient-noise cross-correlation functions.
+
+The R/T axis convention (``radial_convention``, default ``lin2008``; see
+`seisforge.ant.rotation`) is written into ``rotate_ccf.log`` and into SAC
+``kuser0`` of every output file, so that AFTAN can choose the ZR/RZ phase
+constants for it.
+"""
 
 from __future__ import annotations
 
@@ -13,9 +19,12 @@ from typing import Any
 import yaml
 
 from seisforge.ant.rotation import (
+    DEFAULT_RADIAL_CONVENTION,
+    RADIAL_CONVENTION_SAC_HEADER,
     ZRT_COMPONENTS,
     required_zne_components,
     rotate_zne_ccf_to_zrt,
+    validate_radial_convention,
 )
 from seisforge.provenance import software_provenance
 
@@ -37,6 +46,7 @@ class RotateCCFJob:
     degrees: bool = True
     overwrite: bool = False
     name: str | None = None
+    radial_convention: str = DEFAULT_RADIAL_CONVENTION
 
 
 @dataclass(frozen=True)
@@ -144,6 +154,7 @@ def rotate_ccf_job(job: RotateCCFJob) -> RotateCCFResult:
             back_azimuth=back_azimuth,
             components=job.obj_components,
             degrees=job.degrees,
+            radial_convention=job.radial_convention,
         )
 
         written = {}
@@ -162,7 +173,7 @@ def rotate_ccf_job(job: RotateCCFJob) -> RotateCCFResult:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_trace = traces[source_component].copy()
             output_trace.data = data
-            _set_component_header(output_trace, component)
+            _set_component_header(output_trace, component, job.radial_convention)
             output_trace.write(str(output_path), format="SAC")
             log_lines.append(f"wrote {component}: {output_path}")
             written[component] = output_path
@@ -196,6 +207,7 @@ def _collect_defaults(config: dict[str, Any]) -> dict[str, Any]:
         "degrees",
         "overwrite",
         "name",
+        "radial_convention",
     ):
         if key in config:
             params[key] = config[key]
@@ -248,6 +260,9 @@ def _make_job(params: dict[str, Any], base_dir: Path | None) -> RotateCCFJob:
         degrees=bool(params.get("degrees", True)),
         overwrite=bool(params.get("overwrite", False)),
         name=params.get("name", pair_name),
+        radial_convention=validate_radial_convention(
+            params.get("radial_convention", DEFAULT_RADIAL_CONVENTION)
+        ),
     )
 
 
@@ -536,6 +551,8 @@ def _start_log(job: RotateCCFJob) -> list[str]:
         f"output_template: {job.output_template or '<preserve input naming>'}",
         f"obj_components: {','.join(job.obj_components)}",
         f"overwrite: {job.overwrite}",
+        f"radial_convention: {job.radial_convention} "
+        f"(SAC {RADIAL_CONVENTION_SAC_HEADER})",
         *(f"{key}: {value}" for key, value in software_provenance().items()),
     ]
     return lines
@@ -547,7 +564,9 @@ def _append_log(path: Path, lines: list[str]) -> None:
         file.write("\n")
 
 
-def _set_component_header(trace, component: str) -> None:
+def _set_component_header(trace, component: str, radial_convention: str) -> None:
     trace.stats.channel = component
     if hasattr(trace.stats, "sac"):
         trace.stats.sac.kcmpnm = component
+        # Overwrites any kuser0 copied from the input ZNE file (8 characters max).
+        trace.stats.sac[RADIAL_CONVENTION_SAC_HEADER] = radial_convention

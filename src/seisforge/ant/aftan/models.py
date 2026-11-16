@@ -126,6 +126,9 @@ class AFTANConfig:
     velocity_max: float = 5.5
     pi_over_4: float = -1.0
     pi_over_4_mode: str = "manual"
+    # R/T axis convention of the input ZR/RZ files: auto (SAC kuser0, else
+    # lin2008), lin2008 or legacy (seisforge.ant.rotation).
+    radial_convention: str = "auto"
     branch: str = "positive"
     prediction_file: Path | None = None
     basic: AFTANBasicConfig = field(
@@ -189,6 +192,8 @@ class AFTANResult:
     physical_branch: str | None = None
     pi_over_4: float | None = None
     pi_over_4_mode: str | None = None
+    radial_convention: str | None = None
+    radial_convention_source: str | None = None
     output_npz: Path | None = None
     pmf_alpha: float | None = None
     pmf_alpha_mode: str | None = None

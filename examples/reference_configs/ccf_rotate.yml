@@ -16,6 +16,12 @@ rotation:
   obj_components: [ZZ, ZR, ZT, RZ, RR, RT, TZ, TR, TT]
   degrees: true
   overwrite: false
+  # R/T axis directions. lin2008 (default): R points from the source station
+  # towards the receiver at both stations (Lin et al. 2008, Fig. 2), T is R
+  # turned 90 degrees clockwise. legacy: SeisForge before the change, R and T
+  # reversed, so ZR, RZ, ZT, TZ have the opposite sign (RR, RT, TR, TT, ZZ
+  # unchanged). Written to SAC kuser0 and rotate_ccf.log.
+  radial_convention: lin2008
 
 # By default, azimuth/back_azimuth are inferred from SAC headers.
 # The workflow reads az/baz first, then computes them from coordinates when

@@ -101,15 +101,65 @@ def test_run_rotate_ccf_config_writes_requested_sac_outputs(tmp_path):
     assert "specified in config or CLI; skip SAC HEADER" in log_text
     from obspy import read
 
-    np.testing.assert_allclose(
-        read(str(output_dir / "S1_S2_ZR_pws.SAC"))[0].data,
-        [1.0, 2.0],
-    )
+    # lin2008 with azimuth = back azimuth = 0: receiver R = -N, T = -E.
+    zr = read(str(output_dir / "S1_S2_ZR_pws.SAC"))[0]
+    np.testing.assert_allclose(zr.data, [-1.0, -2.0])
     np.testing.assert_allclose(
         read(str(output_dir / "S1_S2_ZT_pws.SAC"))[0].data,
-        [3.0, 4.0],
+        [-3.0, -4.0],
     )
+    assert zr.stats.sac.kuser0.strip() == "lin2008"
+    assert "radial_convention: lin2008 (SAC kuser0)" in log_text
     assert not (output_dir / "S1_S2_ZR_ls.SAC").exists()
+
+
+def test_run_rotate_ccf_config_legacy_convention_restores_old_signs(tmp_path):
+    from obspy import read
+
+    input_dir = tmp_path / "CC_ZNE" / "S1" / "S1_S2"
+    _write_sac(input_dir / "S1_S2_ZN.SAC", [1.0, 2.0])
+    _write_sac(input_dir / "S1_S2_ZE.SAC", [3.0, 4.0])
+    config_file = tmp_path / "rotate.yml"
+    config_file.write_text(
+        "\n".join(
+            [
+                "io:",
+                "  root_datadir: CC_ZNE",
+                "  output_root_datadir: CC_ZRT",
+                "  source_station: S1",
+                "  receiver_station: S2",
+                "  input_template: '*_{component}.SAC'",
+                "rotation:",
+                "  obj_components: [ZR]",
+                "  radial_convention: legacy",
+                "azimuth: 0.0",
+                "back_azimuth: 0.0",
+            ]
+        )
+    )
+    (result,) = run_rotate_ccf_config(config_file)
+    zr = read(str(result.written["ZR"]))[0]
+    np.testing.assert_allclose(zr.data, [1.0, 2.0])  # old code: ZR = cos(baz) ZN + sin(baz) ZE
+    assert zr.stats.sac.kuser0.strip() == "legacy"
+    assert "radial_convention: legacy" in result.log_file.read_text()
+
+
+def test_rotate_ccf_rejects_an_unknown_radial_convention(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="radial_convention"):
+        build_rotate_ccf_jobs(
+            {
+                "io": {
+                    "root_datadir": "in",
+                    "output_root_datadir": "out",
+                    "source_station": "S1",
+                    "receiver_station": "S2",
+                },
+                "rotation": {"radial_convention": "aki"},
+            },
+            base_dir=tmp_path,
+        )
 
 
 def test_run_rotate_ccf_config_prefers_sac_az_baz_headers(tmp_path):
@@ -140,11 +190,11 @@ def test_run_rotate_ccf_config_prefers_sac_az_baz_headers(tmp_path):
     output_dir = tmp_path / "CC_ZRT" / "S1" / "S1_S2"
     np.testing.assert_allclose(
         read(str(output_dir / "S1_S2_ZR_pws.SAC"))[0].data,
-        [1.0, 2.0],
+        [-1.0, -2.0],
     )
     np.testing.assert_allclose(
         read(str(output_dir / "S1_S2_ZT_pws.SAC"))[0].data,
-        [3.0, 4.0],
+        [-3.0, -4.0],
     )
     assert "source=SAC headers az/baz" in result.log_file.read_text()
     assert "SAC HEADER az/baz: success" in result.log_file.read_text()
@@ -185,11 +235,11 @@ def test_run_rotate_ccf_config_infers_azimuths_from_sac_headers(tmp_path, assert
     output_dir = tmp_path / "CC_ZRT" / "S1" / "S1_S2"
     np.testing.assert_allclose(
         read(str(output_dir / "S1_S2_ZR_pws.SAC"))[0].data,
-        [-1.0, -2.0],
+        [1.0, 2.0],  # azimuth 0, back azimuth 180: receiver R = +N (towards B's far side)
     )
     np.testing.assert_allclose(
         read(str(output_dir / "S1_S2_ZT_pws.SAC"))[0].data,
-        [-3.0, -4.0],
+        [3.0, 4.0],  # receiver T = +E
     )
     log_text = (output_dir / "rotate_ccf.log").read_text()
     assert "azimuth/back_azimuth: not fully specified" in log_text
@@ -295,3 +345,18 @@ def test_run_rotate_ccf_config_does_not_read_offdiagonal_from_reciprocal_pair(tm
 
     with pytest.raises(FileNotFoundError, match="required input component 'ZN'"):
         run_rotate_ccf_config(config_file)
+
+
+def test_radial_convention_cli_override_reaches_the_job(tmp_path):
+    config = {
+        "io": {
+            "root_datadir": "in",
+            "output_root_datadir": "out",
+            "source_station": "S1",
+            "receiver_station": "S2",
+        },
+    }
+    (default,) = build_rotate_ccf_jobs(config, base_dir=tmp_path)
+    (legacy,) = build_rotate_ccf_jobs(config, base_dir=tmp_path, radial_convention="legacy")
+    assert default.radial_convention == "lin2008"
+    assert legacy.radial_convention == "legacy"

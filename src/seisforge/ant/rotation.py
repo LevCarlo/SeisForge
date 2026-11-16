@@ -1,5 +1,62 @@
+"""Rotation of nine-component ambient-noise CCFs between ZNE and ZRT.
+
+Conventions
+-----------
+- CCF component ``ab``: first letter = component at the virtual-source station
+  A, second letter = component at the receiver station B
+  (``C_ab(t) = sum_tau u_a^A(tau) u_b^B(tau + t)``; positive lag is
+  propagation A -> B).
+- Angles: ``theta`` = azimuth from A to B, ``psi`` = back azimuth (from B to
+  A), clockwise from north. Unit vectors are written as (N, E).
+- Radial/transverse axes, ``radial_convention="lin2008"`` (default): at *both*
+  stations R points from A towards B (along the propagation of the positive
+  lag) and T is R turned 90 degrees clockwise (seen from above), as drawn in
+  Fig. 2 of Lin, Moschetti & Ritzwoller (2008):
+
+      source A:   R = ( cos theta,  sin theta),  T = (-sin theta,  cos theta)
+      receiver B: R = (-cos psi,   -sin psi),    T = ( sin psi,   -cos psi)
+
+  In matrix form ``C_ZRT = M_s C_ZNE M_r^T`` with
+  ``M_s = [[1,0,0],[0,cos theta,sin theta],[0,-sin theta,cos theta]]`` and
+  ``M_r = [[1,0,0],[0,-cos psi,-sin psi],[0,sin psi,-cos psi]]``.
+  The coefficients of TT, RR, TR and RT agree with Lin et al. (2008), eq. 1.
+- ``radial_convention="legacy"``: the convention of SeisForge before the
+  change (CHANGELOG, "Changed results"): R and T reversed at both stations
+  (R points from B towards A). RR, RT, TR, TT are the same in both
+  conventions (two sign flips); ZR, RZ, ZT and TZ change sign. ZZ never
+  changes. Kept so that older results can be reproduced.
+
+`seisforge ant rotate-ccf` writes the convention used into SAC ``kuser0``
+(`RADIAL_CONVENTION_SAC_HEADER`), so that AFTAN can pick the right phase
+constants for ZR/RZ.
+
+Reference: Lin, F.-C., Moschetti, M. P., Ritzwoller, M. H. (2008). Surface
+wave tomography of the western United States from ambient seismic noise:
+Rayleigh and Love wave phase velocity maps. Geophys. J. Int. 173, 281-298,
+doi:10.1111/j.1365-246X.2008.03720.x.
+"""
+
 import numpy as np
 
+__all__ = [
+    "CONVENTION_DEPENDENT_COMPONENTS",
+    "DEFAULT_RADIAL_CONVENTION",
+    "RADIAL_CONVENTIONS",
+    "RADIAL_CONVENTION_SAC_HEADER",
+    "REQUIRED_ZNE_BY_ZRT_COMPONENT",
+    "ZRT_COMPONENTS",
+    "horizontal_axes",
+    "required_zne_components",
+    "rotate_zne_ccf_to_zrt",
+    "rotate_zrt_ccf_to_zne",
+    "validate_radial_convention",
+]
+
+RADIAL_CONVENTIONS = ("lin2008", "legacy")
+DEFAULT_RADIAL_CONVENTION = "lin2008"
+RADIAL_CONVENTION_SAC_HEADER = "kuser0"
+# Components whose sign depends on the radial convention (one R or T axis).
+CONVENTION_DEPENDENT_COMPONENTS = frozenset({"ZR", "RZ", "ZT", "TZ"})
 
 ZRT_COMPONENTS = ("ZZ", "ZR", "ZT", "RZ", "RR", "RT", "TZ", "TR", "TT")
 
@@ -16,6 +73,36 @@ REQUIRED_ZNE_BY_ZRT_COMPONENT = {
 }
 _ZRT_COMPONENTS = ZRT_COMPONENTS
 _REQUIRED_BY_COMPONENT = REQUIRED_ZNE_BY_ZRT_COMPONENT
+
+
+def validate_radial_convention(radial_convention: str) -> str:
+    """Return the normalized radial convention name or raise ValueError."""
+    normalized = str(radial_convention).strip().lower()
+    if normalized not in RADIAL_CONVENTIONS:
+        raise ValueError(
+            f"radial_convention must be one of {RADIAL_CONVENTIONS}; got {radial_convention!r}."
+        )
+    return normalized
+
+
+def horizontal_axes(azimuth, back_azimuth, radial_convention=DEFAULT_RADIAL_CONVENTION, degrees=True):
+    """Unit vectors (N, E) of R and T at the source and receiver stations.
+
+    Returns ``(source, receiver)``, each ``{"R": (n, e), "T": (n, e)}``; see the
+    module docstring for the conventions.
+    """
+    sign = 1.0 if validate_radial_convention(radial_convention) == "lin2008" else -1.0
+    theta = np.deg2rad(azimuth) if degrees else azimuth
+    psi = np.deg2rad(back_azimuth) if degrees else back_azimuth
+    source = {
+        "R": (sign * np.cos(theta), sign * np.sin(theta)),
+        "T": (-sign * np.sin(theta), sign * np.cos(theta)),
+    }
+    receiver = {
+        "R": (-sign * np.cos(psi), -sign * np.sin(psi)),
+        "T": (sign * np.sin(psi), -sign * np.cos(psi)),
+    }
+    return source, receiver
 
 
 def required_zne_components(components=None):
@@ -48,6 +135,7 @@ def rotate_zne_ccf_to_zrt(
     components=None,
     degrees=True,
     check=True,
+    radial_convention=DEFAULT_RADIAL_CONVENTION,
 ):
     """Rotate nine-component cross-correlation functions from ZNE to ZRT.
 
@@ -55,7 +143,7 @@ def rotate_zne_ccf_to_zrt(
     the virtual-source station component and the second letter denoting the
     receiver-station component. For example, ``NZ`` means the correlation
     between the N component at the virtual-source station and the Z component
-    at the receiver station.
+    at the receiver station. Axis conventions are in the module docstring.
 
     Parameters
     ----------
@@ -79,12 +167,19 @@ def rotate_zne_ccf_to_zrt(
     check : bool, optional
         If True, check missing input components and shape consistency among the
         input components required for the requested outputs.
+    radial_convention : {"lin2008", "legacy"}, optional
+        Direction of the R and T axes (module docstring). ``"lin2008"``
+        (default): R along the propagation A -> B at both stations, as in
+        Lin et al. (2008), Fig. 2. ``"legacy"``: the pre-change SeisForge
+        convention (R and T reversed); ZR, RZ, ZT, TZ change sign, the other
+        components are bit for bit the same.
 
     Returns
     -------
     rotated_ccf : dict
         Rotated cross-correlation functions in the ZRT coordinate system.
     """
+    radial_convention = validate_radial_convention(radial_convention)
     if components is None:
         components = ZRT_COMPONENTS
     else:
@@ -122,21 +217,25 @@ def rotate_zne_ccf_to_zrt(
 
     rotated_ccf = {}
 
+    # lin2008 axes (module docstring): source R = (cth, sth), T = (-sth, cth);
+    # receiver R = (-cps, -sps), T = (sps, -cps).
     if "ZZ" in components:
         rotated_ccf["ZZ"] = np.asarray(ccf["ZZ"])
 
     if "ZR" in components:
-        rotated_ccf["ZR"] = cps * np.asarray(ccf["ZN"]) + sps * np.asarray(ccf["ZE"])
+        rotated_ccf["ZR"] = -cps * np.asarray(ccf["ZN"]) - sps * np.asarray(ccf["ZE"])
 
     if "ZT" in components:
-        rotated_ccf["ZT"] = -sps * np.asarray(ccf["ZN"]) + cps * np.asarray(ccf["ZE"])
+        rotated_ccf["ZT"] = sps * np.asarray(ccf["ZN"]) - cps * np.asarray(ccf["ZE"])
 
     if "RZ" in components:
-        rotated_ccf["RZ"] = -cth * np.asarray(ccf["NZ"]) - sth * np.asarray(ccf["EZ"])
+        rotated_ccf["RZ"] = cth * np.asarray(ccf["NZ"]) + sth * np.asarray(ccf["EZ"])
 
     if "TZ" in components:
-        rotated_ccf["TZ"] = sth * np.asarray(ccf["NZ"]) - cth * np.asarray(ccf["EZ"])
+        rotated_ccf["TZ"] = -sth * np.asarray(ccf["NZ"]) + cth * np.asarray(ccf["EZ"])
 
+    # Two axes each: the same expressions (and floating-point operations) in
+    # both conventions.
     if "RR" in components:
         rotated_ccf["RR"] = (
             -cth * cps * np.asarray(ccf["NN"])
@@ -169,32 +268,40 @@ def rotate_zne_ccf_to_zrt(
             - cth * cps * np.asarray(ccf["EE"])
         )
 
+    if radial_convention == "legacy":
+        # Negation is exact in floating point, so these equal the old
+        # formulas bit for bit.
+        for comp in CONVENTION_DEPENDENT_COMPONENTS.intersection(rotated_ccf):
+            rotated_ccf[comp] = -rotated_ccf[comp]
+
     return rotated_ccf
 
 
-def rotate_zrt_ccf_to_zne(ccf, azimuth, back_azimuth, degrees=True):
+def rotate_zrt_ccf_to_zne(
+    ccf,
+    azimuth,
+    back_azimuth,
+    degrees=True,
+    radial_convention=DEFAULT_RADIAL_CONVENTION,
+):
     """Rotate nine-component CCFs from ZRT back to ZNE (inverse of `rotate_zne_ccf_to_zrt`).
 
-    Same conventions as `rotate_zne_ccf_to_zrt`: the first letter is the
-    virtual-source component, the second the receiver component. With
-    theta = azimuth and psi = back azimuth, the unit vectors in (N, E) are
-
-        source:   R = (-cos theta, -sin theta),  T = (sin theta, -cos theta)
-        receiver: R = (cos psi, sin psi),        T = (-sin psi, cos psi)
-
-    (read off the forward rotation). Both bases are orthonormal, so the
-    inverse is the transpose: ``C_ij = sum_ab S_a[i] R_b[j] X_ab`` with
-    ``i, j`` in N/E and ``a, b`` in R/T (Z passes through). All nine ZRT
-    components are required; all nine ZNE components are returned. Used to
-    build synthetic ZNE input; checked by a round trip in the tests.
+    Same conventions as `rotate_zne_ccf_to_zrt` (module docstring), including
+    ``radial_convention``; the unit vectors come from `horizontal_axes`. Both
+    bases are orthonormal, so the inverse is the transpose:
+    ``C_ij = sum_ab S_a[i] R_b[j] X_ab`` with ``i, j`` in N/E and ``a, b`` in
+    R/T (Z passes through). All nine ZRT components are required; all nine
+    ZNE components are returned. Used to build synthetic ZNE input; checked
+    by a round trip in the tests.
     """
     missing = [comp for comp in ZRT_COMPONENTS if comp not in ccf]
     if missing:
         raise KeyError(f"Missing ZRT components: {missing}")
-    theta = np.deg2rad(azimuth) if degrees else azimuth
-    psi = np.deg2rad(back_azimuth) if degrees else back_azimuth
-    source = {"Z": None, "R": (-np.cos(theta), -np.sin(theta)), "T": (np.sin(theta), -np.cos(theta))}
-    receiver = {"Z": None, "R": (np.cos(psi), np.sin(psi)), "T": (-np.sin(psi), np.cos(psi))}
+    source_axes, receiver_axes = horizontal_axes(
+        azimuth, back_azimuth, radial_convention, degrees=degrees
+    )
+    source = {"Z": None, **source_axes}
+    receiver = {"Z": None, **receiver_axes}
     horizontal = {"N": 0, "E": 1}
 
     def weight(basis, rotated, physical):
