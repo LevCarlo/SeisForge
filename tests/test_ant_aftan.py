@@ -261,6 +261,35 @@ def test_build_station_aftan_config_rejects_invalid_numeric_parameters(tmp_path)
         build_station_aftan_config(config, base_dir=tmp_path)
 
 
+def _pmf_clean_window_config(clean_window: str | None) -> dict:
+    pmf = {"enabled": True}
+    if clean_window is not None:
+        pmf["clean_window"] = clean_window
+    return {
+        "station": "WT.2001",
+        "io": {"input_dir": "ccf", "output_dir": "ftan"},
+        "aftan": {
+            "branch": "positive",
+            "min_period": 2.0,
+            "max_period": 8.0,
+            "period_sampling": {"mode": "uniform", "step": 0.5},
+            "velocity_window": {"min": 2.0, "max": 4.5},
+            "basic": {"alpha": {"mode": "constant", "value": 18.0}},
+            "pmf": pmf,
+        },
+    }
+
+
+def test_build_station_aftan_config_reads_pmf_clean_window(tmp_path):
+    default = build_station_aftan_config(_pmf_clean_window_config(None), base_dir=tmp_path)
+    legacy = build_station_aftan_config(_pmf_clean_window_config("pyaftan"), base_dir=tmp_path)
+
+    assert default.aftan.pmf.clean_window == "symmetric"
+    assert legacy.aftan.pmf.clean_window == "pyaftan"
+    with pytest.raises(ValueError, match="clean_window"):
+        build_station_aftan_config(_pmf_clean_window_config("left"), base_dir=tmp_path)
+
+
 def test_short_branch_qc_warns_when_retained_fraction_is_small():
     measured = {
         "initial_target_period_count": np.asarray(10),
@@ -1008,6 +1037,7 @@ def test_run_aftan_config_optionally_writes_pmf_outputs(tmp_path, assert_provena
     assert pmf_lines
     assert {len(line.split()) for line in pmf_lines} == {6}
     assert_provenance(result.output_pmf_dat.read_text())
+    assert "# pmf_clean_window: symmetric" in result.output_pmf_dat.read_text()
     assert result.pmf_alpha == 24.0
     assert result.pmf_period_min >= result.period.min()
     assert result.pmf_period_max <= result.period.max()

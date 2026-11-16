@@ -137,3 +137,73 @@ def test_phase_matched_filter_returns_cleaned_trace_with_same_length():
     assert cleaned.shape == data.shape
     assert np.all(np.isfinite(cleaned))
     assert np.max(np.abs(cleaned)) > 0.0
+
+
+def _symmetric_lobed_spectrum(dt: float, npts: int, peak_index: int) -> np.ndarray:
+    """FFT of a complex signal whose envelope is exactly symmetric about ``peak_index``.
+
+    Envelope: a main Gaussian lobe and weaker side lobes at +-15 s and +-30 s,
+    so each side has an inner minimum (> 5 s from the peak, < 0.2 of it) and
+    an outer minimum. The carrier phase is zero at the peak, so the real part
+    is symmetric as well.
+    """
+    lag = (np.arange(npts) - peak_index) * dt
+    envelope = np.exp(-0.5 * (lag / 2.0) ** 2)
+    for offset_s in (15.0, 30.0):
+        envelope += 0.1 * np.exp(-0.5 * ((np.abs(lag) - offset_s) / 2.0) ** 2)
+    return fft(envelope * np.exp(1j * tau * lag / 4.0))
+
+
+def _pmf_for_cleaning(dt: float, **kwargs) -> PhaseMatchedFilter:
+    # Only dt and the cleaning parameters matter for clean_undispersed.
+    return PhaseMatchedFilter(
+        dt=dt,
+        distance_km=100.0,
+        periods=np.array([4.0, 8.0]),
+        group_velocity=np.array([3.0, 3.0]),
+        **kwargs,
+    )
+
+
+def test_pmf_cleaning_window_is_symmetric_for_symmetric_envelope():
+    # Fortran AFTAN tgauss.f sets both outer limits from the symmetrised inner
+    # limits: inner -/+ outer width. A symmetric envelope must give a
+    # symmetric cleaned signal.
+    dt, npts, peak_index = 0.5, 801, 400
+    spectrum = _symmetric_lobed_spectrum(dt, npts, peak_index)
+    signal_data = ifft(spectrum).real
+    cleaned = _pmf_for_cleaning(dt).clean_undispersed(spectrum, npts)
+
+    offsets = np.arange(1, peak_index + 1)
+    # Same samples mirrored; only floating-point rounding of the FFT pair differs.
+    np.testing.assert_allclose(
+        cleaned[peak_index + offsets],
+        cleaned[peak_index - offsets],
+        rtol=0.0,
+        atol=1e-12 * np.max(np.abs(signal_data)),
+    )
+    # The window really cuts something (side lobes are attenuated).
+    assert np.max(np.abs(cleaned[peak_index + 70 :])) < 0.5 * np.max(np.abs(signal_data[peak_index + 70 :]))
+
+
+def test_pmf_cleaning_window_pyaftan_mode_keeps_wider_right_taper():
+    # clean_window="pyaftan" reproduces PyAFTAN (and SeisForge before the
+    # fix): the right outer limit is the old right outer limit plus the outer
+    # width, so the right half-Gaussian is wider than the left one.
+    dt, npts, peak_index = 0.5, 801, 400
+    spectrum = _symmetric_lobed_spectrum(dt, npts, peak_index)
+    signal_data = ifft(spectrum).real
+    cleaned = _pmf_for_cleaning(dt, clean_window="pyaftan").clean_undispersed(spectrum, npts)
+
+    weights = np.divide(cleaned, signal_data, out=np.ones(npts), where=np.abs(signal_data) > 1e-3)
+    offsets = np.arange(40, 120)
+    right = weights[peak_index + offsets]
+    left = weights[peak_index - offsets]
+    keep = np.abs(signal_data[peak_index + offsets]) > 1e-3
+    assert np.all(right[keep] >= left[keep] - 1e-12)
+    assert np.any(right[keep] > left[keep] + 1e-3)
+
+
+def test_pmf_rejects_unknown_clean_window():
+    with np.testing.assert_raises(ValueError):
+        _pmf_for_cleaning(0.5, clean_window="asymmetric")

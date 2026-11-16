@@ -74,6 +74,9 @@ aftan:
     min_half_length: 5.0
     amplitude_ratio: 0.2
     window_factor: 1.0
+    # Cleaning-window limits: symmetric (Fortran AFTAN tgauss.f, default) or
+    # pyaftan (PyAFTAN's wider right taper; SeisForge results before 0.2.0).
+    clean_window: symmetric
   energy_map:
     enabled: false
     plot: false

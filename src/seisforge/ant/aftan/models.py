@@ -47,6 +47,8 @@ class AFTANPMFConfig:
     min_half_length: float = 5.0
     amplitude_ratio: float = 0.2
     window_factor: float = 1.0
+    # "symmetric" (Fortran AFTAN tgauss.f) or "pyaftan" (old SeisForge results).
+    clean_window: str = "symmetric"
 
 
 @dataclass(frozen=True)

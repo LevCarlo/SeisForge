@@ -273,6 +273,11 @@ and in general each R or T letter that changes role contributes a factor
 $-1$. This matters for the negative-lag branch in AFTAN; see the
 [phase-constant analysis](../aftan_phase_constants.md#where-the-current-values-come-from).
 
+For the same reason the rotation never reads a missing component from the
+reciprocal pair BA: even for $ZZ$, $NN$ or $EE$ that file is the
+time-reversed correlation, $C^{BA}_{ii}(t) = C^{AB}_{ii}(-t)$, so it would
+swap the causal and acausal branches. A missing input file is an error.
+
 ## 6. Running it
 
 `seisforge ant rotate-ccf -c config.yml` reads the nine (or fewer) ZNE SAC
