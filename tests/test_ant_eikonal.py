@@ -547,3 +547,124 @@ def test_laplacian_metric_is_validated():
 
     with pytest.raises(ValueError, match="metric"):
         scalar_field_laplacian_per_km2(np.zeros((3, 3)), None, metric="spherical")
+
+
+def _real_pygmt():
+    """PyGMT with a working GMT library, else skip (the gmt extra is optional)."""
+    try:
+        import pygmt
+        from pygmt.clib import Session
+
+        with Session() as session:  # loads the GMT C library
+            session.info
+    except Exception as exc:  # ImportError or GMTCLibNotFoundError
+        pytest.skip(f"PyGMT/GMT not usable: {exc}")
+    return pygmt
+
+
+def _analytic_travel_time_case():
+    """Uniform medium, t = r / c from a source outside an 8 x 7 station array (~40 km apart).
+
+    Returns grid, station lon/lat, station times, exact grid times, the array
+    interior mask (one station spacing inside the outer stations) and c.
+    """
+    from seisforge.ant.eikonal.grid import geodesic_distance_and_azimuth
+
+    grid = build_geographic_grid(
+        GridConfig(
+            longitude_convention="-180_180",
+            min_longitude_deg=110.0,
+            max_longitude_deg=113.0,
+            min_latitude_deg=30.0,
+            max_latitude_deg=32.5,
+            longitude_step_deg=0.1,
+            latitude_step_deg=0.1,
+        )
+    )
+    rng = np.random.default_rng(1)
+    lon, lat = np.meshgrid(np.linspace(110.2, 112.8, 8), np.linspace(30.2, 32.3, 7))
+    lon = lon.ravel() + rng.uniform(-0.05, 0.05, lon.size)
+    lat = lat.ravel() + rng.uniform(-0.05, 0.05, lat.size)
+    velocity = 3.0
+    source = (108.0, 29.0)
+    station_time = geodesic_distance_and_azimuth(*source, lon, lat)[0] / velocity
+    grid_time = (
+        geodesic_distance_and_azimuth(*source, grid.longitude_2d_deg, grid.latitude_2d_deg)[0]
+        / velocity
+    )
+    interior = (
+        (grid.longitude_2d_deg >= 110.6)
+        & (grid.longitude_2d_deg <= 112.4)
+        & (grid.latitude_2d_deg >= 30.6)
+        & (grid.latitude_2d_deg <= 31.9)
+    )
+    return grid, lon, lat, station_time, grid_time, interior, velocity
+
+
+def _eikonal_velocity(field, grid):
+    north, east = travel_time_gradient_s_per_km(field, grid)
+    return 1.0 / apparent_slowness_s_per_km(north, east)
+
+
+def test_gmt_surface_recovers_the_velocity_of_an_analytic_travel_time_field():
+    """Real PyGMT (blockmedian + surface, tension 0 = minimum curvature) on t = r / c.
+
+    Measured inside the array: largest error 0.025 km/s, mean 0.003 km/s, from
+    interpolating a curved wavefront between stations ~40 km apart (the finite
+    differences alone on the exact field give 0.0008 km/s). The limits, 0.05
+    and 0.01 km/s, leave a factor ~2-3 for other GMT versions; a wrong axis
+    orientation or spacing gives errors of order 1 km/s.
+    """
+    _real_pygmt()
+    grid, lon, lat, time, exact, interior, velocity = _analytic_travel_time_case()
+    field = interpolate_travel_time_field(
+        lon, lat, time, grid, InterpolationConfig(method="gmt_surface", tension=0.0)
+    )
+    error = np.abs(_eikonal_velocity(field, grid) - velocity)[interior]
+    assert error.max() < 0.05
+    assert error.mean() < 0.01
+    # Travel times themselves within 0.06 s (measured 0.03 s, 0.3 % of the ~50-100 s times).
+    assert np.abs(field - exact)[interior].max() < 0.06
+
+
+def test_gmt_surface_and_scipy_rbf_agree_inside_the_array():
+    """Both backends on the same data: measured difference at most 0.012 km/s inside
+    the array, each within 0.025 km/s of the truth; 0.03 km/s allows for that."""
+    _real_pygmt()
+    grid, lon, lat, time, _, interior, _ = _analytic_travel_time_case()
+    gmt = interpolate_travel_time_field(
+        lon, lat, time, grid, InterpolationConfig(method="gmt_surface", tension=0.0)
+    )
+    rbf = interpolate_travel_time_field(lon, lat, time, grid, InterpolationConfig())
+    difference = np.abs(_eikonal_velocity(gmt, grid) - _eikonal_velocity(rbf, grid))
+    assert difference[interior].max() < 0.03
+
+
+def test_gmt_surface_grid_has_latitude_rows_and_longitude_columns():
+    """A field that varies differently along latitude and longitude, sampled at
+    the nodes: a transposed or flipped grid would be off by tens of seconds."""
+    _real_pygmt()
+    grid = build_geographic_grid(
+        GridConfig(
+            longitude_convention="-180_180",
+            min_longitude_deg=10.0,
+            max_longitude_deg=11.0,
+            min_latitude_deg=40.0,
+            max_latitude_deg=40.6,
+            longitude_step_deg=0.1,
+            latitude_step_deg=0.1,
+        )
+    )
+
+    def field(lon, lat):
+        return 100.0 * (lon - 10.0) + 30.0 * (lat - 40.0) ** 2 + 5.0
+
+    lon = grid.longitude_2d_deg.ravel()
+    lat = grid.latitude_2d_deg.ravel()
+    result = interpolate_travel_time_field(
+        lon, lat, field(lon, lat), grid,
+        InterpolationConfig(method="gmt_surface", tension=0.0, block_reduce="none"),
+    )
+    # Data on every node: surface must return them (GMT converges to 1e-6 of the range).
+    np.testing.assert_allclose(result, field(grid.longitude_2d_deg, grid.latitude_2d_deg), atol=1e-3)
+    assert result[0, -1] > result[-1, 0]  # east edge (lon 11) > north edge (lat 40.6)

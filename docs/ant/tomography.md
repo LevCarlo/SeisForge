@@ -149,9 +149,19 @@ For one virtual source $s$ at one period $T$:
    equirectangular kilometres: a thin-plate-spline radial basis function
    (SciPy `RBFInterpolator`, default, `smoothing: 0` so the surface passes
    through the data) or GMT `surface`, a minimum-curvature spline in tension
-   (Smith & Wessel 1990). The surface must be smooth enough to
-   differentiate but must not invent structure; this is the main free choice
-   of the method.
+   (Smith & Wessel 1990; `interpolation.method: gmt_surface`, needs PyGMT
+   and GMT). Both pass through the data; the thin-plate spline minimises the
+   bending energy of a surface fitted to scattered points in one global
+   solve, GMT `surface` iterates a minimum-curvature solution on the grid
+   itself, after a block median of the data, and with `tension > 0` relaxes
+   towards a surface with fewer overshoots. Lin, Ritzwoller & Snieder (2009,
+   sec. 3) fitted a minimum-curvature surface on a 0.2° grid, with a second,
+   tensioned fit as a comparison; `gmt_surface` with `tension: 0` is that
+   choice. On an analytic field ($t = r/c$, stations about 40 km apart) the
+   two backends agree to 0.012 km/s inside the array and each is within
+   0.025 km/s of the truth (`tests/test_ant_eikonal.py`). The surface must
+   be smooth enough to differentiate but must not invent structure; this is
+   the main free choice of the method.
 
 4. **Stability check.** The same data are interpolated a second time with
    different smoothing or tension (`comparison_smoothing`, 0.2); cells where
