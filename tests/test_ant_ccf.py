@@ -1,13 +1,14 @@
+"""`seisforge ant rotate-ccf`: one station pair, path templates, angles from config or SAC headers."""
+
 from __future__ import annotations
 
 import numpy as np
-from obspy import Trace
+from obspy import Trace, read
 import pytest
+import yaml
 
-from seisforge.ant.ccf_rotate import (
-    build_rotate_ccf_jobs,
-    run_rotate_ccf_config,
-)
+from seisforge.ant.ccf_rotate import build_rotate_ccf_job, run_rotate_ccf_config
+from seisforge.ant.rotation import interstation_azimuths
 
 
 def _write_sac(path, data, sac=None):
@@ -19,280 +20,111 @@ def _write_sac(path, data, sac=None):
     trace.write(str(path), format="SAC")
 
 
-def _base_config(**extra):
+def _config(tmp_path, **rotation):
     config = {
-        "io": {
-            "root_datadir": "CC_ZNE",
-            "output_root_datadir": "CC_ZRT",
-            "source_station": "WT.2001",
-            "receiver_station": "WT.2100",
-            "input_template": "*_{component}_pws.SAC",
-        },
-        "rotation": {"obj_components": "ZR,ZT"},
-        "azimuth": 0.0,
-        "back_azimuth": 0.0,
+        "io": {"input_template": "in/S1_S2_{component}_pws.SAC", "output_template": "out/S1_S2_{component}.SAC"},
+        "rotation": {"components": ["ZR", "ZT"], **rotation},
     }
-    for key, value in extra.items():
-        config[key] = value
-    return config
+    path = tmp_path / "rotate.yml"
+    path.write_text(yaml.safe_dump(config))
+    return path
 
 
-def test_build_rotate_ccf_jobs_resolves_station_pair_paths(tmp_path):
-    job = build_rotate_ccf_jobs(_base_config(), base_dir=tmp_path)[0]
+def test_writes_requested_components_with_configured_angles(tmp_path, assert_provenance):
+    _write_sac(tmp_path / "in" / "S1_S2_ZN_pws.SAC", [1.0, 2.0])
+    _write_sac(tmp_path / "in" / "S1_S2_ZE_pws.SAC", [3.0, 4.0])
+    _write_sac(tmp_path / "in" / "S1_S2_ZN_ls.SAC", [10.0, 20.0])  # other stack product: not read
 
-    assert job.input_dir == tmp_path / "CC_ZNE" / "WT.2001" / "WT.2001_WT.2100"
-    assert job.output_dir == tmp_path / "CC_ZRT" / "WT.2001" / "WT.2001_WT.2100"
-    assert job.input_template == "*_{component}_pws.SAC"
-    assert job.obj_components == ("ZR", "ZT")
-    assert job.name == "WT.2001_WT.2100"
+    result = run_rotate_ccf_config(_config(tmp_path, azimuth=0.0, back_azimuth=0.0))
 
-
-def test_build_rotate_ccf_jobs_allows_header_inferred_azimuths(tmp_path):
-    config = _base_config(azimuth=None, back_azimuth=None)
-    config.pop("azimuth")
-    config.pop("back_azimuth")
-
-    job = build_rotate_ccf_jobs(config, base_dir=tmp_path)[0]
-
-    assert job.azimuth is None
-    assert job.back_azimuth is None
-
-
-def test_build_rotate_ccf_jobs_accepts_components_key(tmp_path):
-    config = _base_config()
-    config["rotation"] = {"components": "ZR,ZT"}
-
-    job = build_rotate_ccf_jobs(config, base_dir=tmp_path)[0]
-
-    assert job.obj_components == ("ZR", "ZT")
-
-
-def test_run_rotate_ccf_config_writes_requested_sac_outputs(tmp_path):
-    input_dir = tmp_path / "CC_ZNE" / "S1" / "S1_S2"
-    _write_sac(input_dir / "S1_S2_ZN_pws.SAC", [1.0, 2.0])
-    _write_sac(input_dir / "S1_S2_ZE_pws.SAC", [3.0, 4.0])
-    _write_sac(input_dir / "S1_S2_ZN_ls.SAC", [10.0, 20.0])
-    config_file = tmp_path / "rotate.yml"
-    config_file.write_text(
-        "\n".join(
-            [
-                "io:",
-                "  root_datadir: CC_ZNE",
-                "  output_root_datadir: CC_ZRT",
-                "  source_station: S1",
-                "  receiver_station: S2",
-                "  input_template: '*_{component}_pws.SAC'",
-                "rotation:",
-                "  obj_components: [ZR, ZT]",
-                "azimuth: 0.0",
-                "back_azimuth: 0.0",
-            ]
-        )
-    )
-
-    results = run_rotate_ccf_config(config_file)
-
-    assert len(results) == 1
-    assert set(results[0].written) == {"ZR", "ZT"}
-    output_dir = tmp_path / "CC_ZRT" / "S1" / "S1_S2"
-    assert results[0].log_file == output_dir / "rotate_ccf.log"
-    log_text = results[0].log_file.read_text()
-    assert "required_input_components inferred from obj_components: ZN,ZE" in log_text
-    assert "specified in config or CLI; skip SAC HEADER" in log_text
-    from obspy import read
-
-    # lin2008 with azimuth = back azimuth = 0: receiver R = -N, T = -E.
-    zr = read(str(output_dir / "S1_S2_ZR_pws.SAC"))[0]
+    assert set(result.written) == {"ZR", "ZT"}
+    assert result.log_file == tmp_path / "out" / "rotate_ccf.log"
+    zr = read(str(tmp_path / "out" / "S1_S2_ZR.SAC"))[0]
+    # azimuth = back azimuth = 0: receiver R = -N, T = -E (Lin et al. 2008 axes).
     np.testing.assert_allclose(zr.data, [-1.0, -2.0])
-    np.testing.assert_allclose(
-        read(str(output_dir / "S1_S2_ZT_pws.SAC"))[0].data,
-        [-3.0, -4.0],
-    )
+    np.testing.assert_allclose(read(str(tmp_path / "out" / "S1_S2_ZT.SAC"))[0].data, [-3.0, -4.0])
+    assert zr.stats.sac.kcmpnm == "ZR"
     assert zr.stats.sac.kuser0.strip() == "lin2008"
-    assert "radial_convention: lin2008 (SAC kuser0)" in log_text
-    assert not (output_dir / "S1_S2_ZR_ls.SAC").exists()
+    log = result.log_file.read_text()
+    assert "source=config or command line" in log
+    assert "radial_convention: lin2008 (SAC kuser0)" in log
+    assert "read ZN:" in log and "read NN:" not in log
+    assert_provenance(log)
 
 
-def test_run_rotate_ccf_config_prefers_sac_az_baz_headers(tmp_path):
-    input_dir = tmp_path / "CC_ZNE" / "S1" / "S1_S2"
-    sac = {"az": 0.0, "baz": 0.0}
-    _write_sac(input_dir / "S1_S2_ZN_pws.SAC", [1.0, 2.0], sac=sac)
-    _write_sac(input_dir / "S1_S2_ZE_pws.SAC", [3.0, 4.0], sac=sac)
-    config_file = tmp_path / "rotate.yml"
-    config_file.write_text(
-        "\n".join(
-            [
-                "io:",
-                "  root_datadir: CC_ZNE",
-                "  output_root_datadir: CC_ZRT",
-                "  source_station: S1",
-                "  receiver_station: S2",
-                "  input_template: '*_{component}_pws.SAC'",
-                "rotation:",
-                "  obj_components: [ZR, ZT]",
-            ]
-        )
-    )
-
-    result = run_rotate_ccf_config(config_file)[0]
-
-    from obspy import read
-
-    output_dir = tmp_path / "CC_ZRT" / "S1" / "S1_S2"
-    np.testing.assert_allclose(
-        read(str(output_dir / "S1_S2_ZR_pws.SAC"))[0].data,
-        [-1.0, -2.0],
-    )
-    np.testing.assert_allclose(
-        read(str(output_dir / "S1_S2_ZT_pws.SAC"))[0].data,
-        [-3.0, -4.0],
-    )
+def test_angles_from_sac_az_baz(tmp_path):
+    # lcalda False: ObsPy would otherwise recompute az/baz from the coordinates on write.
+    sac = {"az": 0.0, "baz": 180.0, "evla": 0.0, "evlo": 0.0, "stla": 0.0, "stlo": 1.0, "lcalda": False}
+    _write_sac(tmp_path / "in" / "S1_S2_ZN_pws.SAC", [1.0, 2.0], sac)
+    _write_sac(tmp_path / "in" / "S1_S2_ZE_pws.SAC", [3.0, 4.0], sac)
+    result = run_rotate_ccf_config(_config(tmp_path))
+    # az/baz win over the coordinates (which would give 90/270).
+    np.testing.assert_allclose(read(str(result.written["ZR"]))[0].data, [1.0, 2.0])
     assert "source=SAC headers az/baz" in result.log_file.read_text()
-    assert "SAC HEADER az/baz: success" in result.log_file.read_text()
-    assert "coordinate fallback: skipped" in result.log_file.read_text()
 
 
-def test_run_rotate_ccf_config_infers_azimuths_from_sac_headers(tmp_path, assert_provenance):
-    input_dir = tmp_path / "CC_ZNE" / "S1" / "S1_S2"
-    sac = {
-        "evla": 0.0,
-        "evlo": 0.0,
-        "stla": 1.0,
-        "stlo": 0.0,
-        "lcalda": False,
-    }
-    _write_sac(input_dir / "S1_S2_ZN_pws.SAC", [1.0, 2.0], sac=sac)
-    _write_sac(input_dir / "S1_S2_ZE_pws.SAC", [3.0, 4.0], sac=sac)
-    config_file = tmp_path / "rotate.yml"
-    config_file.write_text(
-        "\n".join(
-            [
-                "io:",
-                "  root_datadir: CC_ZNE",
-                "  output_root_datadir: CC_ZRT",
-                "  source_station: S1",
-                "  receiver_station: S2",
-                "  input_template: '*_{component}_pws.SAC'",
-                "rotation:",
-                "  obj_components: [ZR, ZT]",
-            ]
-        )
-    )
-
-    run_rotate_ccf_config(config_file)
-
-    from obspy import read
-
-    output_dir = tmp_path / "CC_ZRT" / "S1" / "S1_S2"
-    np.testing.assert_allclose(
-        read(str(output_dir / "S1_S2_ZR_pws.SAC"))[0].data,
-        [1.0, 2.0],  # azimuth 0, back azimuth 180: receiver R = +N (towards B's far side)
-    )
-    np.testing.assert_allclose(
-        read(str(output_dir / "S1_S2_ZT_pws.SAC"))[0].data,
-        [3.0, 4.0],  # receiver T = +E
-    )
-    log_text = (output_dir / "rotate_ccf.log").read_text()
-    assert "azimuth/back_azimuth: not fully specified" in log_text
-    assert "failed to read from SAC HEADER" in log_text
-    assert "coordinate fallback: success" in log_text
-    assert "source=computed from SAC evla/evlo/stla/stlo" in log_text
-    assert_provenance(log_text)
+def test_angles_from_sac_coordinates(tmp_path):
+    sac = {"evla": 0.0, "evlo": 0.0, "stla": 1.0, "stlo": 0.0, "lcalda": False}
+    _write_sac(tmp_path / "in" / "S1_S2_ZN_pws.SAC", [1.0, 2.0], sac)
+    _write_sac(tmp_path / "in" / "S1_S2_ZE_pws.SAC", [3.0, 4.0], sac)
+    result = run_rotate_ccf_config(_config(tmp_path))
+    # Receiver due north of the source: azimuth 0, back azimuth 180, receiver R = +N, T = +E.
+    np.testing.assert_allclose(read(str(result.written["ZR"]))[0].data, [1.0, 2.0])
+    np.testing.assert_allclose(read(str(result.written["ZT"]))[0].data, [3.0, 4.0])
+    assert "azimuth=0, back_azimuth=180, source=computed from SAC evla/evlo/stla/stlo" in result.log_file.read_text()
 
 
-def test_run_rotate_ccf_config_preserves_input_naming_by_replacing_component(tmp_path):
-    input_dir = tmp_path / "CC_ZNE" / "WT.2001" / "WT.2001_WT.2100"
-    name = "WT.2001_WT.2100"
-    inputs = {
-        "ZZ": [0.0, 0.0],
-        "ZN": [1.0, 2.0],
-        "ZE": [3.0, 4.0],
-        "NN": [5.0, 6.0],
-        "NE": [7.0, 8.0],
-        "EN": [9.0, 10.0],
-        "EE": [11.0, 12.0],
-    }
-    for component, data in inputs.items():
-        _write_sac(input_dir / f"{name}_{component}_pws.SAC", data)
-    config_file = tmp_path / "rotate.yml"
-    config_file.write_text(
-        "\n".join(
-            [
-                "io:",
-                "  root_datadir: CC_ZNE",
-                "  output_root_datadir: CC_ZRT",
-                "  source_station: WT.2001",
-                "  receiver_station: WT.2100",
-                "  input_template: '*_{component}_pws.SAC'",
-                "rotation:",
-                "  obj_components: [ZZ, ZR, RR]",
-                "azimuth: 0.0",
-                "back_azimuth: 0.0",
-            ]
-        )
-    )
-
-    result = run_rotate_ccf_config(config_file)[0]
-
-    output_dir = tmp_path / "CC_ZRT" / "WT.2001" / "WT.2001_WT.2100"
-    assert result.written["ZZ"] == output_dir / f"{name}_ZZ_pws.SAC"
-    assert result.written["ZR"] == output_dir / f"{name}_ZR_pws.SAC"
-    assert result.written["RR"] == output_dir / f"{name}_RR_pws.SAC"
-    assert not (output_dir / "ZR.SAC").exists()
+def test_interstation_azimuths_rules():
+    assert interstation_azimuths(az=10.0, baz=190.0, evla=0.0, evlo=0.0, stla=1.0, stlo=0.0)[:2] == (10.0, 190.0)
+    azimuth, back_azimuth, source = interstation_azimuths(evla=0.0, evlo=0.0, stla=0.0, stlo=1.0)
+    assert azimuth == pytest.approx(90.0) and back_azimuth == pytest.approx(270.0)
+    assert source.startswith("computed")
+    with pytest.raises(ValueError, match="az and baz"):
+        interstation_azimuths(az=10.0, evla=0.0)
 
 
-def test_run_rotate_ccf_config_does_not_read_diagonal_from_reciprocal_pair(tmp_path):
-    reciprocal_dir = tmp_path / "CC_ZNE" / "WT.2001" / "WT.2001_WT.2009"
-    reciprocal_name = "WT.2001_WT.2009"
-    for component, data in {
-        "ZZ": [7.0, 7.0],
-        "NN": [8.0, 8.0],
-        "EE": [9.0, 9.0],
-    }.items():
-        _write_sac(reciprocal_dir / f"{reciprocal_name}_{component}_pws.SAC", data)
-
-    config_file = tmp_path / "rotate.yml"
-    config_file.write_text(
-        "\n".join(
-            [
-                "io:",
-                "  root_datadir: CC_ZNE",
-                "  output_root_datadir: CC_ZRT",
-                "  source_station: WT.2009",
-                "  receiver_station: WT.2001",
-                "  input_template: '*_{component}_pws.SAC'",
-                "rotation:",
-                "  obj_components: [ZZ, RR]",
-                "azimuth: 0.0",
-                "back_azimuth: 0.0",
-            ]
-        )
-    )
-
-    with pytest.raises(FileNotFoundError, match="required input component 'ZZ'"):
-        run_rotate_ccf_config(config_file)
+def test_existing_output_is_not_replaced_without_overwrite(tmp_path):
+    _write_sac(tmp_path / "in" / "S1_S2_ZN_pws.SAC", [1.0, 2.0])
+    _write_sac(tmp_path / "in" / "S1_S2_ZE_pws.SAC", [3.0, 4.0])
+    config = _config(tmp_path, azimuth=0.0, back_azimuth=0.0)
+    run_rotate_ccf_config(config)
+    before = (tmp_path / "out" / "S1_S2_ZR.SAC").read_bytes()
+    with pytest.raises(FileExistsError, match="overwrite"):
+        run_rotate_ccf_config(config, azimuth=90.0, back_azimuth=270.0)
+    assert (tmp_path / "out" / "S1_S2_ZR.SAC").read_bytes() == before
+    run_rotate_ccf_config(config, azimuth=90.0, back_azimuth=270.0, overwrite=True)
+    assert (tmp_path / "out" / "S1_S2_ZR.SAC").read_bytes() != before
 
 
-def test_run_rotate_ccf_config_does_not_read_offdiagonal_from_reciprocal_pair(tmp_path):
-    reciprocal_dir = tmp_path / "CC_ZNE" / "WT.2001" / "WT.2001_WT.2009"
-    _write_sac(reciprocal_dir / "WT.2001_WT.2009_ZN_pws.SAC", [1.0, 1.0])
-    config_file = tmp_path / "rotate.yml"
-    config_file.write_text(
-        "\n".join(
-            [
-                "io:",
-                "  root_datadir: CC_ZNE",
-                "  output_root_datadir: CC_ZRT",
-                "  source_station: WT.2009",
-                "  receiver_station: WT.2001",
-                "  input_template: '*_{component}_pws.SAC'",
-                "rotation:",
-                "  obj_components: [ZR]",
-                "azimuth: 0.0",
-                "back_azimuth: 0.0",
-            ]
-        )
-    )
+def test_wildcards_must_match_exactly_one_file(tmp_path):
+    _write_sac(tmp_path / "in" / "S1_S2_ZN_pws.SAC", [1.0, 2.0])
+    _write_sac(tmp_path / "in" / "S1_S2_ZE_pws.SAC", [3.0, 4.0])
+    config = _config(tmp_path, azimuth=0.0, back_azimuth=0.0)
+    result = run_rotate_ccf_config(config, input_template="in/*_{component}_pws.SAC")
+    assert set(result.written) == {"ZR", "ZT"}
+    _write_sac(tmp_path / "in" / "S9_S2_ZN_pws.SAC", [1.0, 2.0])
+    with pytest.raises(FileNotFoundError, match="expected one file"):
+        run_rotate_ccf_config(config, input_template="in/*_{component}_pws.SAC", overwrite=True)
 
-    with pytest.raises(FileNotFoundError, match="required input component 'ZN'"):
-        run_rotate_ccf_config(config_file)
+
+def test_missing_input_is_an_error_naming_the_file(tmp_path):
+    _write_sac(tmp_path / "in" / "S1_S2_ZN_pws.SAC", [1.0, 2.0])
+    with pytest.raises(FileNotFoundError, match="S1_S2_ZE_pws.SAC"):
+        run_rotate_ccf_config(_config(tmp_path, azimuth=0.0, back_azimuth=0.0))
+
+
+@pytest.mark.parametrize(
+    "config, match",
+    [
+        ({"io": {"input_template": "a.SAC", "output_template": "b_{component}.SAC"}}, "input_template"),
+        ({"io": {"input_template": "a_{component}.SAC", "output_template": "b_{component}.SAC"},
+          "rotation": {"azimuth": 10.0}}, "both azimuth and back_azimuth"),
+        ({"io": {"input_template": "a_{component}.SAC", "output_template": "b_{component}.SAC",
+                 "root_datadir": "x"}}, r"unknown keys: io.root_datadir"),
+        ({"io": {"input_template": "a_{component}.SAC", "output_template": "b_{component}.SAC"},
+          "rotation": {"components": ["ZX"]}}, "Invalid components"),
+    ],
+)
+def test_config_errors(config, match, tmp_path):
+    with pytest.raises(ValueError, match=match):
+        build_rotate_ccf_job(config, base_dir=tmp_path)

@@ -9,6 +9,7 @@
         - rotate_zrt_ccf_to_zne
         - required_zne_components
         - horizontal_axes
+        - interstation_azimuths
 
 ## AFTAN
 

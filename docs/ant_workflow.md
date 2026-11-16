@@ -8,81 +8,59 @@
 
 ## Rotate CCFs From ZNE To ZRT
 
-Use the grouped CLI:
-
-```bash
-seisforge ant rotate-ccf -c examples/reference_configs/ccf_rotate.yml
-```
-
-The rotation workflow keeps the numerical rotation in
-`seisforge.ant.rotation.rotate_zne_ccf_to_zrt` and puts file IO in
-`seisforge.ant.ccf_rotate`. The YAML config describes persistent batch
-settings: the CCF root directories, station pair, filename template, output
-components, and overwrite behavior. CLI flags are intended as small run-time
-overrides.
-
-Minimal single-pair config:
+`seisforge ant rotate-ccf` rotates the ZNE SAC cross-correlations of **one
+station pair** to ZRT. The numerical rotation is
+`seisforge.ant.rotation.rotate_zne_ccf_to_zrt`; `seisforge.ant.ccf_rotate`
+only reads and writes the files.
 
 ```yaml
 io:
-  root_datadir: /path/to/CCF_ZNE
-  output_root_datadir: /path/to/CCF_ZRT
-  source_station: NET.STA1
-  receiver_station: NET.STA2
-  input_template: "*_{component}_pws.SAC"
-
-obj_components: [ZZ, ZR, ZT, RZ, RR, RT, TZ, TR, TT]
+  input_template: CCF_ZNE/NET.STA1_NET.STA2_{component}_pws.SAC
+  output_template: CCF_ZRT/NET.STA1_NET.STA2_{component}_pws.SAC
+  overwrite: false
+rotation:
+  components: [ZZ, ZR, ZT, RZ, RR, RT, TZ, TR, TT]   # default: all nine
+  # azimuth: 120.0        # degrees, give both or neither
+  # back_azimuth: 300.0
 ```
 
-SeisForge builds the primary input directory as
-`root_datadir/source_station/source_station_receiver_station` and writes to the
-same station-pair layout under `output_root_datadir`. Select the desired CCF
-stack product directly in `input_template`. For example,
-`input_template: "*_{component}_pws.SAC"` reads only the `pws` CCF products and
-ignores other stack products such as `ls` or `linear`.
+- **Files.** `input_template` is the path of the ZNE files with `{component}`
+  (`ZZ`, `ZN`, ... `EE`); only the files the requested ZRT components need are
+  read (ZR needs ZN and ZE, RR the four horizontal pairs, ...). Shell
+  wildcards are allowed if exactly one file matches each component.
+  `output_template` is the path of the ZRT files with `{component}`. Relative
+  paths are relative to the config file. These are the only config keys
+  besides `components`, `azimuth`, `back_azimuth` and `overwrite`; an unknown
+  key is an error.
+- **Angles.** Azimuth (station 1 to 2) and back azimuth (2 to 1) in degrees:
+  from the config or `--azimuth`/`--back-azimuth` when both are given, else
+  from SAC `az`/`baz` of the first input file, else computed on the WGS84
+  ellipsoid from `evla/evlo` (virtual source) and `stla/stlo` (receiver).
+  The log names the source.
+- **Axes.** R points from the virtual source towards the receiver at both
+  stations, along the propagation, as in Fig. 2 of Lin, Moschetti &
+  Ritzwoller (2008), and T is R turned 90 degrees clockwise. SeisForge
+  before 0.2.0 reversed R and T, so its ZR, RZ, ZT and TZ have the opposite
+  sign (ZZ, RR, RT, TR, TT are bit for bit the same); such files are not
+  recognised and must be rotated again. See
+  [Rotation](ant/rotation.md#relation-to-lin-et-al-2008-and-to-seisforge-before-020).
+- **Outputs.** Each ZRT file keeps the SAC header of its first ZNE input,
+  with `kcmpnm` set to the component and `kuser0` to `lin2008` (a record).
+  Existing files are not replaced unless `io.overwrite: true` or
+  `--overwrite`. `rotate_ccf.log` next to the outputs lists the files read
+  and written, the angles and their source, and the software versions.
+- **Never the reciprocal pair.** A missing input is an error naming the file;
+  the reciprocal correlation B-A cannot stand in for A-B, not even for `ZZ`,
+  because its lags are reversed,
+  $C^{BA}_{ij}(t) = C^{AB}_{ji}(-t)$ (see
+  [Rotation, reversing source and receiver](ant/rotation.md#reversing-source-and-receiver)).
 
-Output filenames preserve the matched input filename by default and replace only
-the component token. For example,
-`NET.STA1_NET.STA2_ZN_pws.SAC` becomes
-`NET.STA1_NET.STA2_ZR_pws.SAC`. This is the default when `output_template` is
-not set. To force a custom output name, set `output_template`; supported fields
-are `{component}`, `{name}`, `{source_component}`, `{source_name}`, and
-`{source_stem}`.
+Many pairs are a loop in your own script, overriding the templates:
 
-R points from the virtual source towards the receiver at both stations,
-along the propagation, as in Fig. 2 of Lin, Moschetti & Ritzwoller (2008),
-and T is R turned 90 degrees clockwise. SeisForge before 0.2.0 reversed R and
-T, so its ZR, RZ, ZT and TZ have the opposite sign (ZZ, RR, RT, TR, TT are bit
-for bit the same); such files are not recognised and must be rotated again.
-`lin2008` is written to `rotate_ccf.log` and SAC `kuser0` as a record. See
-[Rotation](ant/rotation.md#relation-to-lin-et-al-2008-and-to-seisforge-before-020).
-
-By default, azimuth and back azimuth are inferred from SAC headers. The workflow
-first uses `az/baz` when both are present. If they are missing, it computes the
-angles from coordinates, assuming `evla/evlo` describe the virtual-source
-station and `stla/stlo` describe the receiver station. Set `azimuth` and/or
-`back_azimuth` in the YAML or with CLI flags only when the headers are missing
-or need to be overridden.
-
-Each job writes `rotate_ccf.log` into its output directory. The log records the
-input files, output files, resolved angles, whether angles came from config,
-`az/baz`, or coordinate calculation, and any error raised during the job. When
-angles are not specified, the log explicitly records the failed SAC HEADER
-`az/baz` read before coordinate fallback is used.
-
-For multiple station pairs, add `jobs`. Each job inherits the top-level `io`
-and `rotation` defaults and can override stations, filename templates, and
-azimuths.
-
-Requested output ZRT `obj_components` automatically determine which input ZNE
-components are read. The log records this inferred `required_input_components`
-list for each job, so configs do not need a separate input-component list.
-
-For input lookup, SeisForge reads only the source-receiver pair of the job,
-`CC_ZNE/STA1/STA1_STA2`, and raises an error naming the missing file if a
-required component is not there. It never falls back to the reciprocal
-directory `CC_ZNE/STA2/STA2_STA1`, not even for `ZZ`, `NN` or `EE`: the
-reciprocal correlation describes propagation in the opposite direction,
-$C^{BA}_{ij}(t) = C^{AB}_{ji}(-t)$, so its lags are reversed and it cannot
-stand in for the requested file (see
-[Rotation, reversing source and receiver](ant/rotation.md#reversing-source-and-receiver)).
+```bash
+for pair in A_B A_C B_C; do
+  seisforge ant rotate-ccf -c ccf_rotate.yml \
+    --input-template "CCF_ZNE/${pair}_{component}_pws.SAC" \
+    --output-template "CCF_ZRT/${pair}_{component}_pws.SAC"
+done
+```

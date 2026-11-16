@@ -27,7 +27,7 @@ def test_ant_help(capsys):
     assert "eikonal" in output
 
 
-def test_ant_rotate_ccf_help_uses_obj_components(capsys):
+def test_ant_rotate_ccf_help_lists_the_template_options(capsys):
     try:
         main(["ant", "rotate-ccf", "-h"])
     except SystemExit as exc:
@@ -36,7 +36,7 @@ def test_ant_rotate_ccf_help_uses_obj_components(capsys):
         raise AssertionError("rotate-ccf help should exit")
 
     output = capsys.readouterr().out
-    assert "--obj-components" in output
+    assert "--input-template" in output and "--components" in output
 
 
 def test_rf_qc_parser_requires_config():

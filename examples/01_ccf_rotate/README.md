@@ -17,7 +17,8 @@ it. Every config key: `examples/reference_configs/ccf_rotate.yml`.
 | `data/true_zrt.npz` | the truth (only for checking) |
 | `config.yml` | settings |
 
-Folder layout: `<root_datadir>/<source station>/<source>_<receiver>/`. The
+Any folder layout works: `io.input_template` is the path of the input files
+with `{component}` in place of the component. The
 first letter of a component is the virtual-source station's channel, the
 second the receiver's (`NZ` = N at XX.A correlated with Z at XX.B). The
 rotation angles come from SAC headers `az`/`baz`, or are computed from
@@ -65,14 +66,19 @@ Common wrong-looking results:
   RZ, ZT and TZ written by older versions have the opposite sign; rotate
   them again. See
   [the rotation method page](../../docs/ant/rotation.md).
-- **"Failed to resolve required input component"**: a file is missing or
-  `input_template` does not match the file names.
+- **"expected one file for ..."**: a file is missing, or `input_template`
+  does not match the file names (or a wildcard in it matches several).
 
 ## Using your own data
 
-1. `io.root_datadir`: the folder holding `<source>/<source>_<receiver>/`.
-2. `io.source_station`, `io.receiver_station`: the pair. For many pairs use
-   `jobs:` (see the reference config).
-3. `io.input_template`: your file names, with `{component}` where the
-   two-letter component is.
-4. `io.output_root_datadir`: where the ZRT files go.
+1. `io.input_template`: the path of your ZNE files of one pair, with
+   `{component}` where the two-letter component is.
+2. `io.output_template`: where the ZRT files go, with `{component}`.
+3. For many pairs, loop in a shell script and override the templates:
+
+   ```bash
+   for pair in A_B A_C B_C; do
+     seisforge ant rotate-ccf -c config.yml \
+       --input-template "ccf_zne/${pair}_{component}.SAC" --output-template "ccf_zrt/${pair}_{component}.SAC"
+   done
+   ```

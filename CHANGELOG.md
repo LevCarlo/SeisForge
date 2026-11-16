@@ -288,6 +288,26 @@ switch that restores the old behaviour where one exists.
 
 ### Removed
 
+- **`seisforge ant rotate-ccf` handles one station pair, given by path
+  templates.** The config now has only `io.input_template` and
+  `io.output_template` (file paths with `{component}`; wildcards allowed if
+  exactly one file matches), `io.overwrite`, `rotation.components`,
+  `rotation.azimuth`, `rotation.back_azimuth` (degrees, both or neither);
+  unknown keys are an error. Removed keys: `io.root_datadir`,
+  `io.output_root_datadir`, `io.source_station`, `io.receiver_station`,
+  `name`, `jobs` / `job` (batches are a loop in the user's script),
+  `obj_components` (now `components`), `degrees` (angles are always
+  degrees), the output-template fields `{name}`, `{source_component}`,
+  `{source_name}`, `{source_stem}`, and the default output naming that
+  replaced the component token in the input file name. CLI options removed:
+  `--root-datadir`, `--output-root-datadir`, `--source-station`,
+  `--receiver-station`, `--obj-components` (now `--components`),
+  `--radians`. Giving only one of azimuth / back azimuth (and filling the
+  other from the header) is no longer allowed. Angle resolution (config, SAC
+  `az`/`baz`, else `evla/evlo/stla/stlo`) moved to the pure function
+  `seisforge.ant.rotation.interstation_azimuths`; the rotated data and SAC
+  headers of `examples/01_ccf_rotate` are bit for bit unchanged. The
+  reference config shows a shell loop over pairs.
 - **Old AFTAN config key names** (aliases kept from earlier SeisForge
   configs). Only the names of `examples/reference_configs/aftan.yml` are
   read; a removed name stops the run with an error naming the current key

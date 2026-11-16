@@ -1,10 +1,10 @@
-# Rotate nine-component cross-correlations from ZNE to ZRT (R, T along the station path).
-# Every other key and its default: examples/reference_configs/ccf_rotate.yml
+# Rotate the nine ZNE cross-correlations of one station pair to ZRT.
+# Every key and its default: examples/reference_configs/ccf_rotate.yml
 io:
-  root_datadir: data/ccf_zne           # change this: files are read from <root>/<source>/<source>_<receiver>/
-  output_root_datadir: output          # ZRT files go to <output>/<source>/<source>_<receiver>/
-  source_station: XX.A                 # change this: virtual-source station
-  receiver_station: XX.B               # change this: receiver station
-  input_template: "*_{component}.SAC"  # change this: file name; {component} = ZZ, ZN, ... EE
+  # change this: the ZNE files of the pair; {component} = ZZ, ZN, ZE, NZ, ... EE
+  input_template: data/ccf_zne/XX.A/XX.A_XX.B/XX.A_XX.B_{component}.SAC
+  # where the ZRT files go; {component} = ZZ, ZR, ZT, RZ, ... TT
+  output_template: output/XX.A/XX.A_XX.B/XX.A_XX.B_{component}.SAC
 # Azimuth and back azimuth come from the SAC headers (az/baz, or evla/evlo
-# and stla/stlo); set azimuth: and back_azimuth: here only to override them.
+# and stla/stlo); set rotation.azimuth and rotation.back_azimuth only to
+# override them.

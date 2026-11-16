@@ -27,76 +27,30 @@ def _register_rotate_ccf(
 ) -> None:
     parser = subparsers.add_parser(
         "rotate-ccf",
-        help="Rotate CCFs from ZNE to ZRT.",
-        description="Rotate SAC cross-correlation functions from ZNE to ZRT.",
+        help="Rotate the CCFs of one station pair from ZNE to ZRT.",
+        description=(
+            "Rotate the ZNE SAC cross-correlations of one station pair to ZRT. "
+            "Options override the config; loop in a shell script for many pairs."
+        ),
+    )
+    parser.add_argument("-c", "--config-file", required=True, help="rotate-ccf YAML config.")
+    parser.add_argument(
+        "--input-template", default=None,
+        help="Input SAC path with {component}, e.g. 'CCF/A_B_{component}.SAC'.",
     )
     parser.add_argument(
-        "-c",
-        "--config-file",
-        required=True,
-        help="Path to the rotate-ccf YAML configuration file.",
+        "--output-template", default=None,
+        help="Output SAC path with {component}, e.g. 'ZRT/A_B_{component}.SAC'.",
     )
     parser.add_argument(
-        "--root-datadir",
-        default=None,
-        help="Override ZNE CCF root data directory.",
+        "--components", default=None, help="Comma-separated ZRT components, e.g. ZZ,ZR,RR."
+    )
+    parser.add_argument("--azimuth", type=float, default=None, help="Azimuth A->B in degrees.")
+    parser.add_argument(
+        "--back-azimuth", type=float, default=None, help="Back azimuth B->A in degrees."
     )
     parser.add_argument(
-        "--output-root-datadir",
-        default=None,
-        help="Override ZRT CCF output root data directory.",
-    )
-    parser.add_argument(
-        "--source-station",
-        default=None,
-        help="Override source station code.",
-    )
-    parser.add_argument(
-        "--receiver-station",
-        default=None,
-        help="Override receiver station code.",
-    )
-    parser.add_argument(
-        "--input-template",
-        default=None,
-        help="Override input template, e.g. '{component}.SAC'.",
-    )
-    parser.add_argument(
-        "--output-template",
-        default=None,
-        help="Override output template, e.g. '{source_stem}_rot.SAC'.",
-    )
-    parser.add_argument(
-        "--obj-components",
-        "--components",
-        dest="obj_components",
-        default=None,
-        help="Comma-separated output ZRT components, e.g. ZR,ZT,RR.",
-    )
-    parser.add_argument(
-        "--azimuth",
-        type=float,
-        default=None,
-        help="Override interstation azimuth.",
-    )
-    parser.add_argument(
-        "--back-azimuth",
-        type=float,
-        default=None,
-        help="Override interstation back azimuth.",
-    )
-    parser.add_argument(
-        "--radians",
-        dest="degrees",
-        action="store_false",
-        default=None,
-        help="Interpret azimuths as radians instead of degrees.",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        default=None,
-        help="Allow replacing existing output SAC files.",
+        "--overwrite", action="store_true", default=None, help="Replace existing output files."
     )
     parser.set_defaults(func=_run_rotate_ccf)
 
@@ -161,23 +115,16 @@ def _register_eikonal(
 def _run_rotate_ccf(args: argparse.Namespace) -> int:
     from seisforge.ant.ccf_rotate import run_rotate_ccf_config
 
-    results = run_rotate_ccf_config(
+    result = run_rotate_ccf_config(
         args.config_file,
-        root_datadir=args.root_datadir,
-        output_root_datadir=args.output_root_datadir,
-        source_station=args.source_station,
-        receiver_station=args.receiver_station,
         input_template=args.input_template,
         output_template=args.output_template,
-        obj_components=args.obj_components,
+        components=args.components,
         azimuth=args.azimuth,
         back_azimuth=args.back_azimuth,
-        degrees=args.degrees,
         overwrite=args.overwrite,
     )
-    for result in results:
-        label = result.job.name or str(result.job.input_dir)
-        print(f"{label}: wrote {len(result.written)} rotated CCF files")
+    print(f"wrote {len(result.written)} rotated CCF files; log: {result.log_file}")
     return 0
 
 

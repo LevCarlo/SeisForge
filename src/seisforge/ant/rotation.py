@@ -40,6 +40,7 @@ __all__ = [
     "RADIAL_CONVENTION_SAC_HEADER",
     "REQUIRED_ZNE_BY_ZRT_COMPONENT",
     "ZRT_COMPONENTS",
+    "interstation_azimuths",
     "horizontal_axes",
     "required_zne_components",
     "rotate_zne_ccf_to_zrt",
@@ -65,6 +66,36 @@ REQUIRED_ZNE_BY_ZRT_COMPONENT = {
 }
 _ZRT_COMPONENTS = ZRT_COMPONENTS
 _REQUIRED_BY_COMPONENT = REQUIRED_ZNE_BY_ZRT_COMPONENT
+
+
+def interstation_azimuths(
+    *,
+    az=None,
+    baz=None,
+    evla=None,
+    evlo=None,
+    stla=None,
+    stlo=None,
+):
+    """Azimuth (A to B) and back azimuth (B to A) in degrees, and where they came from.
+
+    ``az``/``baz`` (SAC header convention) are used when both are given;
+    otherwise they are computed on the WGS84 ellipsoid from the virtual
+    source ``evla/evlo`` and the receiver ``stla/stlo`` (degrees) with
+    `obspy.geodetics.gps2dist_azimuth`. Missing values are None. Returns
+    ``(azimuth, back_azimuth, source)``; raises ValueError when neither set
+    is complete.
+    """
+    if az is not None and baz is not None:
+        return float(az), float(baz), "SAC headers az/baz"
+    if None in (evla, evlo, stla, stlo):
+        raise ValueError(
+            "azimuth/back_azimuth need SAC az and baz, or evla, evlo, stla and stlo."
+        )
+    from obspy.geodetics.base import gps2dist_azimuth
+
+    _, azimuth, back_azimuth = gps2dist_azimuth(evla, evlo, stla, stlo)
+    return azimuth, back_azimuth, "computed from SAC evla/evlo/stla/stlo"
 
 
 def horizontal_axes(azimuth, back_azimuth, degrees=True):

@@ -296,10 +296,12 @@ swap the causal and acausal branches. A missing input file is an error.
 
 ## 6. Running it
 
-`seisforge ant rotate-ccf -c config.yml` reads the nine (or fewer) ZNE SAC
-files of each pair, resolves the angles as described in §1, and writes ZRT
-SAC files plus `rotate_ccf.log`. The configuration keys and file layout are
-on the [previous page](../ant_workflow.md) until they are moved here.
+`seisforge ant rotate-ccf -c config.yml` reads the ZNE SAC files of one
+station pair (an input path template with `{component}`), resolves the angles
+as described in §1, and writes the ZRT SAC files (an output path template)
+plus `rotate_ccf.log`. Several pairs are a loop in a shell script. The
+configuration keys are on the [previous page](../ant_workflow.md) until they
+are moved here.
 
 ## References
 
