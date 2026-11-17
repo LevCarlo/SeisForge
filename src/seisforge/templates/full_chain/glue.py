@@ -99,7 +99,7 @@ def measurements() -> None:
             "receiver_longitude_deg": ("path", coordinate(1, 0)),
             "receiver_latitude_deg": ("path", coordinate(1, 1)),
         },
-        # The attributes the Eikonal reader requires (docs/eikonal_workflow.md).
+        # The attributes the Eikonal reader requires (docs/ant/tomography.md, section 7).
         attrs={"schema_version": 1, "component": "ZZ", "longitude_convention": "-180_180"},
     )
     dataset.to_netcdf(MEASUREMENTS, engine="h5netcdf")

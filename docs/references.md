@@ -6,11 +6,11 @@ Publications and software whose methods SeisForge implements or follows.
 
 | reference | used in |
 |---|---|
-| Levshin, A. L., Pisarenko, V. F., & Pogrebinsky, G. A. (1972). On a frequency-time analysis of oscillations. *Annales de Géophysique*, 28, 211-218. | [AFTAN](aftan_workflow.md): frequency-time analysis |
-| Levshin, A. L., & Ritzwoller, M. H. (2001). Automated detection, extraction, and measurement of regional surface waves. *Pure and Applied Geophysics*, 158, 1531-1545. | [AFTAN](aftan_workflow.md): phase-matched filter |
-| Bensen, G. D., Ritzwoller, M. H., Barmin, M. P., Levshin, A. L., Lin, F., Moschetti, M. P., Shapiro, N. M., & Yang, Y. (2007). Processing seismic ambient noise data to obtain reliable broad-band surface wave dispersion measurements. *Geophysical Journal International*, 169, 1239-1260. | [AFTAN](aftan_workflow.md): SNR windows |
-| Lin, F.-C., Ritzwoller, M. H., & Snieder, R. (2009). Eikonal tomography: surface wave tomography by phase front tracking across a regional broad-band seismic array. *Geophysical Journal International*, 177, 1091-1110. | [Eikonal tomography](eikonal_workflow.md) |
-| Lin, F.-C., & Ritzwoller, M. H. (2011). Helmholtz surface wave tomography for isotropic and azimuthally anisotropic structure. *Geophysical Journal International*, 186, 1104-1120. | [Helmholtz correction](eikonal_workflow.md#helmholtz-amplitude-correction) |
+| Levshin, A. L., Pisarenko, V. F., & Pogrebinsky, G. A. (1972). On a frequency-time analysis of oscillations. *Annales de Géophysique*, 28, 211-218. | [AFTAN](ant/dispersion.md): frequency-time analysis |
+| Levshin, A. L., & Ritzwoller, M. H. (2001). Automated detection, extraction, and measurement of regional surface waves. *Pure and Applied Geophysics*, 158, 1531-1545. | [AFTAN](ant/dispersion.md#5-phase-matched-filtering): phase-matched filter |
+| Bensen, G. D., Ritzwoller, M. H., Barmin, M. P., Levshin, A. L., Lin, F., Moschetti, M. P., Shapiro, N. M., & Yang, Y. (2007). Processing seismic ambient noise data to obtain reliable broad-band surface wave dispersion measurements. *Geophysical Journal International*, 169, 1239-1260. | [AFTAN](ant/dispersion.md#3-picking-a-continuous-dispersion-curve): SNR windows |
+| Lin, F.-C., Ritzwoller, M. H., & Snieder, R. (2009). Eikonal tomography: surface wave tomography by phase front tracking across a regional broad-band seismic array. *Geophysical Journal International*, 177, 1091-1110. | [Eikonal tomography](ant/tomography.md) |
+| Lin, F.-C., & Ritzwoller, M. H. (2011). Helmholtz surface wave tomography for isotropic and azimuthally anisotropic structure. *Geophysical Journal International*, 186, 1104-1120. | [Helmholtz correction](ant/tomography.md#2-the-helmholtz-correction) |
 
 ## Receiver functions
 
@@ -51,5 +51,5 @@ Publications and software whose methods SeisForge implements or follows.
 |---|---|
 | [disba](https://github.com/keurfonluu/disba) (K. Luu), a numba port of Herrmann's Computer Programs in Seismology surface-wave codes | dispersion and ellipticity forward models |
 | [HV-DFA](https://github.com/agarcia-jerez/HV-DFA) | optional H/V reference solver |
-| Fortran AFTAN and PyAFTAN | reference implementations for AFTAN ([alignment notes](aftan_workflow.md#alignment-with-aftan-and-pyaftan)) |
+| Fortran AFTAN and PyAFTAN | reference implementations for AFTAN ([AFTAN](ant/dispersion.md)) |
 | PyGRT | independent check of the synthetic receiver functions |

@@ -16,7 +16,7 @@ the array. No noise is added: the example checks the tomography alone
 
 Outputs (in `--out`, default `examples/03_eikonal/data`):
 `measurements.nc`, the Eikonal input dataset (format:
-docs/eikonal_workflow.md; written with `seisforge.ant.eikonal.io.write_netcdf`),
+docs/ant/tomography.md; written with `seisforge.ant.eikonal.io.write_netcdf`),
 and `true_phase_velocity.dat`.
 Existing files are kept unless `--overwrite` is given.
 """

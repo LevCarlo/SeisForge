@@ -29,9 +29,9 @@ Commands are grouped by workflow; most take a YAML config:
 
 | Command | Purpose | Guide |
 |---|---|---|
-| `seisforge ant rotate-ccf -c ccf_rotate.yml` | rotate ZNE CCFs to ZRT | [CCF rotation](ant_workflow.md) |
-| `seisforge ant aftan -c aftan_station.yml` | AFTAN dispersion picks | [AFTAN](aftan_workflow.md) |
-| `seisforge ant eikonal -c eikonal.yml` | Eikonal/Helmholtz phase-velocity maps | [Eikonal](eikonal_workflow.md) |
+| `seisforge ant rotate-ccf -c ccf_rotate.yml` | rotate ZNE CCFs to ZRT | [CCF rotation](ant/rotation.md#3-usage) |
+| `seisforge ant aftan -c aftan_station.yml` | AFTAN dispersion picks | [AFTAN](ant/dispersion.md#7-usage) |
+| `seisforge ant eikonal -c eikonal.yml` | Eikonal/Helmholtz phase-velocity maps | [Eikonal](ant/tomography.md#7-usage) |
 | `seisforge rf qc -c rf_qc.yml --plot` | RF quality control | [Receiver functions](rf_workflow.md) |
 | `seisforge rf hkseq -c hkseq.yml --mode both --plot` | sequential H-k stacking | [Receiver functions](rf_workflow.md#sequential-h-k-config) |
 | `seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run` | single-station MCMC inversion | [Inversion](inv_getting_started.md) |

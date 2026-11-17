@@ -8,6 +8,9 @@ site_dir: site
 docs_dir: docs
 dev_addr: 127.0.0.1:8000
 strict: true
+# LaTeX snippets written by docs/ant/scripts/*.py and included into pages.
+exclude_docs: |
+  ant/generated/
 validation:
   links:
     not_found: warn
@@ -46,15 +49,9 @@ nav:
   - Conventions: conventions.md
   - Ambient noise:
       - Overview: ant/index.md
-      - Rotation of multi-component CCFs: ant/rotation.md
-      - "Rotation: executable derivation": ant/scripts/rotation_derivation.py
-      - Dispersion measurement: ant/dispersion.md
+      - "Multi-component CCFs: ZNE → ZRT": ant/rotation.md
+      - "AFTAN: FTAN and PMF": ant/dispersion.md
       - Eikonal and Helmholtz tomography: ant/tomography.md
-      - Previous pages (to be migrated):
-          - CCF rotation and filters: ant_workflow.md
-          - AFTAN dispersion: aftan_workflow.md
-          - AFTAN phase constants (derivation and history): aftan_phase_constants.md
-          - Eikonal / Helmholtz tomography: eikonal_workflow.md
   - Receiver functions: rf_workflow.md
   - Inversion:
       - Getting started: inv_getting_started.md
@@ -73,15 +70,6 @@ nav:
 
 plugins:
   - search
-  # Executes the jupytext derivation scripts at build time and renders them as
-  # pages. Only the files listed here are notebooks; the figure scripts next
-  # to them are plain Python and are copied as files.
-  - mkdocs-jupyter:
-      include: ["ant/scripts/rotation_derivation.py"]
-      execute: true
-      allow_errors: false
-      include_source: true
-      ignore_h1_titles: true
   - mkdocstrings:
       handlers:
         python:
