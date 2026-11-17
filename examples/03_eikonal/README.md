@@ -5,7 +5,7 @@ stations into a phase-velocity map for each period. Here the measurements
 are synthetic: 49 stations, a medium that is the same everywhere, so the map
 should show the same known velocity everywhere inside the array
 (`tools/make_example_03_eikonal.py`). Every config key:
-`examples/reference_configs/eikonal.yml`; method: `docs/eikonal_workflow.md`.
+`examples/reference_configs/eikonal.yml`; method: `docs/ant/tomography.md`.
 
 ## Input
 

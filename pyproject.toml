@@ -53,11 +53,9 @@ docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=1.0,<2",
     "pymdown-extensions",
-    # Executed derivation pages (docs/ant/scripts/*_derivation.py, jupytext).
-    "mkdocs-jupyter>=0.25",
-    "ipykernel",
+    # Regenerating docs/ant/img and docs/ant/generated with the scripts in
+    # docs/ant/scripts (not needed for the build).
     "sympy>=1.12",
-    # Regenerating the figures under docs/ant/img (not needed for the build).
     "matplotlib",
 ]
 

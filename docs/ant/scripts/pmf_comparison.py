@@ -1,9 +1,7 @@
 """Figure pmf_comparison.png: phase-matched filtering, step by step.
 
-Input: the synthetic ZZ CCF of `_ccf_case` plus (i) a weaker, faster
-interfering wave train (a second dispersive arrival with c = 4.2-4.6 km/s,
-built with `synthetic_ccf`; an assumed stand-in for a precursor or higher
-mode) and (ii) band-limited random noise. The steps are those of
+Input: the synthetic ZZ CCF of `_ccf_case` plus a faster interfering
+arrival and noise (`_ccf_case.noisy_trace`). The steps are those of
 `seisforge.ant.filters.PhaseMatchedFilter.apply`, called one by one:
 phase correction from the basic-FTAN group velocity, compression, cleaning
 window, redispersion. (d) compares the group velocity of basic FTAN on the
@@ -18,21 +16,11 @@ from numpy.fft import ifft
 import _ccf_case as case
 import _style
 from _style import plt
-from seisforge.ant.filters import PhaseMatchedFilter, analytic_spectrum, gaussian_filter_trace
-from seisforge.ant.synthetic import synthetic_ccf
+from seisforge.ant.filters import PhaseMatchedFilter, analytic_spectrum
 
 time, zz = case.zz_ccf()
-clean = case.positive_trace(time, zz)
+clean, noisy = case.noisy_trace(time, zz)
 scale = np.abs(clean.data).max()
-
-# Interfering arrival (assumed): faster, 60 % of the main arrival's amplitude.
-fast = synthetic_ccf(time, case.DISTANCE_KM, case.PERIOD_S, 4.2 + 0.4 * case.PERIOD_S / case.PERIOD_S.max(),
-                     min_period_s=5.0, max_period_s=20.0)
-fast = case.positive_trace(time, fast).data
-rng = np.random.default_rng(1)
-noise = gaussian_filter_trace(rng.normal(size=clean.data.size), case.DELTA_S, 12.0, 2.0)
-noisy = clean.copy()
-noisy.data = clean.data + 0.6 * scale * fast / np.abs(fast).max() + 0.25 * scale * noise / np.abs(noise).max()
 
 config = case.aftan_config(prediction=case.prediction_file(), pmf=True)
 meas = case.measurement(noisy, config)

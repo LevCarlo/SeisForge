@@ -189,7 +189,7 @@ def test_build_station_aftan_config_accepts_station_pair_component_list(tmp_path
 
 
 def test_automatic_pi_over_4_uses_the_stored_component_on_both_branches():
-    # Values from the far-field derivation (docs/aftan_phase_constants.md);
+    # Values from the far-field derivation (docs/ant/dispersion.md, section 6);
     # the reciprocal component only labels the negative branch.
     assert automatic_pi_over_4("ZR", "positive") == ("ZR", -3.0)
     assert automatic_pi_over_4("RZ", "positive") == ("RZ", 1.0)

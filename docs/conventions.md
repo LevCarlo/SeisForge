@@ -55,7 +55,7 @@ attributes; see the workflow pages.
 Eikonal/Helmholtz inputs declare their longitude convention
 (`longitude_convention: -180_180` or `0_360`) in the dataset attributes, and
 input and grid conventions must match
-([Eikonal workflow](eikonal_workflow.md#input-dataset)).
+([Eikonal usage](ant/tomography.md#7-usage)).
 
 ## Outputs and reproducibility
 

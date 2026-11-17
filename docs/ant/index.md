@@ -1,10 +1,5 @@
 # Ambient-Noise Tools: Overview
 
-!!! note "Draft"
-    These method pages replace the older workflow pages step by step. The
-    older pages (listed under *Previous pages* in the navigation) still hold
-    the configuration keys and command details.
-
 `seisforge.ant` is a small set of tools for ambient-noise tomography (ANT),
 not a complete pipeline. It has three independent tools. Each can be used on
 its own: its input may come from other software, and its output can go to
@@ -13,8 +8,8 @@ path (ray) tomography.
 
 | tool | page | input | output |
 |---|---|---|---|
-| CCF rotation (`rotate-ccf`) | [Rotation of multi-component CCFs](rotation.md) | nine ZNE CCFs of a pair, azimuth $\theta$, back azimuth $\psi$ | nine ZRT CCFs |
-| FTAN/PMF dispersion (`aftan`) | [Dispersion measurement](dispersion.md) | one CCF (any component), distance $r$ | group and phase velocity vs period, per lag branch |
+| CCF rotation (`rotate-ccf`) | [Multi-component CCFs: ZNE → ZRT](rotation.md) | nine ZNE CCFs of a pair, azimuth $\theta$, back azimuth $\psi$ | nine ZRT CCFs |
+| FTAN/PMF dispersion (`aftan`) | [AFTAN](dispersion.md) | one CCF (any component), distance $r$ | group and phase velocity vs period, per lag branch |
 | Eikonal/Helmholtz imaging (`eikonal`) | [Eikonal and Helmholtz tomography](tomography.md) | path-average phase velocities of many station pairs | local phase-velocity maps $c(x, T)$ with a spread |
 
 ## Where they fit in common ANT workflows
@@ -39,8 +34,8 @@ resampling, choosing an uncertainty) is done by the user's own scripts;
   (both radial axes from the virtual source towards the receiver, along the
   propagation, as in Lin et al. 2008, Fig. 2). The phase constant AFTAN
   removes depends on the component and, for ZR and RZ, on this convention
-  ([derivation](../aftan_phase_constants.md)). ZR/RZ rotated elsewhere, or by
-  SeisForge before 0.2.0, need the convention checked (negate if reversed).
+  ([derivation](dispersion.md#6-other-components-open-question)). ZR/RZ rotated by other
+  codes need the convention checked (negate if R is reversed).
 - **Negative lags.** A CCF has a causal branch (A → B) and an acausal one
   (B → A). A negative-branch measurement belongs to the reversed station pair
   when it is passed on to tomography.
@@ -66,6 +61,6 @@ known answer, and runs in seconds:
 PYTHONPATH=src python docs/ant/scripts/<figure name>.py
 ```
 
-The SymPy derivation of the rotation
-([executable page](scripts/rotation_derivation.py)) is executed on every
-documentation build.
+`docs/ant/scripts/rotation_derivation.py` derives the rotation formulas with
+SymPy and writes them to `docs/ant/generated/`, from where the
+[rotation page](rotation.md) includes them.

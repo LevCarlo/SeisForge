@@ -12,10 +12,10 @@ Ritzwoller 2008, sec. 2). The time derivative is a phase shift of pi/2, and
 it is contained in the constants below: for ZZ the diffuse-field CCF is
 ``J0(kr)`` with far-field phase ``phi0 = +pi/4`` (p = -1), while ``-dC/dt``
 has ``phi0 = -pi/4`` (p = +1). Run on ``-dC/dt``, the ZZ constant would have
-to be +1 (checked numerically, docs/aftan_phase_constants.md).
+to be +1 (checked numerically, tests/test_ant_aftan_components.py).
 
 Constants (far field of the 2-D diffuse field, retrograde fundamental-mode
-Rayleigh waves, Love waves on TT; derivation in docs/aftan_phase_constants.md)
+Rayleigh waves, Love waves on TT; derivation in docs/ant/dispersion.md, section 6)
 ----------------------------------------------------------------------------
 They belong to the **stored** component and are the same on both lag branches
 (the acausal half of ``J_n`` carries the same ``phi0`` after time reversal).
@@ -60,7 +60,7 @@ _ZRT_RECIPROCAL_COMPONENTS = {
 
 # Stored component -> pi_over_4, both lag branches (module docstring).
 AUTOMATIC_PI_OVER_4 = {"ZZ": -1.0, "RR": -1.0, "TT": -1.0, "ZR": -3.0, "RZ": 1.0}
-_PHASE_PAGE = "docs/aftan_phase_constants.md"
+_PHASE_PAGE = "docs/ant/dispersion.md#6-other-components-open-question"
 
 
 def phase_constant_warning(

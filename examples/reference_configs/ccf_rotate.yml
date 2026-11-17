@@ -25,5 +25,4 @@ rotation:
   # azimuth: 120.0
   # back_azimuth: 300.0
   # R points from the source station towards the receiver at both stations
-  # (Lin et al. 2008, Fig. 2), T is R turned 90 degrees clockwise. ZR/RZ/ZT/TZ
-  # rotated by SeisForge before 0.2.0 have the opposite sign: rotate again.
+  # (Lin et al. 2008, Fig. 2), T is R turned 90 degrees clockwise.

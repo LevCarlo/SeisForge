@@ -30,7 +30,7 @@ switch that restores the old behaviour where one exists.
 - **AFTAN ZR/RZ phase constants fixed; station mode picks the constant per
   file.** The automatic `pi_over_4` is now that of the stored component on
   both lag branches: ZZ, RR, TT -1, ZR -3, RZ +1, for the R/T axes above
-  (derivation and checks: `docs/aftan_phase_constants.md`). The
+  (derivation: `docs/ant/dispersion.md`, section 6). The
   negative-branch ZR <-> RZ swap no longer chooses the constant (it only
   labels the physical component). Station mode (no `components` in the
   config) now defaults to `pi_over_4: auto` and reads the component of each

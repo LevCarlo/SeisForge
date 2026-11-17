@@ -16,5 +16,3 @@ site/
 .DS_Store
 .vscode/
 examples/**/run_*/
-# mkdocs-jupyter execution cache
-.cache/

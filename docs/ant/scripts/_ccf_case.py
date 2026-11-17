@@ -17,9 +17,11 @@ from obspy import Trace
 from seisforge.ant.aftan.core import AFTANMeasurement
 from seisforge.ant.aftan.models import AFTANAlphaConfig, AFTANBasicConfig, AFTANConfig, AFTANPMFConfig
 from seisforge.ant.rotation import rotate_zne_ccf_to_zrt
+from seisforge.ant.filters import gaussian_filter_trace
 from seisforge.ant.synthetic import (
     group_velocity_from_phase,
     symmetric_ccf_time_axis,
+    synthetic_ccf,
     synthetic_rayleigh_ccf_zne,
 )
 
@@ -60,6 +62,26 @@ def positive_trace(time: np.ndarray, data: np.ndarray) -> Trace:
     return trace
 
 
+def noisy_trace(time: np.ndarray, zz: np.ndarray) -> tuple[Trace, Trace]:
+    """(noise-free, noisy) positive-lag traces for the PMF figures.
+
+    The noisy one adds (i) a weaker, faster interfering wave train (a second
+    dispersive arrival with c = 4.2-4.6 km/s at 60 % of the main amplitude; an
+    assumed stand-in for a precursor or higher mode) and (ii) band-limited
+    random noise (12 s, alpha 2, 25 % of the main amplitude).
+    """
+    clean = positive_trace(time, zz)
+    scale = np.abs(clean.data).max()
+    fast = synthetic_ccf(time, DISTANCE_KM, PERIOD_S, 4.2 + 0.4 * PERIOD_S / PERIOD_S.max(),
+                         min_period_s=5.0, max_period_s=20.0)
+    fast = positive_trace(time, fast).data
+    rng = np.random.default_rng(1)
+    noise = gaussian_filter_trace(rng.normal(size=clean.data.size), DELTA_S, 12.0, 2.0)
+    noisy = clean.copy()
+    noisy.data = clean.data + 0.6 * scale * fast / np.abs(fast).max() + 0.25 * scale * noise / np.abs(noise).max()
+    return clean, noisy
+
+
 def prediction_file() -> Path:
     """Write the true curve to a temporary file (used only to fix the 2 pi cycle)."""
     path = Path(tempfile.mkdtemp()) / "prediction.dat"
@@ -74,7 +96,7 @@ def aftan_config(*, prediction: Path | None, pmf: bool = False, alpha: float = 2
         max_period=MAX_PERIOD_S,
         velocity_min=2.0,
         velocity_max=4.5,
-        pi_over_4=-1.0,  # ZZ (docs/aftan_phase_constants.md)
+        pi_over_4=-1.0,  # ZZ correlation (docs/ant/dispersion.md, Appendix A)
         prediction_file=prediction,
         basic=AFTANBasicConfig(alpha=AFTANAlphaConfig(mode="constant", value=alpha)),
         pmf=AFTANPMFConfig(enabled=pmf, alpha=AFTANAlphaConfig(mode="constant", value=alpha)),
