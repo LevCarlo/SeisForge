@@ -1,25 +1,28 @@
 # Surface-Wave Eikonal and Helmholtz Tomography
 
-Eikonal tomography (Lin, Ritzwoller & Snieder 2009) turns path-average phase
-velocities of many station pairs, at one period, into a map of local phase
-velocity without a tomographic inversion. The whole method is four steps:
+!!! overview "Method at a glance"
 
-1. **Travel times.** Take one station $s$ as a virtual source. Its phase
-   travel time to each receiver $j$ is $\tau_j = d_{sj}/\bar c_{sj}$, with
-   $d_{sj}$ the geodesic distance and $\bar c_{sj}$ the measured
-   path-average phase velocity.
-2. **Travel-time surface.** Interpolate the $\tau_j$ onto a grid. The
-   contours of $\tau(\mathbf x)$ are the wavefronts of this source.
-3. **Local slowness.** The spacing of the wavefronts gives the local speed:
-   $1/c = |\nabla\tau|$ (§1). With amplitudes, a Helmholtz correction can be
-   added (§2).
-4. **Stack.** Repeat for every station as source and average the slowness in
-   each cell. The scatter between sources gives an uncertainty (§5).
+    Eikonal tomography (Lin, Ritzwoller & Snieder 2009) turns path-average phase
+    velocities of many station pairs, at one period, into a map of local phase
+    velocity without a tomographic inversion. The whole method is four steps:
 
-There is no ray tracing and no regularisation. Resolution is set by the
-station spacing and the wavelength.
+    1. **Travel times.** Take one station $s$ as a virtual source. Its phase
+       travel time to each receiver $j$ is $\tau_j = d_{sj}/\bar c_{sj}$, with
+       $d_{sj}$ the geodesic distance and $\bar c_{sj}$ the measured
+       path-average phase velocity.
+    2. **Travel-time surface.** Interpolate the $\tau_j$ onto a grid. The
+       contours of $\tau(\mathbf x)$ are the wavefronts of this source.
+    3. **Local slowness.** The spacing of the wavefronts gives the local speed:
+       $1/c = |\nabla\tau|$ (§1). With amplitudes, a Helmholtz correction can be
+       added (§2).
+    4. **Stack.** Repeat for every station as source and average the slowness in
+       each cell. The scatter between sources gives an uncertainty (§5).
 
-![Eikonal tomography of a known medium](img/eikonal_synthetic.png)
+    There is no ray tracing and no regularisation. Resolution is set by the
+    station spacing and the wavelength.
+
+![Eikonal tomography of a known medium](img/eikonal_synthetic.svg#only-light)
+![Eikonal tomography of a known medium](img/eikonal_synthetic-dark.svg#only-dark)
 
 *Synthetic test with an exact answer: phase velocity increasing linearly to
 the north, for which the Eikonal equation has a closed-form solution
@@ -208,12 +211,16 @@ been checked against the paper.
 
 ## 6. Limits
 
+<div class="assumptions" markdown>
+
 | assumption | fails when | symptom | guard |
 |---|---|---|---|
 | amplitude term negligible | anomalies $\lesssim\lambda$; focusing; interference | biased apparent velocity, patterns aligned with source direction | Helmholtz correction; azimuthal averaging |
 | $\tau$ smooth and single-valued | multipathing, cycle skips, near the source | stripes or rings, large $\nabla^2\tau$ | cycle-skip correction, curvature limit, near-source mask |
 | stations sample the wavefront densely | spacing comparable to $\lambda$; gaps; edges | smooth but wrong surface | stability check, coverage, boundary mask |
 | path averages correct | wrong $2\pi$ branch or phase constant; short paths | offsets of $\tau$; bias common to all sources | cycle-skip correction (long periods only) |
+
+</div>
 
 - **Short periods** suffer from the station spacing and are not corrected for
   cycle skips by default.
@@ -224,11 +231,18 @@ been checked against the paper.
 - **Anisotropy** makes slowness depend on direction. The isotropic stack is
   correct only for even azimuthal coverage, and anisotropy is not estimated.
 
-Verified: the analytic field above, recovery of a constant gradient,
-removal of an injected one-period cycle skip, the Helmholtz formula, the
-directional weights, the ellipsoidal Laplacian, and the agreement of the two
-interpolants (`tests/test_ant_eikonal.py`). Not verified: real data,
-Helmholtz on noise-correlation amplitudes, and anisotropic media.
+!!! verified ""
+
+    Verified: the analytic field above, recovery of a constant gradient,
+    removal of an injected one-period cycle skip, the Helmholtz formula, the
+    directional weights, the ellipsoidal Laplacian, and the agreement of the two
+    interpolants (`tests/test_ant_eikonal.py`).
+
+!!! unverified ""
+
+    Not verified: real data,
+    Helmholtz on noise-correlation amplitudes, and anisotropic media.
+
 
 ## 7. Usage
 

@@ -17,8 +17,14 @@ validation:
     anchors: warn
 
 theme:
+  # Built with Zensical (modern look); mkdocs-material 9.x builds the same
+  # file with its own look.
   name: material
+  font:
+    text: Source Serif 4
+    code: Source Code Pro
   features:
+    - navigation.tabs
     - navigation.sections
     - navigation.top
     - toc.follow
@@ -27,16 +33,21 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Light mode
 
 extra_css:
+  - css/theme.css
   - css/extra.css
 
 extra_javascript:
@@ -44,29 +55,32 @@ extra_javascript:
   - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js
 
 nav:
-  - Home: index.md
-  - Examples overview: examples.md
-  - Conventions: conventions.md
+  - Home:
+      - Overview: index.md
+      - Examples overview: examples.md
+      - Conventions: conventions.md
+      - References: references.md
+      - Changelog: changelog.md
+      - Development: development.md
   - Ambient noise:
       - Overview: ant/index.md
       - "Multi-component CCFs: ZNE → ZRT": ant/rotation.md
       - "AFTAN: FTAN and PMF": ant/dispersion.md
       - Eikonal and Helmholtz tomography: ant/tomography.md
-  - Receiver functions: rf_workflow.md
+  - Receiver functions:
+      - Workflow: rf_workflow.md
+  - HVSR:
+      - Forward modelling: hvsr_forward.md
   - Inversion:
       - Getting started: inv_getting_started.md
       - Model guide: model.md
       - Configuration reference: inv_usage.md
-  - HVSR forward modelling: hvsr_forward.md
-  - API reference:
+  - API:
       - Overview: api/index.md
-      - Inversion: api/inv.md
-      - Receiver functions: api/rf.md
       - Ambient noise: api/ant.md
+      - Receiver functions: api/rf.md
       - HVSR: api/hvsr.md
-  - References: references.md
-  - Changelog: changelog.md
-  - Development: development.md
+      - Inversion: api/inv.md
 
 plugins:
   - search
@@ -91,6 +105,8 @@ plugins:
 markdown_extensions:
   - tables
   - admonition
+  - attr_list
+  - md_in_html
   - toc:
       permalink: true
   - pymdownx.highlight

@@ -28,7 +28,7 @@ native HVSR forward modelling need. Optional extras:
 - `hvsr-fortran`: build tools for the f2py HVSR extension
   (`python tools/build_hvsr_fortran.py`).
 - `gmt`: `pygmt`, for the GMT `surface` interpolator in Eikonal tomography.
-- `docs`: MkDocs and plugins, to build the documentation site.
+- `docs`: Zensical (and MkDocs as a fallback) with plugins, to build the documentation site.
 
 ## Development
 
@@ -89,11 +89,12 @@ and are not tested (see `scripts/personal/README.md`).
 
 ## Documentation
 
-Workflow guides live in `docs/` and build into one searchable site with MkDocs:
+Workflow guides live in `docs/` and build into one searchable site with
+Zensical (from `mkdocs.yml`):
 
 ```bash
 python -m pip install -e ".[docs]"
-mkdocs serve   # http://127.0.0.1:8000
+zensical serve   # http://localhost:8000
 ```
 
 Pushes to `dev` publish the site to GitHub Pages

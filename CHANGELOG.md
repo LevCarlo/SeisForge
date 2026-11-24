@@ -238,6 +238,14 @@ switch that restores the old behaviour where one exists.
 
 ### Changed
 
+- **Documentation site built with Zensical.** `zensical build --clean
+  --strict` replaces `mkdocs build --strict` in CI (the same `mkdocs.yml`
+  still builds with MkDocs Material, which is unmaintained after
+  2027-05-05). New look: serif text, one accent colour, separate dark-mode
+  colours, top tabs per module, numbered display equations, and fixed boxes
+  for method overview, assumptions and verified / not verified statements.
+  The figures in `docs/ant/img/` are SVG in a light and a dark version
+  (`<name>.svg`, `<name>-dark.svg`) instead of PNG. Page text is unchanged.
 - **Examples reorganised.** `examples/configs/` moved to
   `examples/reference_configs/` (`aftan_station.yml` -> `aftan.yml`,
   `hkseq.yml` -> `rf_hkseq.yml`, `interface_model.yml` ->

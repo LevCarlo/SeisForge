@@ -12,7 +12,7 @@ conda activate seis
 python -m pip install -e ".[dev]"   # tests run against the installed package
 python -m pytest -q
 python -m ruff check src tests
-mkdocs build --strict               # needs ".[docs]"
+zensical build --clean --strict     # needs ".[docs]"; mkdocs build --strict also works
 ```
 
 ## Rules

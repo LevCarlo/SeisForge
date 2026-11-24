@@ -1,4 +1,4 @@
-"""Figure eikonal_synthetic.png: Eikonal tomography of a medium with a known answer.
+"""Figure eikonal_synthetic.svg (and -dark.svg): Eikonal tomography of a medium with a known answer.
 
 Medium (assumed, illustration): phase velocity increasing linearly to the
 north, v(y) = V0 + G (y - y0). For a linear velocity profile the Eikonal
@@ -115,47 +115,53 @@ example = int(np.argmin((station_lon - (LON0 + 1.2)) ** 2 + (station_lat - (LAT0
 field = fields[example]
 accepted = field.rejection_reason == 0
 
-fig, axes = plt.subplots(2, 2, figsize=(9.5, 8.2), sharex=True, sharey=True)
-extent = dict(shading="auto")
-lon, lat = grid.longitude_deg, grid.latitude_deg
 
-ax = axes[0, 0]
-contours = ax.contour(lon, lat, field.travel_time_s, levels=np.arange(0, 400, 20), colors="k", linewidths=0.7)
-ax.clabel(contours, fontsize=7, fmt="%d s")
-ax.plot(station_lon, station_lat, "^", ms=4, color=_style.ALTERNATIVE)
-ax.plot(station_lon[example], station_lat[example], "*", ms=14, color=_style.HIGHLIGHT)
-ax.set_title(f"(a) travel-time surface of one source, T = {PERIOD_S} s")
+def draw():
+    fig, axes = plt.subplots(2, 2, figsize=(9.5, 8.2), sharex=True, sharey=True)
+    extent = dict(shading="auto")
+    lon, lat = grid.longitude_deg, grid.latitude_deg
 
-ax = axes[0, 1]
-masked = np.where(accepted, field.apparent_velocity_km_s, np.nan)
-mesh = ax.pcolormesh(lon, lat, masked, vmin=3.0, vmax=3.8, **extent)
-ax.contour(lon, lat, field.travel_time_s, levels=np.arange(0, 400, 20), colors="w", linewidths=0.4)
-ax.plot(station_lon[example], station_lat[example], "*", ms=14, color=_style.HIGHLIGHT)
-fig.colorbar(mesh, ax=ax, label="km/s")
-ax.set_title("(b) $1/|\\nabla\\tau|$ of this source, QC-accepted cells")
+    ax = axes[0, 0]
+    contours = ax.contour(lon, lat, field.travel_time_s, levels=np.arange(0, 400, 20), colors=_style.INK,
+                          linewidths=0.7)
+    ax.clabel(contours, fontsize=7, fmt="%d s")
+    ax.plot(station_lon, station_lat, "^", ms=4, color=_style.ALTERNATIVE)
+    ax.plot(station_lon[example], station_lat[example], "*", ms=14, color=_style.HIGHLIGHT)
+    ax.set_title(f"(a) travel-time surface of one source, T = {PERIOD_S} s")
 
-ax = axes[1, 0]
-mesh = ax.pcolormesh(lon, lat, stacked, vmin=3.0, vmax=3.8, **extent)
-ax.contour(lon, lat, true_velocity, levels=np.arange(3.0, 3.85, 0.1), colors="k", linewidths=0.6,
-           linestyles="--")
-fig.colorbar(mesh, ax=ax, label="km/s")
-accepted_sources = int(sum(f.source_accepted for f in fields))
-ax.set_title(f"(c) stack of {accepted_sources} sources; dashed: true velocity")
+    ax = axes[0, 1]
+    masked = np.where(accepted, field.apparent_velocity_km_s, np.nan)
+    mesh = ax.pcolormesh(lon, lat, masked, vmin=3.0, vmax=3.8, rasterized=True, **extent)
+    ax.contour(lon, lat, field.travel_time_s, levels=np.arange(0, 400, 20), colors="w", linewidths=0.4)
+    ax.plot(station_lon[example], station_lat[example], "*", ms=14, color=_style.HIGHLIGHT)
+    fig.colorbar(mesh, ax=ax, label="km/s")
+    ax.set_title("(b) $1/|\\nabla\\tau|$ of this source, QC-accepted cells")
 
-ax = axes[1, 1]
-mesh = ax.pcolormesh(lon, lat, error, vmin=-0.08, vmax=0.08, cmap="RdBu_r", **extent)
-fig.colorbar(mesh, ax=ax, label="km/s")
-ax.set_title("(d) stacked minus true (colour scale saturates)")
+    ax = axes[1, 0]
+    mesh = ax.pcolormesh(lon, lat, stacked, vmin=3.0, vmax=3.8, rasterized=True, **extent)
+    ax.contour(lon, lat, true_velocity, levels=np.arange(3.0, 3.85, 0.1), colors="k", linewidths=0.6,
+               linestyles="--")
+    fig.colorbar(mesh, ax=ax, label="km/s")
+    accepted_sources = int(sum(f.source_accepted for f in fields))
+    ax.set_title(f"(c) stack of {accepted_sources} sources; dashed: true velocity")
 
-for ax in axes.flat:
-    ax.set_aspect("equal")
-    ax.grid(False)
-for ax in axes[1]:
-    ax.set_xlabel("longitude (°)")
-for ax in axes[:, 0]:
-    ax.set_ylabel("latitude (°)")
-fig.tight_layout()
-_style.save(fig, __file__)
+    ax = axes[1, 1]
+    mesh = ax.pcolormesh(lon, lat, error, vmin=-0.08, vmax=0.08, cmap="RdBu_r", rasterized=True, **extent)
+    fig.colorbar(mesh, ax=ax, label="km/s")
+    ax.set_title("(d) stacked minus true (colour scale saturates)")
+
+    for ax in axes.flat:
+        ax.set_aspect("equal")
+        ax.grid(False)
+    for ax in axes[1]:
+        ax.set_xlabel("longitude (°)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("latitude (°)")
+    fig.tight_layout()
+    return fig
+
+
+_style.save_themed(draw, __file__)
 
 finite = np.isfinite(error)
 interior = finite & (grid_x > 100) & (grid_x < grid_x.max() - 100) & (grid_y > 100) & (grid_y < grid_y.max() - 100)

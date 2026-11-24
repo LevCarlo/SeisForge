@@ -1,0 +1,59 @@
+/* Theme tokens: Zensical modern layout, serif text.
+   Text Source Serif 4 and code Source Code Pro come from theme.font in
+   mkdocs.yml; headings use Source Sans 3 (Google Fonts, below).
+   One accent (ink blue) plus neutral greys; dark mode has its own values.
+   Status colours (verified / not verified) are used only by those boxes. */
+@import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@500;600;700&display=swap");
+
+:root {
+  --sf-font-heading: "Source Sans 3", system-ui, sans-serif;
+  --sf-body-size: 0.9rem;
+  --sf-leading: 1.65;
+  --sf-measure: 33em;    /* about 70 characters of Source Serif 4 */
+  --sf-column: 50rem;    /* maths, tables, figures, code */
+}
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #2b4a80;
+  --md-primary-fg-color--light: #4a679a;
+  --md-primary-fg-color--dark: #1f3761;
+  --md-accent-fg-color: #1d3c78;
+  --md-accent-fg-color--transparent: #2b4a8014;
+  --md-typeset-a-color: #2b4a80;
+  --md-default-fg-color: #1c1f24;
+  --sf-accent: #2b4a80;
+  --sf-heading: #1f2a44;
+  --sf-rule: #e5e3de;
+  --sf-tint: #f7f6f3;
+  --sf-key-bg: #f1f4f9;
+  --sf-ok: #2e6f47;
+  --sf-ok-bg: #f1f6f2;
+  --sf-warn: #9a5a12;
+  --sf-warn-bg: #fbf5ec;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 220;
+  --md-default-bg-color: #14171d;
+  --md-primary-fg-color: #8fb0e8;
+  --md-primary-fg-color--light: #b4c8f0;
+  --md-primary-fg-color--dark: #6f93d6;
+  --md-accent-fg-color: #b4c8f0;
+  --md-accent-fg-color--transparent: #8fb0e824;
+  --md-typeset-a-color: #8fb0e8;
+  --md-code-bg-color: #1b1f27;
+  --sf-accent: #8fb0e8;
+  --sf-heading: #e9ecf2;
+  --sf-rule: #2a2f39;
+  --sf-tint: #191c23;
+  --sf-key-bg: #18202f;
+  --sf-ok: #7cc196;
+  --sf-ok-bg: #16211b;
+  --sf-warn: #dca763;
+  --sf-warn-bg: #231d14;
+}
+
+.md-header__title {
+  font-family: var(--sf-font-heading);
+  font-weight: 700;
+}

@@ -1,13 +1,15 @@
 # Multi-Component Cross-Correlations: ZNE → ZRT
 
-Noise cross-correlations (CCFs) are computed between the recorded channels of
-two stations: vertical (Z), north (N) and east (E). Surface waves are
-polarised relative to the path: Rayleigh waves in the vertical plane through
-both stations (Z and radial, R), Love waves perpendicular to it (transverse,
-T). Rotating the horizontal channels into path coordinates separates the two
-wave types: Rayleigh waves on ZZ, ZR, RZ, RR and Love waves on TT. This page
-derives the rotation of the full $3\times3$ correlation tensor and describes
-`seisforge ant rotate-ccf`.
+!!! overview "Method at a glance"
+
+    Noise cross-correlations (CCFs) are computed between the recorded channels of
+    two stations: vertical (Z), north (N) and east (E). Surface waves are
+    polarised relative to the path: Rayleigh waves in the vertical plane through
+    both stations (Z and radial, R), Love waves perpendicular to it (transverse,
+    T). Rotating the horizontal channels into path coordinates separates the two
+    wave types: Rayleigh waves on ZZ, ZR, RZ, RR and Love waves on TT. This page
+    derives the rotation of the full $3\times3$ correlation tensor and describes
+    `seisforge ant rotate-ccf`.
 
 ## 1. Conventions
 
@@ -47,7 +49,8 @@ bases are rotations with determinant $+1$. Reversing R and T at both stations
 (another convention in use) changes the sign of ZR, RZ, ZT and TZ only, the
 components with exactly one horizontal axis.
 
-![Station geometry and the R/T axes](img/rotation_geometry.png)
+![Station geometry and the R/T axes](img/rotation_geometry.svg#only-light)
+![Station geometry and the R/T axes](img/rotation_geometry-dark.svg#only-dark)
 
 *The axes are read off `rotate_zne_ccf_to_zrt` by rotating unit
 correlations (script `docs/ant/scripts/rotation_geometry.py`).*
@@ -72,6 +75,7 @@ whose column index is the receiver component,
 
 $$
 \boxed{\;\mathbf C_{ZRT} = M_s\,\mathbf C_{ZNE}\,M_r^{\mathsf T}\;}
+\label{eq:rotation}
 \qquad\text{i.e.}\qquad
 C_{ab} = \sum_{i,j} (M_s)_{ai}\, C_{ij}\, (M_r)_{bj} .
 $$
@@ -92,12 +96,14 @@ by codes that set the back azimuth to $\theta + 180°$:
 
 The TT, RR, TR and RT coefficients equal eq. 1 of Lin et al. (2008).
 
-The expressions above are not typed by hand. SymPy derives them from
-$M_s\,\mathbf C_{ZNE}\,M_r^{\mathsf T}$, and the script that does this also
-evaluates them for 200 random angle pairs and tensors and checks that they
-agree with `seisforge.ant.rotation.rotate_zne_ccf_to_zrt` to $10^{-12}$.
-`tests/test_rotation.py` checks the axes, Lin et al. (2008) eq. 1, and the
-round trip through the inverse rotation `rotate_zrt_ccf_to_zne`.
+!!! verified "Verified"
+
+    The expressions above are not typed by hand. SymPy derives them from
+    $M_s\,\mathbf C_{ZNE}\,M_r^{\mathsf T}$, and the script that does this also
+    evaluates them for 200 random angle pairs and tensors and checks that they
+    agree with `seisforge.ant.rotation.rotate_zne_ccf_to_zrt` to $10^{-12}$.
+    `tests/test_rotation.py` checks the axes, Lin et al. (2008) eq. 1, and the
+    round trip through the inverse rotation `rotate_zrt_ccf_to_zne`.
 
 ??? example "Derivation script: `docs/ant/scripts/rotation_derivation.py`"
 
