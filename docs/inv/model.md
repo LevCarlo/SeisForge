@@ -127,8 +127,11 @@ default), and are then blended with the same $S$ as Vs:
 | `rho: gardner1974` | $\rho = a V_p^{\,b}$, defaults $a = 1.741$, $b = 0.25$ | |
 | `rho: constant` | $\rho$ fixed | |
 
-The Gardner defaults are the km/s form of $\rho = 0.31\,V_p^{1/4}$ with
-$V_p$ in m/s ($0.31 \cdot 1000^{1/4} = 1.743$). A Brocher segment whose Vs
+The Gardner default $a$ is Gardner et al.'s $\rho = 0.23\,V_p^{1/4}$
+with $V_p$ in ft/s, converted to km/s: $0.23 \cdot (1000/0.3048)^{1/4} =
+1.7407$. The often-quoted m/s form $0.31\,V_p^{1/4}$ has a rounded
+coefficient (0.3095), which is why $0.31 \cdot 1000^{1/4}$ gives 1.743;
+Brocher (2005) rounds to 1.74. A Brocher segment whose Vs
 leaves 0–4.5 km/s has no model, so Brocher scaling also bounds Vs; a mantle
 segment needs another relation. Scaling each side before blending keeps a
 crustal relation off sediment velocities inside a transition.
@@ -156,9 +159,10 @@ only a starting point.
 **Hard constraints** $\mathbb 1_C$ are 1 if the model $m(\theta)$
 passes every check and 0 otherwise; failing models are rejected before any
 forward calculation. Layer checks use the forward layers
-([forward page §1](forward.md#1-from-a-continuous-model-to-layers)); depth
-checks sample the continuous model at spacing `dz` (default 0.1 km) over
-`depth_range`, plus every segment edge:
+([forward page §1](forward.md#1-from-a-continuous-model-to-layers)). Depth
+checks are statements about the continuous profile $V_s(z)$ on the closed
+interval `depth_range` $= [z_a, z_b]$ (default: the whole model), so they
+do not depend on any depth spacing or on where an interface falls:
 
 | `type` | condition |
 |---|---|
@@ -166,17 +170,57 @@ checks sample the continuous model at spacing `dz` (default 0.1 km) over
 | `vp_gt_vs` | $V_p - V_s >$ `margin` in every layer |
 | `vp_vs_range` | $V_p/V_s$ within `bounds` in every layer |
 | `boundary_non_decreasing_vs` | at each segment boundary, upper-side Vs minus lower-side Vs $\le$ `tolerance` |
-| `vs_range` | Vs within `bounds` at every depth sample |
-| `monotonic_vs` | $V_s(z_{k+1}) - V_s(z_k) \ge -$`tolerance` between neighbouring samples |
-| `max_vs_gradient` | $\lvert\Delta V_s/\Delta z\rvert \le$ `max_abs` between neighbouring samples |
+| `vs_range` | $l \le V_s(z) \le u$ for all $z \in [z_a, z_b]$, both sides of every hard interface included (`bounds` $= [l, u]$) |
+| `monotonic_vs` | $dV_s/dz \ge -r$ wherever $V_s$ is smooth (`max_decrease_km_s_per_km` $= r$, default 0) |
+| `max_vs_gradient` | $\lvert dV_s/dz\rvert \le g$ wherever $V_s$ is smooth (`max_abs_km_s_per_km` $= g$) |
 
-Two consequences of sampling on a grid. The `monotonic_vs` tolerance
-applies per step, so a slow decrease of up to `tolerance` per `dz`
-accumulates over the range. `max_vs_gradient` sees a gradational interface
-as the gradient of eq. $\eqref{eq:max-gradient}$, so it also bounds
-$\Delta v/w$; it sees a hard step as its jump divided by the distance from
-the interface to the neighbouring sample, which depends on where the
-interface falls on the grid. Keep its `depth_range` off hard interfaces.
+"Wherever $V_s$ is smooth" means: inside a segment, the analytic derivative
+of its profile; inside the support of a gradational interface, the
+derivative of the blend,
+
+$$
+\frac{dV_s}{dz} = S'(z)\,\big[v_{\text{lower}}(z) - v_{\text{upper}}(z)\big]
++ \big[1 - S(z)\big]\,v_{\text{upper}}'(z) + S(z)\,v_{\text{lower}}'(z),
+$$
+
+which for flat neighbours peaks at eq. $\eqref{eq:max-gradient}$, so
+`max_vs_gradient` also bounds $\Delta v/w$. A hard interface is a jump,
+not a gradient: neither slope check sees it. In particular `monotonic_vs`
+cannot stop Vs from dropping all at once at a hard interface; bound such
+drops with `boundary_non_decreasing_vs`.
+
+The extremes are found piece by piece: the range is cut at segment
+boundaries, transition-support edges and B-spline knots, and inside each
+piece the roots of the derivative are solved for
+(`seisforge.inv.profile_analysis`). The sample points that bracket them are
+fixed to the pieces, so they move with the interfaces and knots. Reported
+extremes are values the profile attains; on 300 prior draws of the example
+the extremes of Vs agree with sampling every 0.5 m to $10^{-15}$ km/s.
+
+**Compatibility: grid evaluation.** Until continuous evaluation became the
+default (see the changelog), the depth checks
+sampled Vs every `dz` over `depth_range` plus every segment edge (where the
+lower segment's value was taken), allowed `monotonic_vs` a drop of
+`tolerance` per sample step, and bounded `max_vs_gradient` by difference
+quotients between neighbouring samples (`max_abs`). Decisions then depended
+on `dz` and on the grid position of interfaces: a hard jump counted as its
+size divided by the distance to the next sample, the allowed total decrease
+grew with the number of steps, and the upper segment's value at its bottom
+was never checked. That evaluation is kept, with its old keys, to reproduce
+old results:
+
+```yaml
+constraints:
+  evaluation: grid      # default: continuous
+  constraints:
+    - {type: monotonic_vs, depth_range: [0.0, 15.0], tolerance: 0.06, dz: 0.25}
+```
+
+Under the default, the old keys `dz`, `tolerance` (of `monotonic_vs`) and
+`max_abs` stop the run with a message naming both ways forward. A grid
+`tolerance` per `dz` corresponds roughly to
+`max_decrease_km_s_per_km` $=$ `tolerance`/`dz` (0.06/0.25 km = 0.24 km/s
+per km); `max_abs` becomes `max_abs_km_s_per_km`, now without the jumps.
 
 **Soft prior.** `vs_curvature` adds the last term of eq. $\eqref{eq:prior}$,
 with
@@ -203,7 +247,7 @@ overlap. Constraints then remove most of the box.
 ![Prior ensemble](img/prior_ensemble-dark.svg#only-dark)
 
 *Prior of `examples/06_inversion/inv.yaml`. (a) Uniform draws from the
-10-parameter box, and the 4 % of them that pass the six hard constraints
+10-parameter box, and the 10 % of them that pass the six hard constraints
 (exact samples of the constrained prior). (b) Vs at 6 km under the box
 alone against its exact density, the convolution of the uniform densities
 of $B_i c_i$; sample mean and standard deviation agree with the closed form
@@ -221,6 +265,7 @@ ensemble before any data are used.
 | empirical Vp and $\rho$ | Vp/Vs or density differ from the relation (fluids, unusual lithology) | Vs absorbs the difference |
 | constraints describe geology, not the expected answer | bounds or constraints exclude the true structure | the posterior piles up at a bound |
 | constraint depth ranges are fixed | a sampled interface moves through a range | the check acts on different segments for different $\theta$ |
+| a drop at a hard interface is allowed by the slope checks | velocity inversions are expected only within segments | `monotonic_vs` passes a model that drops at an interface unless `boundary_non_decreasing_vs` bounds the jump |
 
 </div>
 
@@ -234,13 +279,28 @@ ensemble before any data are used.
     (`tests/test_inv_parameterization.py`); the curvature prior, zero for a
     linear profile and not differenced across segments
     (`tests/test_inv_soft_priors.py`); Brocher density as the polynomial of
-    Brocher Vp (`tests/test_inv_scaling.py`). The figures check the basis
-    properties, eq. $\eqref{eq:max-gradient}$ and the box-prior density.
+    Brocher Vp, and the Gardner default as the ft/s relation in km/s
+    (`tests/test_inv_scaling.py`). Depth constraints
+    (`tests/test_inv_constraints_continuous.py`): decisions the same for
+    grid spacings 0.1, 0.25 and 1 km and for interface shifts below one
+    step, on cases where the grid evaluation changes its decision; the
+    transition slope equal to eq. $\eqref{eq:max-gradient}$ to $10^{-12}$;
+    extremes of Vs and of its slope against dense sampling of 10 example
+    prior draws; the analytic slopes of B-splines and transition weights
+    against finite differences (`tests/test_inv_bspline.py`,
+    `tests/test_inv_interfaces.py`); and `evaluation: grid` reproducing all
+    12 231 decisions (453 models × 27 constraints) of the code before the
+    change (`tests/data/constraint_grid_baseline.npz`). The figures check
+    the basis properties, eq. $\eqref{eq:max-gradient}$ and the box-prior
+    density.
 
 !!! unverified "Not verified"
 
     The polynomial coefficients of §3 were not re-checked against Brocher
-    (2005) for this page. How much the parameterization biases a real
+    (2005) for this page. The extreme search of the depth constraints can
+    miss two roots of the derivative that fall between neighbouring bracket
+    samples (an extreme of size about $|V_s''|\,\delta^2/8$ for sample
+    spacing $\delta$); no such case was found, but it is not excluded. How much the parameterization biases a real
     profile has only been tested on synthetic models that the
     parameterization represents exactly.
 
@@ -273,7 +333,7 @@ constraints:
   constraints:
     - {type: positive_velocity}
     - {type: vp_vs_range, bounds: [1.45, 2.7]}
-    - {type: monotonic_vs, depth_range: [0.0, 30.0], tolerance: 0.03, dz: 0.1}
+    - {type: monotonic_vs, depth_range: [0.0, 30.0], max_decrease_km_s_per_km: 0.1}
 soft_priors:
   priors:
     - {type: vs_curvature, sigma: 0.2, depth_range: [0.0, 30.0], dz: 0.05}

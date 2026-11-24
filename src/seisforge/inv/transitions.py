@@ -18,7 +18,7 @@ Shapes
     reach exactly 0 and 1. Maximum gradient ``~ 1.1 dv / w``.
 ``smootherstep``
     Quintic ``6x^5 - 15x^4 + 10x^3`` on the support; C2-continuous with
-    ``h = 0.987 w``. Maximum gradient ``~ 0.93 dv / w``.
+    ``h = 0.987 w``. Maximum gradient ``1.875 dv / (2h) = 0.950 dv / w``.
 """
 
 from __future__ import annotations
@@ -75,6 +75,36 @@ def transition_weight(
         return (_logistic(k * u) - low) / (high - low)
     x = np.clip((z - depth_km + half) / (2.0 * half), 0.0, 1.0)
     return x**3 * (x * (6.0 * x - 15.0) + 10.0)
+
+
+def transition_weight_derivative_per_km(
+    z_km: np.ndarray,
+    depth_km: float,
+    width_km: float,
+    shape: str = "sigmoid",
+) -> np.ndarray:
+    """``dS/dz`` (1/km) of `transition_weight`; 0 outside the support.
+
+    ``sigmoid``: ``k l (1 - l) / (l(kh) - l(-kh))`` with ``l = l(k (z - z_i))``.
+    ``smootherstep``: ``30 x^2 (1 - x)^2 / (2h)``. Both peak at ``z_i``. A hard
+    step (``w = 0``) has no finite derivative; it is reported as 0 everywhere,
+    since a jump is not a gradient.
+    """
+    _check_shape(shape)
+    z = np.asarray(z_km, dtype=float)
+    if width_km <= 0:
+        return np.zeros_like(z)
+    half = transition_half_support_km(width_km, shape)
+    inside = np.abs(z - depth_km) < half
+    if shape == "sigmoid":
+        k = sigmoid_steepness_per_km(width_km)
+        logistic = _logistic(k * (z - depth_km))
+        scale = _logistic(k * half) - _logistic(-k * half)
+        slope = k * logistic * (1.0 - logistic) / scale
+    else:
+        x = (z - depth_km + half) / (2.0 * half)
+        slope = 30.0 * x**2 * (1.0 - x) ** 2 / (2.0 * half)
+    return np.where(inside, slope, 0.0)
 
 
 def _logistic(x):

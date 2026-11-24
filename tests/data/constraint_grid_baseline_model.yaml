@@ -1,0 +1,77 @@
+# Model and parameters of examples/06_inversion/inv.yaml at commit 8b6babf,
+# frozen for tests/inv_constraint_grid_cases.py (constraint grid baseline).
+model:
+  segments:
+  - top_km: 0.0
+    bottom_km: 1.0
+    profile:
+      type: gradient
+      top: {parameter: sediment.vs_top}
+      bottom: {parameter: sediment.vs_bottom}
+  - top_km: 1.0
+    bottom_km: 15.0
+    profile:
+      type: bspline
+      knot_alpha: 1.6
+      coefficients:
+      - {parameter: crust.c0}
+      - {parameter: crust.c1}
+      - {parameter: crust.c2}
+      - {parameter: crust.c3}
+      - {parameter: crust.c4}
+      - {parameter: crust.c5}
+      - {parameter: crust.c6}
+      - {parameter: crust.c7}
+inversion:
+  parameters:
+  - name: sediment.vs_top
+    initial: 2.0
+    prior:
+      bounds: [1.2, 2.7]
+    proposal: {sigma: 0.04}
+  - name: sediment.vs_bottom
+    initial: 3.05
+    prior:
+      bounds: [2.4, 3.45]
+    proposal: {sigma: 0.035}
+  - name: crust.c0
+    initial: 3.05
+    prior:
+      bounds: [2.5, 3.55]
+    proposal: {sigma: 0.035}
+  - name: crust.c1
+    initial: 3.15
+    prior:
+      bounds: [2.6, 3.65]
+    proposal: {sigma: 0.035}
+  - name: crust.c2
+    initial: 3.25
+    prior:
+      bounds: [2.7, 3.75]
+    proposal: {sigma: 0.035}
+  - name: crust.c3
+    initial: 3.35
+    prior:
+      bounds: [2.8, 3.85]
+    proposal: {sigma: 0.035}
+  - name: crust.c4
+    initial: 3.45
+    prior:
+      bounds: [2.9, 3.95]
+    proposal: {sigma: 0.035}
+  - name: crust.c5
+    initial: 3.55
+    prior:
+      bounds: [3.0, 4.05]
+    proposal: {sigma: 0.035}
+  - name: crust.c6
+    initial: 3.6
+    prior:
+      bounds: [3.05, 4.15]
+    proposal: {sigma: 0.035}
+  - name: crust.c7
+    initial: 3.65
+    prior:
+      bounds: [3.1, 4.25]
+    proposal: {sigma: 0.035}
+

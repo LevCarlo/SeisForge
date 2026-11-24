@@ -76,9 +76,9 @@ delete `output/` first: existing results are never overwritten.
 | number | this example | acceptable |
 |---|---|---|
 | max split R-hat | 1.007 | below 1.01 (below 1.1 at least) |
-| min effective sample size | 541 | above 400 |
+| min effective sample size | 608 | above 400 |
 | lagging chains | none | none |
-| truth inside posterior 5-95 % band | 241 of 241 depths | nearly all |
+| truth inside posterior 5-95 % band | 238 of 241 depths | nearly all |
 | `layering_error_at_initial` in `output/posterior/disp_hv.log` | 0.027 sigma (phase velocity), 0.077 sigma (H/V) | well below 1 |
 
 The numbers are bit-for-bit reproducible with the same SeisForge version on

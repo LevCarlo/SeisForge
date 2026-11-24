@@ -1,4 +1,10 @@
-"""Posterior predictive ensembles for inversion observables."""
+"""Posterior predictive ensembles for inversion observables.
+
+Every observable the target holds gets an ensemble, including one with
+likelihood weight 0: it is not fitted, so the likelihood carries no
+prediction for it, and its values come from a separate forward call on the
+same layered model (a held-out check of the posterior).
+"""
 
 from __future__ import annotations
 
@@ -6,6 +12,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from seisforge.inv.forward import ForwardError, predict_dispersion, predict_rayleigh_hv
 from seisforge.inv.posterior import JointInversionTarget
 from seisforge.inv.samplers import MCMCResult
 
@@ -92,16 +99,35 @@ def extract_prediction_ensemble(
             if flat_hv is not None:
                 flat_hv[i] = np.nan
             continue
-        if flat_dispersion is not None:
-            flat_dispersion[i] = detail.likelihood.dispersion.predicted
-        if flat_hv is not None:
-            flat_hv[i] = detail.likelihood.hv.predicted
+        try:
+            if flat_dispersion is not None:
+                flat_dispersion[i] = _predicted(detail, "dispersion", target.dispersion)
+            if flat_hv is not None:
+                flat_hv[i] = _predicted(detail, "hv", target.hv)
+        except ForwardError as exc:
+            if not fill_invalid:
+                raise ValueError(f"Forward prediction failed for sample {i}: {exc}") from exc
+            if flat_dispersion is not None:
+                flat_dispersion[i] = np.nan
+            if flat_hv is not None:
+                flat_hv[i] = np.nan
 
     return JointPredictionEnsemble(
         dispersion=_observable_ensemble(target.dispersion, dispersion_values),
         hv=_observable_ensemble(target.hv, hv_values),
         log_prob=None if log_prob is None else np.asarray(log_prob, dtype=float),
     )
+
+
+def _predicted(detail, label: str, observation) -> np.ndarray:
+    """Prediction from the likelihood fit, or a forward call when not fitted."""
+    fit = getattr(detail.likelihood, label)
+    if fit is not None:
+        return fit.predicted
+    layered = detail.prior.layered_model
+    if label == "dispersion":
+        return predict_dispersion(layered, observation.request()).velocity
+    return predict_rayleigh_hv(layered, observation.request()).hv
 
 
 def _empty_predictions(sample_shape, observation):

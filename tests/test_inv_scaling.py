@@ -32,3 +32,15 @@ def test_constant_density_scaling():
     rho = estimate_rho(vs, method="constant", rho=2.8)
 
     np.testing.assert_allclose(rho, np.array([2.8, 2.8]))
+
+
+def test_gardner_default_is_the_ft_per_s_relation_in_km_s():
+    # Gardner et al. (1974): rho = 0.23 V**0.25 with V in ft/s; converting V
+    # to km/s multiplies a by (1000 / 0.3048)**0.25. Rounded to 3 decimals,
+    # the precision of the default.
+    import inspect
+
+    from seisforge.inv.scaling import gardner_rho_from_vp
+
+    a_default = inspect.signature(gardner_rho_from_vp).parameters["a"].default
+    assert round(0.23 * (1000.0 / 0.3048) ** 0.25, 3) == a_default

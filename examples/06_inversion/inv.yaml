@@ -42,13 +42,14 @@ discretization:
 
 constraints:
   # Hard prior: models breaking these are rejected before the forward call.
+  # Depth checks act on the continuous Vs(z); a hard interface is a jump, not a gradient.
   constraints:
     - {type: positive_velocity}
     - {type: vp_vs_range, bounds: [1.45, 2.70]}
     - {type: boundary_non_decreasing_vs, tolerance: 0.05}
-    - {type: vs_range, depth_range: [0.0, 15.0], bounds: [0.8, 4.6], dz: 0.25}
-    - {type: monotonic_vs, depth_range: [0.0, 15.0], tolerance: 0.06, dz: 0.25}
-    - {type: max_vs_gradient, depth_range: [0.0, 15.0], max_abs: 1.2, dz: 0.25}
+    - {type: vs_range, depth_range: [0.0, 15.0], bounds: [0.8, 4.6]}
+    - {type: monotonic_vs, depth_range: [0.0, 15.0], max_decrease_km_s_per_km: 0.24}
+    - {type: max_vs_gradient, depth_range: [0.0, 15.0], max_abs_km_s_per_km: 1.2}
 
 sampler:
   n_steps: 16000                       # steps per chain; raise if R-hat > 1.01 or ESS < 400

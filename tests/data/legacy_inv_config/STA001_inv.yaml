@@ -136,6 +136,10 @@ Discretization:
 Constraints:
   # These are hard geophysical priors. Invalid models receive log prior = -inf
   # and are rejected before the forward calculation contributes to likelihood.
+  # evaluation: continuous (default) checks the continuous Vs(z). "grid" is the
+  # older evaluation (Vs sampled every dz;
+  # keys dz, tolerance, max_abs), kept only to reproduce old results.
+  evaluation: continuous
   constraints:
     - type: positive_velocity
 
@@ -145,22 +149,26 @@ Constraints:
     - type: boundary_non_decreasing_vs
       tolerance: 0.05
 
+    # Depth checks act on the continuous Vs(z) over depth_range (km), at
+    # every depth and on both sides of every segment boundary; no grid.
     - type: vs_range
       depth_range: [0.0, 15.0]
       bounds: [0.8, 4.6]
-      dz: 0.25
 
-    # A small tolerance keeps the prior geologically smooth without requiring
-    # mathematically strict monotonicity at every sampled depth.
+    # dVs/dz >= -max_decrease_km_s_per_km wherever Vs is smooth: a small
+    # allowed decrease keeps the prior geologically smooth without strict
+    # monotonicity. A drop at a hard interface is a jump, not a gradient, and
+    # is not seen here; boundary_non_decreasing_vs bounds it.
     - type: monotonic_vs
       depth_range: [0.0, 15.0]
-      tolerance: 0.06
-      dz: 0.25
+      max_decrease_km_s_per_km: 0.24
 
+    # |dVs/dz| <= max_abs_km_s_per_km wherever Vs is smooth (inside a
+    # gradational interface: the slope of the transition). Jumps at hard
+    # interfaces are not gradients.
     - type: max_vs_gradient
       depth_range: [0.0, 15.0]
-      max_abs: 1.2
-      dz: 0.25
+      max_abs_km_s_per_km: 1.2
 
 Likelihood:
   # Current implementation uses explicit weighted Gaussian chi-square terms:

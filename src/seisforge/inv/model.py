@@ -23,12 +23,13 @@ from typing import Protocol
 
 import numpy as np
 
-from seisforge.inv.bspline import evaluate_bspline
+from seisforge.inv.bspline import bspline_knots, evaluate_bspline, evaluate_bspline_derivative
 from seisforge.inv.scaling import RHO_FROM_VP_SCALINGS, estimate_rho, estimate_vp
 from seisforge.inv.transitions import (
     TRANSITION_SHAPES,
     transition_half_support_km,
     transition_weight,
+    transition_weight_derivative_per_km,
 )
 
 
@@ -142,11 +143,20 @@ class LayeredModel:
 class VsProfile(Protocol):
     """Layer-internal Vs parameterization.
 
-    A profile evaluates local depth inside one segment. Future B-spline classes
-    should implement this same method, so samplers do not care how Vs is stored.
+    A profile evaluates local depth inside one segment, so samplers do not
+    care how Vs is stored. ``derivative`` is ``dVs/dz`` (km/s per km) and
+    ``breakpoints`` the local depths inside the segment where the profile is
+    not smooth (B-spline knots); prior constraints use both to analyse the
+    continuous profile without a depth grid.
     """
 
     def evaluate(self, z_local: ArrayLike, *, thickness: float) -> np.ndarray:
+        ...
+
+    def derivative(self, z_local: ArrayLike, *, thickness: float) -> np.ndarray:
+        ...
+
+    def breakpoints(self, *, thickness: float) -> np.ndarray:
         ...
 
 
@@ -157,6 +167,12 @@ class ConstantVs:
     def evaluate(self, z_local: ArrayLike, *, thickness: float) -> np.ndarray:
         z_local = np.asarray(z_local, dtype=float)
         return np.full_like(z_local, self.value, dtype=float)
+
+    def derivative(self, z_local: ArrayLike, *, thickness: float) -> np.ndarray:
+        return np.zeros_like(np.asarray(z_local, dtype=float))
+
+    def breakpoints(self, *, thickness: float) -> np.ndarray:
+        return np.array([], dtype=float)
 
 
 @dataclass(frozen=True)
@@ -170,6 +186,15 @@ class GradientVs:
         z_local = np.asarray(z_local, dtype=float)
         fraction = z_local / thickness
         return self.top + (self.bottom - self.top) * fraction
+
+    def derivative(self, z_local: ArrayLike, *, thickness: float) -> np.ndarray:
+        if thickness <= 0:
+            raise ValueError("GradientVs requires a positive segment thickness.")
+        z_local = np.asarray(z_local, dtype=float)
+        return np.full_like(z_local, (self.bottom - self.top) / thickness, dtype=float)
+
+    def breakpoints(self, *, thickness: float) -> np.ndarray:
+        return np.array([], dtype=float)
 
 
 @dataclass(frozen=True)
@@ -207,6 +232,29 @@ class BSplineVs:
             spacing=self.knot_spacing,
             alpha=self.knot_alpha,
         )
+
+    def derivative(self, z_local: ArrayLike, *, thickness: float) -> np.ndarray:
+        if thickness <= 0:
+            raise ValueError("BSplineVs requires a positive segment thickness.")
+        return evaluate_bspline_derivative(
+            z_local,
+            self.coefficients,
+            degree=self.degree,
+            domain=(0.0, float(thickness)),
+            spacing=self.knot_spacing,
+            alpha=self.knot_alpha,
+        )
+
+    def breakpoints(self, *, thickness: float) -> np.ndarray:
+        """Distinct interior knots, as local depths in km."""
+        knots = bspline_knots(
+            len(self.coefficients),
+            degree=self.degree,
+            spacing=self.knot_spacing,
+            alpha=self.knot_alpha,
+        )
+        interior = np.unique(knots[(knots > 0.0) & (knots < 1.0)])
+        return interior * float(thickness)
 
 
 @dataclass(frozen=True)
@@ -248,6 +296,22 @@ class VsSegment:
         z = np.clip(np.asarray(z, dtype=float), self.top, self.bottom)
         return self.evaluate(z)
 
+    def derivative(self, z: ArrayLike) -> np.ndarray:
+        """``dVs/dz`` (km/s per km) inside the segment."""
+        z = np.asarray(z, dtype=float)
+        return self.profile.derivative(z - self.top, thickness=self.thickness)
+
+    def derivative_clamped(self, z: ArrayLike) -> np.ndarray:
+        """Derivative of `evaluate_clamped`: 0 outside the segment."""
+        z = np.asarray(z, dtype=float)
+        inside = (z >= self.top) & (z <= self.bottom)
+        clamped = np.clip(z, self.top, self.bottom)
+        return np.where(inside, self.derivative(clamped), 0.0)
+
+    def breakpoints(self) -> np.ndarray:
+        """Absolute depths inside the segment where the profile is not smooth."""
+        return self.top + self.profile.breakpoints(thickness=self.thickness)
+
 
 @dataclass(frozen=True)
 class Interface:
@@ -288,6 +352,10 @@ class Interface:
     def weight(self, z: ArrayLike) -> np.ndarray:
         """Weight of the segment below: 0 above, 1 below the transition."""
         return transition_weight(z, self.depth_km, self.width_km, self.shape)
+
+    def weight_derivative(self, z: ArrayLike) -> np.ndarray:
+        """``d weight / dz`` (1/km); 0 for a hard step."""
+        return transition_weight_derivative_per_km(z, self.depth_km, self.width_km, self.shape)
 
 
 @dataclass(frozen=True)

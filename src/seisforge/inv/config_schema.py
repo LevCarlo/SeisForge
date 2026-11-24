@@ -103,13 +103,27 @@ DISCRETIZATION_KEYS = frozenset(
     }
 )
 
-CONSTRAINTS_SECTION_KEYS = frozenset({"constraints"})
-CONSTRAINT_KEYS = {
+# constraints.evaluation selects how the depth constraints are evaluated
+# (see inv.constraints): "continuous" (default) on the continuous profile, or
+# "grid", the older grid evaluation kept to reproduce old results. The two
+# take different keys for vs_range, monotonic_vs and max_vs_gradient.
+CONSTRAINT_EVALUATIONS = ("continuous", "grid")
+CONSTRAINTS_SECTION_KEYS = frozenset({"constraints", "evaluation"})
+_LAYER_CONSTRAINT_KEYS = {
     "positive_velocity": frozenset({"type"}),
     "vp_gt_vs": frozenset({"type", "margin"}),
     "vp_vs_range": frozenset({"type", "bounds"}),
     "boundary_non_decreasing_vs": frozenset({"type", "tolerance"}),
     "boundary_vs": frozenset({"type", "tolerance"}),
+}
+CONSTRAINT_KEYS = {
+    **_LAYER_CONSTRAINT_KEYS,
+    "vs_range": frozenset({"type", "bounds", "depth_range"}),
+    "monotonic_vs": frozenset({"type", "depth_range", "max_decrease_km_s_per_km"}),
+    "max_vs_gradient": frozenset({"type", "max_abs_km_s_per_km", "depth_range"}),
+}
+GRID_CONSTRAINT_KEYS = {
+    **_LAYER_CONSTRAINT_KEYS,
     "vs_range": frozenset({"type", "bounds", "depth_range", "dz"}),
     "monotonic_vs": frozenset({"type", "depth_range", "tolerance", "dz"}),
     "max_vs_gradient": frozenset({"type", "max_abs", "depth_range", "dz"}),
@@ -298,13 +312,56 @@ def validate_scaling_config(scaling: Any, *, where: str = "model.scaling") -> No
 
 
 def validate_constraints_config(section: Any, *, where: str = "constraints") -> None:
-    """Check a ``constraints`` section: a list, or a mapping with ``constraints``."""
+    """Check a ``constraints`` section: a list, or a mapping with ``constraints``.
+
+    Keys of the grid evaluation (``dz``, ``tolerance`` of ``monotonic_vs``,
+    ``max_abs``) under the continuous default raise an error that names both
+    ways forward, so an old configuration never changes meaning silently.
+    """
+    evaluation = "continuous"
     if isinstance(section, Mapping):
         check_keys(section, CONSTRAINTS_SECTION_KEYS, where=where)
+        evaluation = str(section.get("evaluation", "continuous")).lower()
+        if evaluation not in CONSTRAINT_EVALUATIONS:
+            raise ValueError(
+                f"{where}.evaluation must be one of {CONSTRAINT_EVALUATIONS}, got {section['evaluation']!r}."
+            )
         where = f"{where}.constraints"
         section = section.get("constraints")
+    allowed = GRID_CONSTRAINT_KEYS if evaluation == "grid" else CONSTRAINT_KEYS
     for index, item in enumerate(_as_list(section, where=where)):
-        _check_typed(item, CONSTRAINT_KEYS, where=f"{where}[{index}]", kind="constraint")
+        label = f"{where}[{index}]"
+        if evaluation == "continuous":
+            _reject_grid_keys(item, where=label)
+        _check_typed(item, allowed, where=label, kind="constraint")
+
+
+def _reject_grid_keys(item: Any, *, where: str) -> None:
+    if not isinstance(item, Mapping):
+        return
+    item_type = str(item.get("type", "")).lower()
+    grid_only = GRID_CONSTRAINT_KEYS.get(item_type, frozenset()) - CONSTRAINT_KEYS.get(item_type, frozenset())
+    used = sorted(key for key in item if key in grid_only)
+    if not used:
+        return
+    hints = {
+        "vs_range": "drop dz (the whole continuous profile is checked)",
+        "monotonic_vs": (
+            "replace tolerance and dz by max_decrease_km_s_per_km, the allowed "
+            "decrease of Vs per km (the old grid allowed about tolerance / dz, "
+            "e.g. 0.06 / 0.25 km = 0.24 km/s per km)"
+        ),
+        "max_vs_gradient": (
+            "rename max_abs to max_abs_km_s_per_km and drop dz (jumps at hard "
+            "interfaces no longer count as gradients)"
+        ),
+    }
+    raise ValueError(
+        f"{where} ({item_type}): {', '.join(used)} {'is a key' if len(used) == 1 else 'are keys'} "
+        "of the grid evaluation of the depth constraints, which is no longer the default. Either "
+        f"{hints[item_type]}, or keep the old behaviour with "
+        "'evaluation: grid' in the constraints section."
+    )
 
 
 def validate_soft_priors_config(section: Any, *, where: str = "soft_priors") -> None:

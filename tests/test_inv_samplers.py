@@ -52,7 +52,7 @@ def _prior_target():
         constraints=ConstraintSuite(
             constraints=(
                 BoundaryNonDecreasingVsConstraint(),
-                MonotonicVsConstraint(dz=0.5),
+                MonotonicVsConstraint(),
             )
         ),
     )

@@ -6,7 +6,7 @@ from seisforge.inv.likelihood import DispersionObservation, RayleighHVObservatio
 from seisforge.inv.model import DiscretizationConfig
 from seisforge.inv.parameterization import ModelParameterization, ParameterSpec, UniformPrior
 from seisforge.inv.posterior import JointInversionTarget
-from seisforge.inv.predictive import extract_prediction_ensemble_from_result
+from seisforge.inv.predictive import extract_prediction_ensemble, extract_prediction_ensemble_from_result
 from seisforge.inv.prior import GeophysicalPrior
 from seisforge.inv.samplers import MetropolisConfig, run_metropolis
 
@@ -43,7 +43,7 @@ def _target():
     )
     prior = GeophysicalPrior(
         parameterization=parameterization,
-        constraints=ConstraintSuite((MonotonicVsConstraint(dz=0.5),)),
+        constraints=ConstraintSuite((MonotonicVsConstraint(),)),
         discretization=DiscretizationConfig(dz=1.0),
     )
     layered = prior.evaluate(parameterization.theta0()).layered_model
@@ -75,3 +75,23 @@ def test_extract_prediction_ensemble_from_result_tracks_observables():
     np.testing.assert_allclose(predictions.dispersion.periods, [5.0, 10.0, 20.0])
     assert predictions.dispersion.mean.shape == (3,)
     assert predictions.hv.p16.shape == (3,)
+
+
+def test_prediction_ensemble_forward_models_a_zero_weight_observable():
+    # A weight-0 data type is not fitted, so the likelihood has no fit for it;
+    # its predictive ensemble is still the forward prediction of each sample.
+    _, target = _target()
+    held_out = JointInversionTarget(
+        prior=target.prior, dispersion=target.dispersion, hv=target.hv, hv_weight=0.0
+    )
+    theta = target.prior.parameterization.theta0()
+    samples = np.array([[theta, theta]])
+
+    predictions = extract_prediction_ensemble(samples, target=held_out)
+
+    layered = target.prior.evaluate(theta).layered_model
+    expected = predict_rayleigh_hv(layered, RayleighHVRequest(periods=target.hv.periods)).hv
+    # Same forward call on the same layers: bit-for-bit equal.
+    np.testing.assert_array_equal(predictions.hv.predicted[0, 0], expected)
+    np.testing.assert_array_equal(predictions.hv.predicted[0, 1], expected)
+    assert predictions.dispersion.predicted.shape == (1, 2, 3)
