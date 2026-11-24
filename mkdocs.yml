@@ -70,7 +70,8 @@ nav:
   - Receiver functions:
       - Workflow: rf_workflow.md
   - HVSR:
-      - Forward modelling: hvsr_forward.md
+      - Diffuse-field H/V: hvsr/index.md
+      - Surface Green function: hvsr/green_function.md
   - Inversion:
       - Getting started: inv_getting_started.md
       - Model guide: model.md
