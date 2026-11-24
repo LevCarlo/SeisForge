@@ -36,9 +36,9 @@ Commands are grouped by workflow; most take a YAML config:
 | `seisforge ant rotate-ccf -c ccf_rotate.yml` | rotate ZNE CCFs to ZRT | [CCF rotation](ant/rotation.md#3-usage) |
 | `seisforge ant aftan -c aftan_station.yml` | AFTAN dispersion picks | [AFTAN](ant/dispersion.md#7-usage) |
 | `seisforge ant eikonal -c eikonal.yml` | Eikonal/Helmholtz phase-velocity maps | [Eikonal](ant/tomography.md#7-usage) |
-| `seisforge rf qc -c rf_qc.yml --plot` | RF quality control | [Receiver functions](rf_workflow.md) |
-| `seisforge rf hkseq -c hkseq.yml --mode both --plot` | sequential H-k stacking | [Receiver functions](rf_workflow.md#sequential-h-k-config) |
-| `seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run` | single-station MCMC inversion | [Inversion](inv_getting_started.md) |
+| `seisforge rf qc -c rf_qc.yml --plot` | RF quality control | [RF quality control](rf/qc.md) |
+| `seisforge rf hkseq -c hkseq.yml --mode both --plot` | sequential H-k stacking | [H-k stacking](rf/hk.md#6-usage) |
+| `seisforge inv disp-hv --inv inv.yaml --obs obs.yaml -o run` | single-station MCMC inversion | [Inversion](inv/index.md) |
 
 Each folder under `examples/` is a self-contained example with data,
 config, `run.sh` and README: see the [examples overview](examples.md).
@@ -46,7 +46,7 @@ config, `run.sh` and README: see the [examples overview](examples.md).
 
 ## Where to start
 
-- New to the inversion: [getting started](inv_getting_started.md) runs
+- New to the inversion: [the inversion overview](inv/index.md) runs
   `examples/06_inversion` end to end.
 - Units, sign conventions, and output policies shared by all workflows:
   [conventions](conventions.md).

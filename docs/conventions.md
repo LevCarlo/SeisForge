@@ -27,7 +27,7 @@ rule where a unit is not obvious (`top_km`, `depth_km`, `width_km`).
   half-space thickness ignored (written as 0). `seisforge.hvsr` models take
   one thickness fewer than properties.
 - Vs is the inverted property; Vp and density are derived from it by the
-  scaling relations of the [inversion model](model.md#3-interfaces).
+  scaling relations of the [inversion model](inv/model.md#3-vp-and-density).
 - An interface's `width_km` is the 10-90 % transition thickness; `0` is a hard
   step.
 
@@ -35,7 +35,7 @@ rule where a unit is not obvious (`top_km`, `depth_km`, `width_km`).
 
 Single-station observations are three-column text, `period_s  value
 one_sigma`, with `#` comments allowed (see the
-[configuration reference](inv_usage.md#obsyaml)). Gridded and pair-wise
+[inversion usage](inv/forward.md#4-usage)). Gridded and pair-wise
 products (AFTAN, Eikonal) are NetCDF with units and schema versions in their
 attributes; see the workflow pages.
 
@@ -48,7 +48,7 @@ attributes; see the workflow pages.
 - Time is relative to direct P, which is at 0 s.
 - Synthetic amplitudes follow either the continuous inverse transform
   (`impulse`) or a unit-peak Gaussian (`gaussian_peak`); see
-  [synthetic P receiver functions](rf_workflow.md#synthetic-p-receiver-functions).
+  [synthetic P receiver functions](rf/synthetic.md#3-amplitude-and-time-conventions).
 
 ## Geography
 
