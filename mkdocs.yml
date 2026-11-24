@@ -75,9 +75,11 @@ nav:
   - HVSR:
       - Forward modelling: hvsr_forward.md
   - Inversion:
-      - Getting started: inv_getting_started.md
-      - Model guide: model.md
-      - Configuration reference: inv_usage.md
+      - Overview: inv/index.md
+      - Model space and prior: inv/model.md
+      - Forward modelling and likelihood: inv/forward.md
+      - Sampling: inv/sampler.md
+      - Posterior and convergence: inv/posterior.md
   - API:
       - Overview: api/index.md
       - Ambient noise: api/ant.md

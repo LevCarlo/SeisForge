@@ -3,7 +3,7 @@
 #
 # This file is meant to be edited often during experiments. Observation files,
 # wave type, mode number, and forward-model numerical settings live in obs.yaml
-# (reference: inversion_obs.yaml). Every key: docs/inv_usage.md.
+# (reference: inversion_obs.yaml). Method: docs/inv/.
 
 model:
   # Vs is the primary inverted variable. Vp and rho are derived for disba.
@@ -179,7 +179,7 @@ likelihood:
   hv_weight: 1.0
 
 sampler:
-  # Settings of the documented example run (docs/inv_getting_started.md):
+  # Settings of the documented example run (examples/06_inversion):
   # on the synthetic data every parameter reaches split R-hat <= 1.007 and
   # ESS >= 541, post-burn-in acceptance 0.18-0.20, about 80 s with the four
   # chains in four processes (10-core Apple M4). The executor does not change

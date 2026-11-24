@@ -196,7 +196,8 @@ def test_graded_layering_converges_to_fine_uniform_layering(name):
     # halving leaves room for the changing growth ratio and cap).
     assert np.all(errors[1:] <= 0.5 * errors[:-1]), errors
     # Finest graded layering: well below the STA001 noise (0.03 km/s, 0.02).
-    # 0.1 sigma is the assumed "negligible" level of docs/inv_usage.md.
+    # 0.1 sigma: assumed "negligible" level, half the 0.2 sigma working
+    # level of docs/inv/forward.md.
     assert errors[-1, 0] < 0.1 * 0.03
     assert errors[-1, 1] < 0.1 * 0.02
 

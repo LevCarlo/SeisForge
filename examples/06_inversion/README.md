@@ -3,8 +3,8 @@
 Bayesian (MCMC) inversion of one station's Rayleigh-wave phase velocity and
 Rayleigh H/V (ellipticity) for shear velocity Vs versus depth, 0-15 km. The
 data are synthetic, computed from a known model (station name STA001), so you
-can see whether the result is right. The full walk-through is
-`docs/inv_getting_started.md`; every config key is in
+can see whether the result is right. The method is described in `docs/inv/`
+(start at `docs/inv/index.md`); every config key is in
 `examples/reference_configs/inversion_inv.yaml` and `inversion_obs.yaml`.
 
 ## Input
@@ -95,7 +95,7 @@ Results that look wrong, and the usual cause:
 - **Observations outside the predicted band** in the right two panels: the
   model cannot fit the data; widen prior bounds, or relax `constraints`.
 - **The log warns "forward failures"**: disba found no solution for many
-  models; see `docs/inv_usage.md#forward-solver-failures`.
+  models; see `docs/inv/posterior.md#4-forward-failures`.
 - **Layering error near or above 1 sigma**: the forward layers are too thick
   for your periods; make `discretization.dz` smaller.
 

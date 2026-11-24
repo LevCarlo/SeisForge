@@ -229,7 +229,7 @@ switch that restores the old behaviour where one exists.
   segment boundaries, transition supports and `force_depths`. The default
   (`dz_growth_ratio: 1`) is the uniform `dz` layering, bit-for-bit. For
   STA001, `dz: 0.0625, dz_growth_ratio: 1.1, dz_max: 1.0` uses 35 layers
-  instead of 61 with a smaller layering error (see `docs/inv_usage.md`).
+  instead of 61 with a smaller layering error (see `docs/inv/forward.md`).
 - **Layering error check** (`seisforge.inv.layering.layering_observable_error`):
   difference in predicted phase velocity and ellipticity between the
   configured layering and a fine uniform reference, in data units and in

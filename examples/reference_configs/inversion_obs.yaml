@@ -1,5 +1,5 @@
 # Full, commented observation and forward-model settings (reference for
-# examples/06_inversion/obs.yaml). Every key: docs/inv_usage.md.
+# examples/06_inversion/obs.yaml). Method: docs/inv/forward.md.
 #
 # The .dat files use three columns:
 #   period  observed_value  one_sigma_uncertainty

@@ -169,7 +169,7 @@ Likelihood:
   hv_weight: 1.0
 
 Sampler:
-  # Settings of the documented example run (docs/inv_getting_started.md):
+  # Settings of the documented example run (examples/06_inversion):
   # see examples/reference_configs/inversion_inv.yaml (this file mirrors it with legacy names).
   n_steps: 16000
   burn_in: 5000
