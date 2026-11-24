@@ -13,3 +13,7 @@
 ## H-k stacking formulas
 
 ::: seisforge.rf.hk_core
+
+## Quality-control statistics
+
+::: seisforge.rf.qc_core

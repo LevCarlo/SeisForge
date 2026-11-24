@@ -22,7 +22,7 @@ K_GRID = HkParam("k", 1.60, 1.90, 0.005)
 
 time_s, data = _rf.synthetic_rf(p=P_S_PER_KM, gauss_a=GAUSS_A)
 result = HkStack(_rf.rf_trace(time_s, data, P_S_PER_KM), H_GRID, K_GRID,
-                 Vp=_rf.VP_CRUST_KM_S).stack()
+                 Vp=_rf.VP_CRUST_KM_S, min_ps_delay_s=0.6).stack()
 h_best, k_best = result.attrs["H_best"], result.attrs["k_best"]
 assert abs(h_best - _rf.H_TRUE_KM) <= 0.1 + 1e-9 and abs(k_best - _rf.K_TRUE) <= 0.005 + 1e-9, (h_best, k_best)
 assert all(result.attrs[f"n_invalid_{name}"] == 0 for name in ("Ps", "PpPs", "PsPs"))

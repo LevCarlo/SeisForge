@@ -11,12 +11,14 @@ values):
 
 Top row: the a = 5 RFs and their one-layer H-k stacks over H 0-5 km
 (`HkStack`, Vs fixed at the true value, as the reference config fixes the
-sediment Vs). For the weak contrast the stack peaks next to H = 0, where all
-three delays fall inside the direct-P pulse. This outcome is marginal: it
-changes with the sampling interval and the top-layer density. Bottom row,
-slow sediment only: the a = 2.5 RF stacked for the crust with one layer, and
-with two layers using the sediment pick of the top row (`HkStack(mode=2)`),
-as `seisforge rf hkseq --mode both` does.
+sediment Vs, and `min_ps_delay_s` = 0.3 s as in the reference config). Grid
+points whose Ps delay is shorter than 0.3 s are hatched: there the stack
+samples direct P. Bottom row, slow sediment only: the a = 2.5 RF stacked for
+the crust with one layer, and with two layers using the sediment pick of the
+top row (`HkStack(mode=2)`), as `seisforge rf hkseq --mode both` does.
+Known answers: both sediments are found to within one H step and 0.06 in
+Vp/Vs (the a = 5 pulse sampled at 0.1 s), neither stack is dominated by
+direct P, and the two-layer crust is within 0.5 km of the Moho.
 """
 
 import numpy as np
@@ -30,6 +32,7 @@ MODELS = {
     "slow sediment": (1.8, 2.2),
     "weak contrast": (2.5, 2.0),
 }
+MIN_PS_SED, MIN_PS_CRUST = 0.3, 0.6
 H_SED = HkParam("H", 0.0, 5.0, 0.05)
 K_SED = HkParam("k", 1.5, 3.0, 0.01)
 H_CRUST = HkParam("H", 25.0, 45.0, 0.1)
@@ -49,27 +52,34 @@ sediment = {}
 for name, (vs_sed, k_sed) in MODELS.items():
     time_s, data = _rf.synthetic_rf(model(vs_sed, k_sed), P_S_PER_KM, gauss_a=5.0, dt_s=0.1,
                                     end_s=30)
-    result = HkStack(_rf.rf_trace(time_s, data, P_S_PER_KM), H_SED, K_SED, Vp=None, Vs=vs_sed).stack()
+    result = HkStack(_rf.rf_trace(time_s, data, P_S_PER_KM), H_SED, K_SED, Vp=None, Vs=vs_sed,
+                     min_ps_delay_s=MIN_PS_SED).stack()
     sediment[name] = (time_s, data, result)
 
 h0, k0 = (sediment["slow sediment"][2].attrs[key] for key in ("H_best", "k_best"))
 vs0 = MODELS["slow sediment"][0]
 time_lo, data_lo = _rf.synthetic_rf(model(*MODELS["slow sediment"]), P_S_PER_KM, gauss_a=2.5, dt_s=0.1)
 trace_lo = _rf.rf_trace(time_lo, data_lo, P_S_PER_KM)
-one_layer = HkStack(trace_lo, H_CRUST, K_CRUST, Vp=_rf.VP_CRUST_KM_S).stack()
+one_layer = HkStack(trace_lo, H_CRUST, K_CRUST, Vp=_rf.VP_CRUST_KM_S,
+                    min_ps_delay_s=MIN_PS_CRUST).stack()
 two_layer = HkStack(trace_lo, H_CRUST, K_CRUST, Vp=_rf.VP_CRUST_KM_S, mode=2,
-                    h0=h0, vp0=None, vs0=vs0, k0=k0).stack()
-# Known answers: the two-layer stack recovers the Moho to 0.5 km; the one-layer
-# stack is biased; the weak-contrast sediment stack peaks at the direct P.
+                    h0=h0, vp0=None, vs0=vs0, k0=k0, min_ps_delay_s=MIN_PS_CRUST).stack()
+# Known answers (see the module docstring).
+for name, (vs_sed, k_sed) in MODELS.items():
+    attrs = sediment[name][2].attrs
+    assert abs(attrs["H_best"] - 2.0) <= 0.05 + 1e-9 and abs(attrs["k_best"] - k_sed) <= 0.06, name
+    assert not attrs["direct_p_dominates"], name
 assert abs(two_layer.attrs["H_best"] - _rf.H_TRUE_KM) <= 0.5
 assert abs(one_layer.attrs["H_best"] - _rf.H_TRUE_KM) > 1.0
-assert sediment["weak contrast"][2].attrs["H_best"] < 0.5
 
 
 def stack_panel(ax, result, h_grid, k_grid, truth, title):
     amp = result.amp_stack.values
     ax.pcolormesh(h_grid.values, k_grid.values, amp / np.abs(amp).max(), cmap="RdBu_r",
                   vmin=-1, vmax=1, shading="auto", rasterized=True)
+    if result.excluded_direct_p.values.any():
+        ax.contourf(h_grid.values, k_grid.values, result.excluded_direct_p.values.astype(float),
+                    levels=[0.5, 1.5], colors="none", hatches=["////"])
     ax.plot(*truth, "o", mfc="none", mec="black", ms=9, mew=1.2)
     ax.plot(result.attrs["H_best"], result.attrs["k_best"], "+", color="black", ms=10, mew=1.5)
     ax.set_title(title + f"\npick ({result.attrs['H_best']:.2f} km, {result.attrs['k_best']:.2f})")

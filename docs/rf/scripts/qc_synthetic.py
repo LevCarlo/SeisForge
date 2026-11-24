@@ -12,11 +12,16 @@ survivors of the previous one, with the settings of `examples/04_rf_qc_hk`
 (SNR >= 3, 0.04 <= p <= 0.08, P peak in [-2, 2] s, MAD z <= 2.5, CC >= 0.5,
 windows [-5, 30] s; F-test off). Known answer: exactly the 12 bad traces
 are removed. (b), (c): the MAD and CC metrics of the traces entering
-those tests. (d) shows the F-test value of `RFstream.f_test_select` on the
-30 good traces alone, which all come from one model.
+those tests. (d) F-test p-values of `RFstream.f_test_select`, cumulative:
+on the 30 good traces (one model, but p spans 0.045-0.078 s/km, so Ps and
+the multiples move by up to about 1 s), and on 30 traces of the same model
+at one p = 0.06 s/km with the same noise, where the test's null hypothesis
+(one common waveform plus independent noise) holds and the p-values are
+uniform (Kolmogorov-Smirnov p-value above 0.01 is asserted).
 """
 
 import numpy as np
+from scipy import stats
 
 import _rf
 from _rf import _style, plt
@@ -68,6 +73,15 @@ assert set(removed_by) == bad, sorted(set(removed_by) ^ bad)
 good_stream = _rf.rf_stream([tr for tr in traces if tr.stats.sac.kevnm.startswith("good")])
 f_values = np.array(good_stream.f_test_select(threshold=-np.inf, window=window).qc_metrics)
 f_rejected = int(np.sum(f_values < 0.05))
+time_s, rf_one_p = _rf.synthetic_rf(p=0.06, gauss_a=2.5, dt_s=0.1)
+null_stream = _rf.rf_stream([
+    _rf.sac_trace(time_s, rf_one_p + rng.normal(0.0, NOISE_FRACTION * np.abs(rf_one_p).max(),
+                                                rf_one_p.size), 0.06, name=f"same{i:02d}")
+    for i in range(30)
+])
+f_null = np.array(null_stream.f_test_select(threshold=-np.inf, window=window).qc_metrics)
+f_null_rejected = int(np.sum(f_null < 0.05))
+assert stats.kstest(f_null, "uniform").pvalue > 0.01
 
 
 def draw():
@@ -107,14 +121,17 @@ def draw():
     axes[1].legend(loc="upper left", fontsize=7, bbox_to_anchor=(0.08, 1.0))
 
     ax = axes[3]
-    ax.plot(np.sort(f_values), np.linspace(0, 1, f_values.size), "o-", color=_style.MEASURED, ms=3,
-            lw=0.8, label="30 good traces")
-    ax.plot([0, 1], [0, 1], color=_style.TRUTH, lw=1.0, label="uniform p-value")
+    cdf = (np.arange(30) + 1) / 30
+    ax.step(np.sort(f_values), cdf, where="post", color=_style.MEASURED, lw=1.0,
+            label=f"30 good, p 0.045-0.078 ({f_rejected} < 0.05)")
+    ax.step(np.sort(f_null), cdf, where="post", color=_style.SECOND, lw=1.0,
+            label=f"30 at one p ({f_null_rejected} < 0.05)")
+    ax.plot([0, 1], [0, 1], color=_style.TRUTH, lw=1.0, ls=":", label="uniform")
     ax.axvline(0.05, color=_style.HIGHLIGHT, lw=0.8, ls="--", label="threshold 0.05")
-    ax.axvline(1.0, color=_style.MUTED, lw=0.7, ls=":")
-    ax.set_xlabel("value returned by f_test_select")
+    ax.set_xlim(0, 1)
+    ax.set_xlabel("F-test p-value")
     ax.set_ylabel("cumulative fraction")
-    ax.set_title(f"F-test: {f_rejected} of 30 good traces rejected")
+    ax.set_title("F-test p-values")
     ax.legend(loc="lower right", fontsize=7)
     for axis, label in zip(axes, "abcd"):
         _style.panel_label(axis, label)
@@ -125,5 +142,7 @@ def draw():
 _rf.save(draw, __file__)
 for step, _ in STEPS:
     print(f"{step:9s} removed: {sorted(n for n, s in removed_by.items() if s == step)}")
-print(f"F-test values on good traces: min {f_values.min():.3f}, max {f_values.max():.3f}, "
-      f"{int(np.sum(f_values > 1))} above 1, {f_rejected} below 0.05")
+print(f"F-test p on good traces: {f_rejected} of 30 below 0.05 "
+      f"({int(np.sum(f_values < 0.01))} below 0.01)")
+print(f"F-test p at one ray parameter: {f_null_rejected} of 30 below 0.05, "
+      f"KS p-value {stats.kstest(f_null, 'uniform').pvalue:.2f}")

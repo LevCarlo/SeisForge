@@ -15,12 +15,15 @@ Model:
     Vp: null
     Vs: 2.5
     weight: [0.5, 0.2, 0.3]
+    min_ps_delay_s: 0.3                          # assumed: a = 5 pulse at 10 % (sqrt(ln 10)/a)
+    two_layer_min_thickness_km: 0.4              # assumed: thinner sediment -> one-layer crust
   Crust:
     H: {min: 25.0, max: 50.0, delta: 0.2}        # change this: Moho depth search range (km)
     k: {min: 1.6, max: 2.0, delta: 0.01}         # change this: Vp/Vs search range
     Vp: 6.3                                      # change this: assumed average crustal Vp (km/s)
     Vs: null
     weight: [0.5, 0.2, 0.3]                      # weights of Ps, PpPs, PsPs
+    min_ps_delay_s: 0.6                          # assumed: a = 2.5 pulse at 10 %
 QC:
-  HighFreq: &hkqc {energy_threshold: 0.6, ell_mad_sigma: 2.0, mahalanobis_dist_threshold: 1.0}
+  HighFreq: &hkqc {mahalanobis_dist_threshold: 1.0}
   LowFreq: *hkqc

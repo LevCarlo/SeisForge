@@ -16,6 +16,6 @@ QC:
     SLOWNESS: {ENABLE: true, MIN: 0.04, MAX: 0.08, SAC_HEADER: user0}  # ray parameter (s/km) in user0
     PAMP: {ENABLE: true, TMIN: -2.0, TMAX: 2.0, WINDOW: [-5, 30]}    # largest peak must be direct P near 0 s
     MAD: {ENABLE: true, THRESHOLD: 2.5, WINDOW: [-5, 30]}             # drop traces far from the median trace
-    F_TEST: {ENABLE: false, THRESHOLD: 0.05, WINDOW: [-5, 30]}
+    F_TEST: {ENABLE: false, THRESHOLD: 0.05, WINDOW: [-5, 30]}       # off: rejects moveout of good RFs (docs/rf/qc.md)
     CC: {ENABLE: true, THRESHOLD: 0.5, WINDOW: [-5, 30]}              # correlation with the mean trace
   LowFreq: *qc

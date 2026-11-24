@@ -149,7 +149,6 @@ switch that restores the old behaviour where one exists.
   R-hat 1.007 (unchanged), minimum ESS 541 -> 608, truth inside the 5-95 %
   band at 238 instead of 241 of 241 depths (the three misses, at 1.69-1.81
   km, by at most 0.004 km/s).
-
 - **HVSR body-wave integral: adaptive quadrature (T21).** The body-wave
   terms of `NativeDiffuseFieldSolver`, `FortranDiffuseFieldSolver` and
   `body_wave_green_contributions` are now integrated by adaptive
@@ -171,6 +170,55 @@ switch that restores the old behaviour where one exists.
   restores the fixed rule (it was not converged); `contour_shift_fraction=
   1e-5` restores the old shift. `examples/05_hvsr_forward/expected_result.png`
   regenerated.
+- **H-k stacking: amplitudes linearly interpolated.** `HkStack` reads the RF
+  at each phase delay by linear interpolation between samples instead of the
+  nearest sample (`seisforge.rf.hk_core.interpolate_at_times`; attr
+  `phase_sampling`). With nearest-sample lookup the stack was flat over runs
+  of grid points mapping to the same samples, and the pick went to the first
+  of them (lowest Vp/Vs). Weak-contrast sediment of `docs/rf/hk.md` (2 km,
+  Vs 2.5 km/s, Vp/Vs 2.0, a = 5, dt 0.1 s), grid from 0.5 km: (2.00 km,
+  1.76) -> (2.00 km, 1.95). Noise-free crust (35 km, 1.75, p 0.06, dt
+  0.05 s): (35.1, 1.747) -> (35.0, 1.750). No option restores the old
+  sampling.
+- **H-k stacking: direct P is no longer picked as a layer.** Grid points
+  whose Ps delay is shorter than the new required key
+  `Model.<layer>.min_ps_delay_s` (HkStack argument `min_ps_delay_s`) lie on
+  the direct-P pulse and are not picked. When the stack there is higher than
+  the pick, the RF is flagged `direct_p_dominates` and does not enter the
+  station estimate; a stage where this holds for more than half of the RFs
+  has no estimate (for the sediment: the crust is stacked as one layer, as
+  before when the ridge was picked near H = 0). Same sediment, grid from
+  0 km: (0.20 km, 1.50) -> (2.00 km, 1.95). Slow sediment (2 km, Vs 1.8,
+  Vp/Vs 2.2): (2.00, 1.99) -> (2.00, 2.15), and the crust under it
+  (34.7 km, 1.77) -> (35.0 km, 1.75). Reference configs use 0.3 s (a = 5)
+  and 0.6 s (a = 2.5), where the Gaussian pulse falls to 10 % (assumed).
+  No option restores the old picks.
+- **H-k station estimate: median +- 1.4826 MAD for every n.** Before, the
+  mean +- population standard deviation for fewer than 15 kept picks and the
+  median +- unscaled MAD from 15 on (a factor of about 1.5 apart in the
+  spread). `examples/04_rf_qc_hk` (with the two changes above): H 35.20 +-
+  0.20 -> 34.80 +- 0.30 km, Vp/Vs 1.744 +- 0.010 -> 1.760 +- 0.015 (truth
+  35, 1.75); `examples/04_rf_qc_hk/plot_result.py` prints the scaled MAD.
+  No option restores the old rule.
+- **H-k grid step equals `delta`.** `HkParam(vmin, vmax, dv)` is now
+  `vmin + dv * i` up to the last point not beyond `vmax` (`vmax` included
+  when on the grid; `seisforge.rf.hk_core.hk_grid`). Before,
+  `linspace(vmin, vmax, int((vmax - vmin) / dv) + 1)` stretched the step
+  when the range was not a whole number of steps (0 to 1 with 0.3 gave a
+  step of 0.333). Grids that are a whole number of steps, as in all shipped
+  configs, are unchanged.
+- **RF QC F-test returns a p-value.** `RFstream.f_test_select` now tests,
+  for each trace, the null hypothesis "common waveform plus independent,
+  equal-variance Gaussian noise" with a one-sided leave-one-out F test and
+  Satterthwaite effective degrees of freedom
+  (`seisforge.rf.qc_core.leave_one_out_f_test`); the metric is the p-value
+  and `F_TEST.THRESHOLD` its level. Before, the metric was
+  `1 - (F(f) - F(1/f))` with every sample counted as independent, not a
+  p-value (up to 1.83 on the 42 traces of `examples/04_rf_qc_hk`). Fewer
+  than three traces are kept with a NaN metric (before: 1.0 for one trace). RFs spanning a
+  range of ray parameters violate the null hypothesis through moveout, so
+  `examples/04_rf_qc_hk` keeps the test off (`docs/rf/qc.md`). No option
+  restores the old value.
 
 ### Added
 
@@ -295,6 +343,19 @@ switch that restores the old behaviour where one exists.
   configured layering and a fine uniform reference, in data units and in
   sigma. Posterior runs write it for the initial model, with the layering
   choice, to the log and to `discretization_*` output attributes.
+- **RF QC outputs.** `seisforge rf qc` writes `LOG/NET.STA_RF_QC_<band>.dat`:
+  every input file's metrics and fate (`kept` or `removed:<TEST>`), the
+  settings and the software provenance. `--overwrite` and `IO.OVERWRITE`
+  for `rf qc`.
+- **H-k outputs.** The `*_Hk_QC.dat` header records the grid, settings,
+  number of RFs dominated by direct P and the estimate (`H_km`, `k`); per-RF
+  datasets record `min_ps_delay_s`, `n_excluded_direct_p`,
+  `direct_p_dominates` and the variable `excluded_direct_p`.
+- **`seisforge.rf.config`** (validated frozen `HkSeqConfig`, `RFQCConfig`)
+  and **`seisforge.rf.qc_core`** (F test, effective degrees of freedom);
+  `seisforge.rf.hk_core` gains `hk_grid`, `interpolate_at_times`,
+  `direct_p_mask`, `hk_pick`, `median_and_robust_std` and
+  `weighted_mahalanobis_distance`.
 
 ### Changed
 
@@ -379,6 +440,24 @@ switch that restores the old behaviour where one exists.
   `parameterized_vs_model_to_config` write the lowercase names. `forward`
   accepts only `algorithm`, `dc` (and `dt` for dispersion); giving both `hv`
   and `rayleigh_hv` is an error. No numbers change.
+- `seisforge rf qc` no longer replaces files silently: existing outputs (CLEAN
+  copies, tables, log, figures) stop the run unless `--overwrite` or
+  `IO.OVERWRITE: true`, which first empties the matching files from the
+  CLEAN folders. A CLEAN folder overlapping an input folder is refused.
+- `seisforge rf qc` no longer reconfigures the root logger
+  (`logging.basicConfig(force=True)`); it attaches its file handler to the
+  `seisforge.rf` logger for the run only. Importing `seisforge.rf.plotting`
+  no longer changes matplotlib `rcParams`; the font settings apply only
+  while an RF figure is drawn.
+- RF QC requires all traces of a band to share `b`, `delta` and `npts` and
+  raises otherwise; before, every trace was read on the first trace's axis.
+- RF configs are validated at start: missing or unknown keys are errors,
+  and `rf hkseq` needs exactly one of `Vp`/`Vs` per layer and the new keys
+  `Model.Sediment.two_layer_min_thickness_km` (the formerly fixed 0.4 km,
+  an assumed value) and `Model.<layer>.min_ps_delay_s`.
+- `plot_hk_QC(results, kept_mask, title)` shows all picks and those kept;
+  `HkStack` and `Hk_analysis` take a required `min_ps_delay_s`; the third
+  stack panel is titled `-(PpSs+PsPs)` (it was mislabelled `PsPs+PpPs`).
 
 ### Fixed
 
@@ -458,6 +537,15 @@ switch that restores the old behaviour where one exists.
   `examples/benchmarks/aftan_vs_fortran/CCF/M07A/M07A_M15A/`.
 - `examples/configs/joint_inversion.yml` (no longer loadable;
   `examples/STA001` replaces it).
+- **H-k energy and elliptical MAD screens.** They were logged and plotted
+  but never changed the estimate. `HkQController.hk_energy_select`,
+  `elliptical_mad_select` and `elliptical_mad_filter` are gone, and the keys
+  `QC.<band>.energy_threshold` and `QC.<band>.ell_mad_sigma` stop
+  `rf hkseq` with a message that they were removed.
+- **H-k `smooth` option** (`HkStack.stack(smooth=...)`,
+  `HkStack_classic.estimate_best_Hk(smooth=...)`): a Gaussian of 1.5 grid
+  points, so its effect depended on the grid, and no workflow used it.
+- **`HkStack_classic`**, a duplicate of `HkStack(mode=1)`.
 
 ## 0.1.0 (branch `main`)
 

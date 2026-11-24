@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 import matplotlib.pyplot as plt
 
-
-plt.rcParams["font.family"] = "Arial"
-plt.rcParams["font.size"] = 12
+# Applied only while a figure is drawn (plt.rc_context); importing this module
+# leaves the caller's matplotlib settings alone.
+_RC = {"font.family": "Arial", "font.size": 12}
 
 
 def _normalize_abs(data: np.ndarray) -> np.ndarray:
@@ -26,6 +26,11 @@ def plot_rf_stream(
     show: bool = False,
 ):
     """Plot normalized RF traces and their average waveform."""
+    with plt.rc_context(_RC):
+        return _plot_rf_stream(rf_stream, by, window, save, save_path, show)
+
+
+def _plot_rf_stream(rf_stream, by, window, save, save_path, show):
     if rf_stream.st is None:
         raise ValueError("Stream is not loaded. Please load data first.")
     if len(rf_stream.st) == 0:
@@ -33,10 +38,7 @@ def plot_rf_stream(
     if save and save_path is None:
         raise ValueError("save_path is required when save=True.")
 
-    b = rf_stream.st[0].stats.sac.b
-    e = rf_stream.st[0].stats.sac.e
-    npts = rf_stream.st[0].stats.npts
-    t = np.linspace(b, e, npts)
+    t = rf_stream._time_axis()
     t_idx = (t >= window[0]) & (t <= window[1])
 
     fig, ax = plt.subplots(
