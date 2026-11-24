@@ -91,12 +91,12 @@ M4). `run.sh` stops if `output/` exists; delete it to run again.
 | | this example | acceptable |
 |---|---|---|
 | station curve - truth at 4, 5, 6, 7 s | -0.044, -0.045, -0.033, -0.032 km/s | within the plotted sigma (0.05 km/s) |
-| max split R-hat | 1.010 | below 1.05 |
-| min effective sample size | 518 | above 400 |
-| truth inside the posterior 5-95 % band | 234 of 241 depths | nearly all |
-| max \|posterior median - truth\| | 0.137 km/s (at 2.25 km) | about 0.15 km/s |
+| max split R-hat | 1.015 | below 1.05 |
+| min effective sample size | 378 (`crust.c5`; all others above 560) | above 400 |
+| truth inside the posterior 5-95 % band | 218 of 241 depths | nearly all |
+| max \|posterior median - truth\| | 0.145 km/s (at 2.25 km) | about 0.15 km/s |
 
-The truth falls just outside the band in the top 0.25 km and at 2.2-2.5 km,
+The truth falls just outside the band in the top 0.25 km and at 1.75-2.8 km,
 because the station curve is 1-1.6 % too low (next paragraph). The 8 s map
 is empty under XX.A22 (too few distant sources), so the curve has 4-7 s.
 

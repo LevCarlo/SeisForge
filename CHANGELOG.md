@@ -111,6 +111,44 @@ switch that restores the old behaviour where one exists.
   contribute zero instead of the first/last sample; results inside the trace
   are unchanged. Counts are recorded as `n_invalid_Ps`, `n_invalid_PpPs`,
   `n_invalid_PsPs`.
+- **Inversion: depth constraints act on the continuous Vs(z).** `vs_range`,
+  `monotonic_vs` and `max_vs_gradient` no longer sample Vs every `dz`; they
+  are evaluated on the continuous profile over `depth_range` (new
+  `seisforge.inv.profile_analysis`), so the prior support no longer depends
+  on the spacing or on where an interface falls on the grid. Before,
+  `max_vs_gradient` divided a hard jump by the distance from the interface
+  to the next sample (a 0.1 km/s jump with `dz` 0.25 and `max_abs` 1.2
+  passed at 1.00 km, failed at 1.03 km, passed at 1.09 km), `monotonic_vs`
+  allowed `tolerance` per step (a 0.5 km/s drop over 5 km with tolerance
+  0.06 passed at `dz` 0.1 and 0.25, failed at 1), and the upper segment's
+  value at a boundary was never checked. Now: `vs_range` checks every depth
+  and both sides of every hard interface; `monotonic_vs` requires
+  `dVs/dz >= -max_decrease_km_s_per_km` and `max_vs_gradient`
+  `|dVs/dz| <= max_abs_km_s_per_km` wherever Vs is smooth (analytic slopes
+  inside segments and transitions; a hard interface is a jump, not a
+  gradient, so neither sees it; `boundary_non_decreasing_vs` bounds drops
+  there). The old keys `dz`, `tolerance` (of `monotonic_vs`) and `max_abs`
+  now stop the run with a message: rewrite them (old `tolerance`/`dz` is
+  roughly the new rate, 0.06/0.25 km = 0.24 km/s per km), or **restore the
+  old behaviour with `constraints: {evaluation: grid, constraints: [...]}`**,
+  which reproduces the old decisions exactly (pinned on 12 231 decisions by
+  `tests/data/constraint_grid_baseline.npz`; the example's prior and
+  posterior chains are bit for bit those of the old code). Outputs record
+  `constraints_evaluation`. Python API: `VsRangeConstraint`,
+  `MonotonicVsConstraint` and `MaxVsGradientConstraint` take the new
+  arguments; the old ones are `GridVsRangeConstraint`,
+  `GridMonotonicVsConstraint`, `GridMaxVsGradientConstraint`.
+  `examples/06_inversion` (and `full_chain`, the templates and the reference
+  configs) now use `max_decrease_km_s_per_km: 0.24` and
+  `max_abs_km_s_per_km: 1.2`. Its constrained prior keeps 10 % of the
+  parameter box instead of 4 %, mostly because the jump at the 1 km
+  sediment-crust boundary is no longer limited to about 0.3 km/s by the
+  gradient check. The posterior changes mainly there: median Vs at 1 km
+  2.632 -> 2.728 km/s (truth 2.660), 90 % band [2.557, 2.697] ->
+  [2.592, 2.901] km/s; elsewhere the median moves by 0.014 km/s rms.
+  R-hat 1.007 (unchanged), minimum ESS 541 -> 608, truth inside the 5-95 %
+  band at 238 instead of 241 of 241 depths (the three misses, at 1.69-1.81
+  km, by at most 0.004 km/s).
 
 - **HVSR body-wave integral: adaptive quadrature (T21).** The body-wave
   terms of `NativeDiffuseFieldSolver`, `FortranDiffuseFieldSolver` and
@@ -346,6 +384,17 @@ switch that restores the old behaviour where one exists.
 
 - `seisforge.hvsr` raises `ImportError` with an install hint when `disba` is
   missing, instead of returning NaN root seeds.
+- Inversion: `extract_prediction_ensemble` no longer fails with
+  `AttributeError` when a data type has likelihood weight 0; that data type
+  is not fitted, and its predictive ensemble now comes from a separate
+  forward call on each sample's layers.
+- Inversion: `constraints_from_config` accepts a bare list of constraints,
+  as its docstring said (it raised `TypeError`).
+- Inversion docs and docstrings: the steepest slope of a `smootherstep`
+  transition is `1.875 dv / (2h) = 0.950 dv / w` (the `transitions`
+  docstring said 0.93). The Gardner default `a = 1.741` is documented as
+  Gardner et al.'s ft/s relation `0.23 V**0.25` converted to km/s (1.7407);
+  the value is unchanged.
 
 ### Removed
 

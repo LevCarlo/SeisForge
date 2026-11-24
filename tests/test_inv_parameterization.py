@@ -132,8 +132,8 @@ def test_constraint_suite_reports_physical_prior_support():
     suite = ConstraintSuite(
         constraints=(
             BoundaryNonDecreasingVsConstraint(),
-            MonotonicVsConstraint(depth_range=(0.0, 10.0), dz=0.5),
-            VsRangeConstraint(bounds=(0.5, 4.5), dz=0.5),
+            MonotonicVsConstraint(depth_range=(0.0, 10.0)),
+            VsRangeConstraint(bounds=(0.5, 4.5)),
             VpVsRangeConstraint(bounds=(1.4, 2.7)),
         )
     )

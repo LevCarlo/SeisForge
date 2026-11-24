@@ -50,7 +50,7 @@ def _parameterization():
 def _prior(parameterization):
     return GeophysicalPrior(
         parameterization=parameterization,
-        constraints=ConstraintSuite(constraints=(MonotonicVsConstraint(dz=0.5),)),
+        constraints=ConstraintSuite(constraints=(MonotonicVsConstraint(),)),
         discretization=DiscretizationConfig(dz=1.0),
     )
 

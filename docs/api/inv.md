@@ -49,6 +49,33 @@
         - validate_obs_config
         - INV_SECTION_RENAMES
 
+::: seisforge.inv.constraints
+    options:
+      members:
+        - constraints_from_config
+        - ConstraintSuite
+        - ConstraintEvaluation
+        - PositiveVelocityConstraint
+        - VpGreaterThanVsConstraint
+        - VpVsRangeConstraint
+        - BoundaryNonDecreasingVsConstraint
+        - VsRangeConstraint
+        - MonotonicVsConstraint
+        - MaxVsGradientConstraint
+        - GridVsRangeConstraint
+        - GridMonotonicVsConstraint
+        - GridMaxVsGradientConstraint
+
+::: seisforge.inv.profile_analysis
+    options:
+      members:
+        - smooth_pieces
+        - vs_turning_points
+        - vs_extremes_km_s
+        - vs_slope_extremes_km_s_per_km
+        - SmoothPiece
+        - TurningPoints
+
 ::: seisforge.inv.model_config
     options:
       members:

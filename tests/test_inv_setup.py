@@ -63,7 +63,7 @@ def _base_config():
         "constraints": {
             "constraints": [
                 {"type": "positive_velocity"},
-                {"type": "monotonic_vs", "dz": 0.5},
+                {"type": "monotonic_vs"},
             ]
         },
         "sampler": {

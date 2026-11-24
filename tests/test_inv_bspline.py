@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from seisforge.inv.bspline import (
     bspline_basis,
@@ -238,3 +239,23 @@ def test_sta001_prior_chains_match_uncached_basis_for_every_executor(monkeypatch
     monkeypatch.setattr(bspline_module, "_basis_and_knots", uncached)
     reference = [setup.prior.log_prior(theta) for theta in results["serial"].samples.reshape(-1, 10)]
     assert cached == reference
+
+
+@pytest.mark.parametrize("degree", [1, 2, 3])
+def test_bspline_derivative_matches_finite_differences(degree):
+    from seisforge.inv.bspline import evaluate_bspline_derivative
+
+    coefficients = np.array([2.0, 2.6, 2.4, 3.1, 3.5, 3.3])
+    kwargs = dict(degree=degree, domain=(1.0, 9.0), spacing="geometric", alpha=1.6)
+    z = np.linspace(1.0, 9.0, 4001)[1:-1]
+    step = 1e-6
+    # Centred differences away from knots of a degree-1 spline (kinks there).
+    numeric = (
+        evaluate_bspline(z + step, coefficients, **kwargs) - evaluate_bspline(z - step, coefficients, **kwargs)
+    ) / (2 * step)
+    analytic = evaluate_bspline_derivative(z, coefficients, **kwargs)
+    smooth = np.abs(numeric - analytic) < 1e-3 if degree == 1 else np.ones_like(z, dtype=bool)
+    # Kinks are isolated points: at most a few samples straddle one.
+    assert smooth.sum() >= len(z) - 10
+    # Rounding of a centred difference with step 1e-6 on values ~3: ~1e-9.
+    np.testing.assert_allclose(analytic[smooth], numeric[smooth], atol=1e-6)

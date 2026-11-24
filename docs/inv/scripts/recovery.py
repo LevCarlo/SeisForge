@@ -49,7 +49,7 @@ config = {
          "profile": {"type": "gradient", "top": {"parameter": "vs1"}, "bottom": {"parameter": "vs2"}}},
     ]},
     "discretization": {"dz": 0.25},
-    "constraints": {"constraints": [{"type": "positive_velocity"}, {"type": "monotonic_vs", "dz": 0.5}]},
+    "constraints": {"constraints": [{"type": "positive_velocity"}, {"type": "monotonic_vs"}]},
     "sampler": {"n_steps": 1200, "burn_in": 500, "thin": 5, "n_chains": 3, "seed": 11,
                 "initial_strategy": "prior_uniform",
                 "adaptation": {"initial_diagonal_steps": 200, "update_interval_steps": 50,

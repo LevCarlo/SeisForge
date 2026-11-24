@@ -189,6 +189,32 @@ def evaluate_bspline(
     return basis @ coefficients
 
 
+def evaluate_bspline_derivative(
+    z: ArrayLike,
+    coefficients: ArrayLike,
+    *,
+    degree: int = 3,
+    domain: tuple[float, float] | None = None,
+    spacing: str = "geometric",
+    alpha: float = 2.0,
+) -> np.ndarray:
+    """Depth derivative of `evaluate_bspline`, per unit of ``z``.
+
+    The basis lives on ``x = (z - z0) / (z1 - z0)``, so ``d/dz = (d/dx) /
+    (z1 - z0)``. Not cached: derivative samples are rarely repeated.
+    """
+    coefficients = _as_1d_array(coefficients, name="coefficients")
+    z = _as_1d_array(z, name="z")
+    zmin, zmax = _domain_from_z(z, domain)
+    x = np.clip((z - zmin) / (zmax - zmin), 0.0, 1.0)
+    degree = _effective_degree(len(coefficients), degree)
+    if degree == 0:
+        return np.zeros_like(x)
+    knots = bspline_knots(len(coefficients), degree=degree, spacing=spacing, alpha=alpha)
+    spline = BSpline(knots, coefficients, degree, extrapolate=False).derivative()
+    return spline(x) / (zmax - zmin)
+
+
 def fit_bspline_coefficients(
     z: ArrayLike,
     values: ArrayLike,

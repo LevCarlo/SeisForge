@@ -97,7 +97,7 @@ def _example():
     config["soft_priors"] = {"priors": [{"type": "vs_curvature", "sigma": 0.2, "dz": 0.1}]}
     config["sampler"]["tempering"] = {"n_temperatures": 3, "swap_interval": 1}
     config["constraints"]["constraints"].append(
-        {"type": "monotonic_vs", "depth_range": [0.0, 2.0], "tolerance": 0.05}
+        {"type": "monotonic_vs", "depth_range": [0.0, 2.0], "max_decrease_km_s_per_km": 0.05}
     )
     config["observations"] = {
         "dispersion": {"periods": [1.0], "velocity": [3.0], "sigma": [0.1]},

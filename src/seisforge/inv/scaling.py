@@ -76,7 +76,12 @@ def constant_rho(vs: ArrayLike, rho: float = 2.7) -> ArrayLike:
 def gardner_rho_from_vp(vp: ArrayLike, *, a: float = 1.741, b: float = 0.25) -> ArrayLike:
     """Gardner et al. (1974) density ``rho = a * Vp**b`` (Vp in km/s, rho in g/cm^3).
 
-    The defaults are the km/s form of Gardner's relation for sedimentary rocks.
+    The defaults are Gardner's relation for sedimentary rocks in km/s.
+    Gardner et al. (1974) give ``rho = 0.23 V**0.25`` with V in ft/s; with
+    1 ft = 0.3048 m, ``a = 0.23 * (1000 / 0.3048)**0.25 = 1.7407``, rounded to
+    1.741. The often-quoted m/s form ``0.31 V**0.25`` is itself rounded
+    (0.3095), which is why ``0.31 * 1000**0.25`` gives 1.743 instead; Brocher
+    (2005) rounds to 1.74.
     """
     return a * np.asarray(vp, dtype=float) ** b
 

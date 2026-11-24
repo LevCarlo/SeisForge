@@ -430,6 +430,8 @@ def _run_attrs(
         }
     )
     attrs.update(_layering_attrs(setup))
+    # Depth constraints on the continuous profile or on the old grid.
+    attrs["constraints_evaluation"] = setup.constraints.evaluation
     if setup.target is not None:
         attrs["dispersion_weight"] = float(setup.target.dispersion_weight)
         attrs["hv_weight"] = float(setup.target.hv_weight)

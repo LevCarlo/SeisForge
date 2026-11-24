@@ -363,3 +363,21 @@ def test_example_interface_config_builds_a_valid_initial_model():
     report = layering_report(result.model, result.layered_model)
     assert report.hard_interfaces_preserved
     assert abs(report.vs_vertical_time_relative_error) < 1e-3
+
+
+@pytest.mark.parametrize("shape", ["sigmoid", "smootherstep"])
+def test_transition_weight_derivative_matches_finite_differences(shape):
+    from seisforge.inv.transitions import transition_weight, transition_weight_derivative_per_km
+
+    z = np.linspace(-6.0, 6.0, 2401)
+    step = 1e-6
+    numeric = (transition_weight(z + step, 0.5, 1.5, shape) - transition_weight(z - step, 0.5, 1.5, shape)) / (
+        2 * step
+    )
+    analytic = transition_weight_derivative_per_km(z, 0.5, 1.5, shape)
+    # The sigmoid's slope jumps at the support edges (truncation); skip the
+    # samples that straddle them. Rounding of the difference: ~1e-10.
+    half = 2.0 * 1.5 if shape == "sigmoid" else 0.98673 * 1.5
+    away = np.abs(np.abs(z - 0.5) - half) > 1e-3
+    np.testing.assert_allclose(analytic[away], numeric[away], atol=1e-7)
+    assert np.all(transition_weight_derivative_per_km(z, 0.5, 0.0, shape) == 0.0)

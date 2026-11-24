@@ -155,7 +155,7 @@ a correlated ridge (§3). A prior-only run ignores it.
 with finite posterior density; `initial_thetas` gives them explicitly.
 Starting points spread over the prior are what makes the between-chain
 comparison of the [convergence diagnostics](posterior.md#3-convergence)
-meaningful. When the hard constraints leave little of the box (4 % in the
+meaningful. When the hard constraints leave little of the box (10 % in the
 [example prior](model.md#4-the-prior)), `prior_uniform` needs many draws
 (`max_initial_attempts`, default 10 000).
 
