@@ -1,4 +1,4 @@
-"""Figure pmf_window.png: the PMF cleaning window, built from the rule on the page.
+"""Figure pmf_window.svg (and -dark.svg): the PMF cleaning window, built from the rule on the page.
 
 The compressed (phase-corrected) signal is that of `pmf_comparison.py` (the
 noisy trace of `_ccf_case`). The window is constructed here directly from the
@@ -60,23 +60,29 @@ print(f"window from the page rule equals the package window; h = {h * case.DELTA
 # --- Figure -----------------------------------------------------------------
 lag = case.DELTA_S * n
 peak = envelope[p]
-fig, ax = plt.subplots(figsize=(8.5, 3.4))
-ax.plot(lag, compressed.real / peak, color="0.55", lw=0.6, label="compressed signal (real part)")
-ax.plot(lag, envelope / peak, color=_style.MEASURED, lw=1.1, label="envelope")
-ax.plot(lag, window, color=_style.SECOND, lw=1.8, label="window $W$")
-ax.axhline(pmf.amplitude_ratio, color=_style.ALTERNATIVE, ls=":", lw=0.8)
-ax.text(lag[p] - 58, pmf.amplitude_ratio + 0.03, "amplitude ratio", color="0.4", fontsize=8)
-for idx, name in ((l2, "$n_{l2}$"), (l1, "$n_{l1}$"), (r1, "$n_{r1}$"), (r2, "$n_{r2}$")):
-    ax.plot(lag[idx], envelope[idx] / peak, "v", color=_style.HIGHLIGHT, ms=5)
-    ax.annotate(name, (lag[idx], envelope[idx] / peak), xytext=(0, -14), textcoords="offset points",
-                ha="center", color=_style.HIGHLIGHT, fontsize=8)
-ax.annotate("", (lag[p] - inner * case.DELTA_S, 1.08), (lag[p] + inner * case.DELTA_S, 1.08),
-            arrowprops={"arrowstyle": "<->", "color": "k", "lw": 0.8})
-ax.text(lag[p], 1.12, r"$W = 1$ on $|n - n_p| \leq h$", ha="center", fontsize=8)
-ax.set_xlim(lag[p] - 60, lag[p] + 60)
-ax.set_ylim(-1.05, 1.25)
-ax.set_xlabel("lag time (s)")
-ax.set_ylabel("normalised amplitude")
-ax.legend(loc="lower left", ncol=3)
-fig.tight_layout()
-_style.save(fig, __file__)
+
+
+def draw():
+    fig, ax = plt.subplots(figsize=(8.5, 3.4))
+    ax.plot(lag, compressed.real / peak, color=_style.MUTED, lw=0.6, label="compressed signal (real part)")
+    ax.plot(lag, envelope / peak, color=_style.MEASURED, lw=1.1, label="envelope")
+    ax.plot(lag, window, color=_style.SECOND, lw=1.8, label="window $W$")
+    ax.axhline(pmf.amplitude_ratio, color=_style.ALTERNATIVE, ls=":", lw=0.8)
+    ax.text(lag[p] - 58, pmf.amplitude_ratio + 0.03, "amplitude ratio", color=_style.MUTED, fontsize=8)
+    for idx, name in ((l2, "$n_{l2}$"), (l1, "$n_{l1}$"), (r1, "$n_{r1}$"), (r2, "$n_{r2}$")):
+        ax.plot(lag[idx], envelope[idx] / peak, "v", color=_style.HIGHLIGHT, ms=5)
+        ax.annotate(name, (lag[idx], envelope[idx] / peak), xytext=(0, -14), textcoords="offset points",
+                    ha="center", color=_style.HIGHLIGHT, fontsize=8)
+    ax.annotate("", (lag[p] - inner * case.DELTA_S, 1.08), (lag[p] + inner * case.DELTA_S, 1.08),
+                arrowprops={"arrowstyle": "<->", "color": _style.INK, "lw": 0.8})
+    ax.text(lag[p], 1.12, r"$W = 1$ on $|n - n_p| \leq h$", ha="center", fontsize=8)
+    ax.set_xlim(lag[p] - 60, lag[p] + 60)
+    ax.set_ylim(-1.05, 1.25)
+    ax.set_xlabel("lag time (s)")
+    ax.set_ylabel("normalised amplitude")
+    ax.legend(loc="lower left", ncol=3)
+    fig.tight_layout()
+    return fig
+
+
+_style.save_themed(draw, __file__)

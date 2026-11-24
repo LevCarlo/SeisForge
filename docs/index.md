@@ -2,6 +2,8 @@
 
 SeisForge is a Python toolkit for seismic processing and analysis:
 
+<div class="grid cards" markdown>
+
 - **Ambient noise**: ZNE→ZRT CCF rotation, AFTAN group/phase dispersion
   measurement with PMF, and Eikonal/Helmholtz surface-wave tomography.
 - **Receiver functions**: RF quality control, sequential (sediment, then
@@ -11,6 +13,8 @@ SeisForge is a Python toolkit for seismic processing and analysis:
 - **Inversion**: single-station Bayesian (MCMC) inversion of dispersion and
   H/V for Vs(z), with segmented models whose interface depths and transition
   widths can be sampled.
+
+</div>
 
 ## Installation
 

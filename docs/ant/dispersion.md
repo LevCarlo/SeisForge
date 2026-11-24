@@ -5,13 +5,16 @@
     Fortran AFTAN of Levshin, Ritzwoller and co-workers (Bensen et al. 2007)
     and PyAFTAN; for reference only.
 
-FTAN (Dziewonski et al. 1969) and PMF (Herrin & Goforth 1977) were first
-applied to earthquake surface waves. Here we only focus on ambient-noise
-cross-correlations (CCFs), and §1–§5 use the ZZ component.
+!!! overview "Method at a glance"
+
+    FTAN (Dziewonski et al. 1969) and PMF (Herrin & Goforth 1977) were first
+    applied to earthquake surface waves. Here we only focus on ambient-noise
+    cross-correlations (CCFs), and §1–§5 use the ZZ component.
 
 ## 1. How group and phase velocity are measured
 
-![FTAN of a synthetic CCF](img/ftan_synthetic.png)
+![FTAN of a synthetic CCF](img/ftan_synthetic.svg#only-light)
+![FTAN of a synthetic CCF](img/ftan_synthetic-dark.svg#only-dark)
 
 *(a) The positive lag of a synthetic ZZ correlation between two stations
 400 km apart. (b) Its FTAN diagram: the envelope after narrow-band
@@ -110,7 +113,8 @@ one period. For these amplitude widths $\sigma_\omega\sigma_t = 1$, which is
 the uncertainty-principle minimum (1/2 for widths of $|G|^2$); only a
 Gaussian reaches it, which is why a Gaussian is used.
 
-![Gaussian filters](img/gaussian_filters.png)
+![Gaussian filters](img/gaussian_filters.svg#only-light)
+![Gaussian filters](img/gaussian_filters-dark.svg#only-dark)
 
 *(a) Frequency response at $T_0$ = 10 s for three values of $\alpha$. (b)
 Impulse response; the envelope agrees with the closed form
@@ -259,7 +263,8 @@ links the phase at neighbouring frequencies. It fixes $N$ from period to
 period but not overall. The overall $N$ needs outside information, a
 reference curve.
 
-![2 pi branches](img/phase_branches.png)
+![2 pi branches](img/phase_branches.svg#only-light)
+![2 pi branches](img/phase_branches-dark.svg#only-dark)
 
 *(a) Branches $N = -2\ldots2$ of the measured curve (r = 400 km). (b) Branch
 spacing $\lambda/r$: at short periods and long paths, neighbouring branches
@@ -360,7 +365,8 @@ minimum. A missing outer minimum is replaced by the trace end, and a side
 with no qualifying minimum is not tapered. PyAFTAN's variant has a wider
 right taper.
 
-![PMF cleaning window](img/pmf_window.png)
+![PMF cleaning window](img/pmf_window.svg#only-light)
+![PMF cleaning window](img/pmf_window-dark.svg#only-dark)
 
 *The window on a compressed noisy CCF. It is built here from the rule above
 and agrees with the package's window sample by sample. Script:
@@ -376,7 +382,8 @@ that the first pass covered, with a lower jump threshold.
 PMF can only sharpen the first pass: if the first-pass $U$ follows a wrong
 branch (an overtone or another arrival), PMF isolates that branch.
 
-![Phase-matched filtering](img/pmf_comparison.png)
+![Phase-matched filtering](img/pmf_comparison.svg#only-light)
+![Phase-matched filtering](img/pmf_comparison-dark.svg#only-dark)
 
 *(a) Synthetic CCF plus a faster interfering arrival and noise. (b) After
 phase matching, the surface wave is a pulse at $t_g(\omega_a)$ (dotted). (c)

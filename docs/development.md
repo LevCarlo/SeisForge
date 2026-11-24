@@ -137,16 +137,27 @@ before building new code on it.
   was validated. Update them with any change to the method.
 - `CHANGELOG.md` records user-visible changes, newest first, and is included
   as the Changelog page.
-- The pages under `docs/` are built with MkDocs:
+- The pages under `docs/` are built with Zensical, which reads `mkdocs.yml`:
 
   ```bash
   python -m pip install -e ".[docs]"
-  mkdocs serve          # http://127.0.0.1:8000, live reload
-  mkdocs build --strict
+  zensical serve        # http://localhost:8000, live reload
+  zensical build --clean --strict
   ```
 
   `mkdocs.yml` sets `strict: true`: a new page must be added to `nav`, and
-  broken internal links fail the build. The theme is MkDocs Material.
+  broken internal links fail the build. `mkdocs build --strict` (MkDocs
+  Material, kept as a fallback) builds the same file. Colours and fonts are
+  tokens in `docs/css/theme.css`; page components (method overview,
+  assumptions, verified / not verified boxes, key-equation box) are styled
+  in `docs/css/extra.css`. A method page opens with
+  `!!! overview "Method at a glance"`, marks its checks with `!!! verified`
+  and `!!! unverified`, and wraps an assumptions table in
+  `<div class="assumptions" markdown>`. Display equations are numbered;
+  `\label{eq:name}` and `\eqref{eq:name}` reference them within a page.
+- Figures from `docs/ant/scripts/` are SVG in two versions,
+  `<name>.svg` and `<name>-dark.svg`, included with `#only-light` and
+  `#only-dark`; draw them through `_style.save_themed`.
 - Formulas are LaTeX between `$...$` (inline) or `$$...$$` (display),
   rendered by MathJax; a literal dollar sign in prose needs escaping (`\$`).
 - CI builds the site on every push and pull request

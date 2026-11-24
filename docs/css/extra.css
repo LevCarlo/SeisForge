@@ -1,5 +1,219 @@
-/* Figures never exceed the content column. */
+/* Site components (layout, maths, tables, admonitions). Colours and fonts
+   come from theme.css, which defines the --sf-* tokens for light and dark. */
+
+/* ---------- Measure and rhythm ---------- */
+.md-typeset {
+  font-size: var(--sf-body-size, 0.85rem);
+  line-height: var(--sf-leading, 1.7);
+}
+/* Prose about 70 characters per line. Display maths, tables, figures and
+   code keep the full column, so wide equations are not cut. */
+.md-content__inner {
+  max-width: var(--sf-column, 50rem);
+}
+.md-typeset > p,
+.md-typeset > ul,
+.md-typeset > ol,
+.md-typeset > h1,
+.md-typeset > h2,
+.md-typeset > h3,
+.md-typeset > .admonition:not(.assumptions),
+.md-typeset > details {
+  max-width: var(--sf-measure, 34em);
+}
+.md-typeset > h2 {
+  max-width: none;
+}
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4 {
+  font-family: var(--sf-font-heading);
+  color: var(--sf-heading);
+  letter-spacing: -0.01em;
+}
+.md-typeset h1 {
+  font-weight: 650;
+  font-size: 1.9em;
+  line-height: 1.2;
+  margin-bottom: 1em;
+}
+.md-typeset h2 {
+  font-weight: 600;
+  font-size: 1.35em;
+  margin-top: 2.2em;
+  padding-top: 0.9em;
+  border-top: 1px solid var(--sf-rule);
+}
+.md-typeset h3 {
+  font-weight: 600;
+  font-size: 1.1em;
+}
+.md-typeset code {
+  font-size: 0.86em;
+}
 .md-typeset img {
   max-width: 100%;
   height: auto;
+}
+.md-typeset em > code,
+.md-typeset p > em:only-child {
+  color: var(--md-default-fg-color--light);
+}
+
+/* ---------- Tables: rules only, no zebra ---------- */
+.md-typeset table:not([class]) {
+  font-size: 0.9em;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+.md-typeset table:not([class]) th {
+  background: transparent;
+  font-weight: 600;
+  border-bottom: 1.5px solid var(--sf-heading);
+}
+.md-typeset table:not([class]) td {
+  border-top: 1px solid var(--sf-rule);
+}
+.md-typeset table:not([class]) tbody tr:hover {
+  background: var(--sf-tint);
+  box-shadow: none;
+}
+
+/* ---------- Maths ---------- */
+.md-typeset mjx-container[display="true"] {
+  margin: 1.1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* Equation numbers: quiet, in the text font. */
+.md-typeset mjx-container[display="true"] mjx-mtd[id^="mjx-eqn"],
+.md-typeset mjx-container[display="true"] mjx-labels {
+  color: var(--md-default-fg-color--light);
+}
+/* \boxed{} = key result: accent frame on a faint tint. */
+.md-typeset mjx-menclose > mjx-box[style*="border"] {
+  background: var(--sf-key-bg);
+  border-color: var(--sf-accent) !important;
+  border-width: 1.5px !important;
+  border-radius: 4px;
+  padding: 0.35em 0.5em !important;
+}
+
+/* ---------- Admonitions: one quiet shape for all ---------- */
+.md-typeset .admonition,
+.md-typeset details {
+  font-size: 0.92em;
+  border-width: 0 0 0 3px;
+  border-radius: 0 6px 6px 0;
+  box-shadow: none;
+  background: var(--sf-tint);
+}
+.md-typeset .admonition-title,
+.md-typeset summary {
+  background: transparent !important;
+  font-family: var(--sf-font-heading);
+  font-weight: 600;
+}
+
+/* Method overview: first thing on every method page. */
+.md-typeset .admonition.overview {
+  border-color: var(--sf-accent);
+  background: var(--sf-key-bg);
+  font-size: 0.97em;
+}
+.md-typeset .overview > .admonition-title {
+  color: var(--sf-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.78em;
+}
+.md-typeset .overview > .admonition-title::before {
+  background-color: var(--sf-accent);
+  -webkit-mask-image: var(--sf-icon-overview);
+  mask-image: var(--sf-icon-overview);
+}
+
+/* Assumptions and failure conditions. */
+.md-typeset .admonition.assumptions {
+  border-color: var(--sf-warn);
+  background: transparent;
+  border-left-width: 3px;
+}
+.md-typeset .assumptions > .admonition-title {
+  color: var(--sf-warn);
+}
+.md-typeset .assumptions > .admonition-title::before {
+  background-color: var(--sf-warn);
+  -webkit-mask-image: var(--sf-icon-assumptions);
+  mask-image: var(--sf-icon-assumptions);
+}
+.md-typeset .assumptions table:not([class]) {
+  font-size: 0.95em;
+  margin: 0.4em 0 0.2em;
+}
+.md-typeset .assumptions table:not([class]) th {
+  border-bottom-color: var(--sf-warn);
+}
+
+/* Verified / not verified: the only two status colours on the site. */
+.md-typeset .admonition.verified {
+  border-color: var(--sf-ok);
+  background: var(--sf-ok-bg);
+}
+.md-typeset .verified > .admonition-title {
+  color: var(--sf-ok);
+}
+.md-typeset .verified > .admonition-title::before {
+  background-color: var(--sf-ok);
+  -webkit-mask-image: var(--sf-icon-verified);
+  mask-image: var(--sf-icon-verified);
+}
+.md-typeset .admonition.unverified {
+  border-color: var(--sf-warn);
+  border-left-style: dashed;
+  background: var(--sf-warn-bg);
+}
+.md-typeset .unverified > .admonition-title {
+  color: var(--sf-warn);
+}
+.md-typeset .unverified > .admonition-title::before {
+  background-color: var(--sf-warn);
+  -webkit-mask-image: var(--sf-icon-unverified);
+  mask-image: var(--sf-icon-unverified);
+}
+
+:root {
+  --sf-icon-overview: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 5h16v2H4zm0 6h16v2H4zm0 6h10v2H4z"/></svg>');
+  --sf-icon-assumptions: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2 1 21h22M12 6l7.53 13H4.47M11 10v4h2v-4m-2 6v2h2v-2"/></svg>');
+  --sf-icon-verified: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2m-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>');
+  --sf-icon-unverified: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11 18h2v-2h-2v2m1-16A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10 10 0 0 0 12 2m0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8m0-14a4 4 0 0 0-4 4h2a2 2 0 0 1 2-2 2 2 0 0 1 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5a4 4 0 0 0-4-4z"/></svg>');
+}
+
+/* All other admonition types (note, tip, example, ...): neutral rule,
+   accent icon, so the only colours on a page are accent + the two statuses. */
+.md-typeset .admonition:not(.overview):not(.assumptions):not(.verified):not(.unverified),
+.md-typeset details:not(.overview):not(.assumptions):not(.verified):not(.unverified) {
+  border-color: var(--md-default-fg-color--lighter);
+  background-color: var(--sf-tint) !important;
+}
+.md-typeset .admonition:not(.overview):not(.assumptions):not(.verified):not(.unverified) > .admonition-title::before,
+.md-typeset details:not(.overview):not(.assumptions):not(.verified):not(.unverified) > summary::before {
+  background-color: var(--sf-accent);
+}
+
+/* Collapsible blocks: arrow in the muted text colour, not the type colour. */
+.md-typeset details > summary::after {
+  background-color: var(--md-default-fg-color--light) !important;
+}
+
+/* Assumptions table without a title: <div class="assumptions" markdown>. */
+.md-typeset div.assumptions {
+  border-left: 3px solid var(--sf-warn);
+  padding: 0.1em 0 0.1em 0.9em;
+  margin: 1.2em 0;
+}
+.md-typeset div.assumptions table:not([class]) th {
+  border-bottom-color: var(--sf-warn);
 }
