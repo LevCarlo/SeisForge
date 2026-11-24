@@ -5,7 +5,7 @@ wavefield would produce on a given layered model (diffuse-field theory,
 `seisforge.hvsr`, native solver). Use it to see which H/V peak a model
 predicts, for example before an inversion. The example model is one soft
 layer (50 m, Vs 0.2 km/s) over rock (Vs 1.0 km/s), whose resonance frequency
-is known: f0 = Vs / (4 H) = 1 Hz. Method and solvers: `docs/hvsr_forward.md`.
+is known: f0 = Vs / (4 H) = 1 Hz. Method and solvers: `docs/hvsr/index.md`.
 
 SeisForge has no command for this yet, so `run.sh` calls the short script
 `hvsr_forward.py`, which reads `config.yml` and calls the Python API.

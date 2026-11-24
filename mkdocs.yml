@@ -73,7 +73,8 @@ nav:
       - H-k stacking: rf/hk.md
       - Synthetic P receiver functions: rf/synthetic.md
   - HVSR:
-      - Forward modelling: hvsr_forward.md
+      - Diffuse-field H/V: hvsr/index.md
+      - Surface Green function: hvsr/green_function.md
   - Inversion:
       - Overview: inv/index.md
       - Model space and prior: inv/model.md
