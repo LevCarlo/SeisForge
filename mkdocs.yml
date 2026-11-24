@@ -68,7 +68,10 @@ nav:
       - "AFTAN: FTAN and PMF": ant/dispersion.md
       - Eikonal and Helmholtz tomography: ant/tomography.md
   - Receiver functions:
-      - Workflow: rf_workflow.md
+      - Overview: rf/index.md
+      - Quality control: rf/qc.md
+      - H-k stacking: rf/hk.md
+      - Synthetic P receiver functions: rf/synthetic.md
   - HVSR:
       - Forward modelling: hvsr_forward.md
   - Inversion:
