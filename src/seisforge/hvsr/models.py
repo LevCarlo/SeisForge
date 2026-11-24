@@ -93,14 +93,28 @@ class HorizontalDefinition(str, Enum):
 
 @dataclass(frozen=True)
 class DiffuseFieldSettings:
-    """Numerical controls shared by the HV-DFA reference adapter."""
+    """Which terms of the diffuse-field H/V to compute; used by every solver.
+
+    These are choices about the physics, not about numerical accuracy:
+
+    - ``max_rayleigh_modes``, ``max_love_modes``: surface-wave modes
+      ``0, 1, ...`` whose pole residues are added (0 leaves that wave out).
+    - ``include_body_waves``: add the body-wave integral over
+      ``0 < k < omega / Vs_halfspace``.
+    - ``horizontal_definition``: ``sum`` or ``mean`` of the two horizontal
+      powers (see `HorizontalDefinition`).
+
+    Accuracy controls belong to the solver that uses them:
+    `NativeDiffuseFieldSolver` and `FortranDiffuseFieldSolver` (quadrature
+    tolerance, contour shift, residue step) and `HVDFAReferenceSolver`
+    (``body_wave_wavenumbers``, ``precision_percent``, ``sh_damping``,
+    ``psv_damping``). A control that a solver would ignore therefore cannot be
+    set on it.
+    """
 
     max_rayleigh_modes: int = 20
     max_love_modes: int = 20
-    body_wave_wavenumbers: int = 100
-    precision_percent: float = 0.1
-    sh_damping: float = 0.0
-    psv_damping: float = 0.0
+    include_body_waves: bool = True
     horizontal_definition: HorizontalDefinition | str = HorizontalDefinition.SUM
 
     def __post_init__(self) -> None:
@@ -108,27 +122,46 @@ class DiffuseFieldSettings:
         object.__setattr__(self, "horizontal_definition", horizontal)
         if self.max_rayleigh_modes < 0 or self.max_love_modes < 0:
             raise ValueError("mode limits cannot be negative")
-        if self.body_wave_wavenumbers < 0:
-            raise ValueError("body_wave_wavenumbers cannot be negative")
+        if not isinstance(self.include_body_waves, bool):
+            raise TypeError("include_body_waves must be true or false")
         if (
             self.max_rayleigh_modes == 0
             and self.max_love_modes == 0
-            and self.body_wave_wavenumbers == 0
+            and not self.include_body_waves
         ):
             raise ValueError("at least one surface- or body-wave contribution is required")
-        if not np.isfinite(self.precision_percent) or self.precision_percent <= 0.0:
-            raise ValueError("precision_percent must be finite and positive")
-        for name in ("sh_damping", "psv_damping"):
-            value = getattr(self, name)
-            if not np.isfinite(value) or value < 0.0:
-                raise ValueError(f"{name} must be finite and non-negative")
 
 
 class ForwardStatus(str, Enum):
-    """Per-frequency status for a forward prediction."""
+    """Per-frequency status for a forward prediction.
+
+    ``OK``: every requested term was computed. ``INCOMPLETE``: H/V is given,
+    but at least one term was left out or did not reach its accuracy target;
+    the diagnostic lists them. ``INVALID``: no H/V (NaN).
+    """
 
     OK = "ok"
+    INCOMPLETE = "incomplete"
     INVALID = "invalid"
+
+
+@dataclass(frozen=True)
+class ContributionIssue:
+    """A term missing from, or not converged in, one frequency's Green function.
+
+    ``term`` is ``"rayleigh"`` or ``"love"`` (one mode, ``mode`` its index,
+    left out) or ``"body_waves"`` (``mode`` is None; the integral is included
+    but its error estimate exceeds the requested tolerance).
+    """
+
+    frequency_hz: float
+    term: str
+    mode: int | None
+    reason: str
+
+    def describe(self) -> str:
+        name = self.term if self.mode is None else f"{self.term} mode {self.mode}"
+        return f"{name}: {self.reason}"
 
 
 @dataclass(frozen=True)
@@ -136,11 +169,26 @@ class FrequencyDiagnostic:
     frequency_hz: float
     status: ForwardStatus
     message: str = ""
+    issues: tuple[ContributionIssue, ...] = ()
+
+
+GREEN_FUNCTION_TERMS = (
+    "rayleigh_horizontal",
+    "rayleigh_vertical",
+    "love_horizontal",
+    "psv_horizontal",
+    "psv_vertical",
+    "sh_horizontal",
+)
 
 
 @dataclass(frozen=True)
 class GreenFunctionContributions:
-    """Imaginary Green-function terms entering the DFA H/V ratio."""
+    """Imaginary Green-function terms entering the DFA H/V ratio.
+
+    ``issues`` records the terms a solver left out or could not converge at
+    a frequency; an empty tuple means every requested term is complete.
+    """
 
     rayleigh_horizontal: ArrayLike
     rayleigh_vertical: ArrayLike
@@ -148,11 +196,12 @@ class GreenFunctionContributions:
     psv_horizontal: ArrayLike
     psv_vertical: ArrayLike
     sh_horizontal: ArrayLike
+    issues: tuple[ContributionIssue, ...] = ()
 
     def __post_init__(self) -> None:
         arrays = []
         size = None
-        for name in self.__dataclass_fields__:
+        for name in GREEN_FUNCTION_TERMS:
             array = _immutable_vector(getattr(self, name), name)
             if size is None:
                 size = array.size
@@ -161,6 +210,14 @@ class GreenFunctionContributions:
             arrays.append((name, array))
         for name, array in arrays:
             object.__setattr__(self, name, array)
+        object.__setattr__(self, "issues", tuple(self.issues))
+
+    @classmethod
+    def zeros(cls, size: int) -> GreenFunctionContributions:
+        """All six terms zero (a part that was not requested)."""
+
+        zeros = np.zeros(size)
+        return cls(**{name: zeros for name in GREEN_FUNCTION_TERMS})
 
 
 @dataclass(frozen=True)

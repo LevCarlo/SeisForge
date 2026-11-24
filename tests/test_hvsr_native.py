@@ -22,7 +22,7 @@ def test_native_full_dfa_matches_upstream_reference() -> None:
     result = predict_diffuse_field_hvsr(
         _reference_model(),
         [0.2, 1.0],
-        solver=NativeDiffuseFieldSolver(contour_shift_fraction=1.0e-8),
+        solver=NativeDiffuseFieldSolver(),
     )
 
     # HV-DFA 1.0, 20 Rayleigh/Love modes and 10,000 body-wave samples.
@@ -38,29 +38,29 @@ def test_native_solver_can_calculate_body_waves_without_surface_modes() -> None:
     settings = DiffuseFieldSettings(
         max_rayleigh_modes=0,
         max_love_modes=0,
-        body_wave_wavenumbers=100,
+        include_body_waves=True,
     )
-    result = NativeDiffuseFieldSolver(contour_shift_fraction=1.0e-8)(
-        _reference_model(), [0.2, 1.0], settings
-    )
+    result = NativeDiffuseFieldSolver()(_reference_model(), [0.2, 1.0], settings)
 
     np.testing.assert_allclose(result.hvsr, [5.34253, 1.21937], rtol=5.0e-3)
     np.testing.assert_allclose(result.contributions.rayleigh_horizontal, 0.0)
     np.testing.assert_allclose(result.contributions.love_horizontal, 0.0)
+    # Before: labelled "full_dfa" although no surface-wave term was computed.
+    assert result.approximation == "body_waves_only"
 
 
 def test_native_horizontal_mean_is_sum_divided_by_sqrt_two() -> None:
-    solver = NativeDiffuseFieldSolver(contour_shift_fraction=1.0e-8)
+    solver = NativeDiffuseFieldSolver()
     body_sum = DiffuseFieldSettings(
         max_rayleigh_modes=0,
         max_love_modes=0,
-        body_wave_wavenumbers=100,
+        include_body_waves=True,
         horizontal_definition="sum",
     )
     body_mean = DiffuseFieldSettings(
         max_rayleigh_modes=0,
         max_love_modes=0,
-        body_wave_wavenumbers=100,
+        include_body_waves=True,
         horizontal_definition="mean",
     )
 

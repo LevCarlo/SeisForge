@@ -15,7 +15,7 @@ from scipy.optimize import brentq
 
 from seisforge.hvsr import DiffuseFieldSettings, ElasticLayerModel, NativeDiffuseFieldSolver
 
-RAYLEIGH_0 = DiffuseFieldSettings(max_rayleigh_modes=1, max_love_modes=0, body_wave_wavenumbers=0)
+RAYLEIGH_0 = DiffuseFieldSettings(max_rayleigh_modes=1, max_love_modes=0, include_body_waves=False)
 FREQUENCY_HZ = np.geomspace(0.3, 5.0, 60)
 
 solver = NativeDiffuseFieldSolver()

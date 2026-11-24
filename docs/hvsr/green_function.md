@@ -14,8 +14,8 @@
        which it decays, so no exponential grows (§2).
     3. **Poles.** Surface-wave wavenumbers $k_n$ from `disba` seeds, refined
        on $C$ itself; residues by a central difference (§3).
-    4. **Body-wave integral.** Gauss–Legendre on segments between branch
-       points, on a path just below the real axis (§4).
+    4. **Body-wave integral.** Adaptive Gauss–Kronrod on segments between
+       branch points, on a path just below the real axis (§4).
 
 ## 1. Conventions
 
@@ -28,7 +28,15 @@ $$
 $$
 
 so that $e^{-\gamma_v z}$ either decays with depth or carries energy
-downwards. The P-SV state vector is
+downwards. Numerically, the principal square root (which has
+$\operatorname{Re}\ge0$) is negated only when $\operatorname{Im}\gamma_v>0$
+and $\operatorname{Re}\gamma_v$ is within the round-off of the argument,
+$|\operatorname{Re}\gamma_v|\,|\gamma_v| \le 16\,\epsilon\,(|k|^2+\omega^2/v^2)$
+($d\gamma = da/2\gamma$ for $a=k^2-\omega^2/v^2$). The test is relative,
+so it does not depend on the units of $k$; Python and Fortran use the same
+one. (Before 0.2.0 Python used an absolute $10^{-8}$ and Fortran
+$32\epsilon$; on the paths used, real $k$ and $k(1-i\varepsilon)$, neither
+ever chose differently, so no result changed.) The P-SV state vector is
 $(u_x,u_z,\sigma_{xz},\sigma_{zz})$; with $e^{sz}$, $s=\mp\gamma$, a P wave and
 an SV wave contribute the columns
 
@@ -106,8 +114,10 @@ $\operatorname{Re}[1/C_{yy}(k)]$. Finding them:
     exact for $R_n/(k-k_n)$ plus a constant, with error $O(h^2 C''_{\text{reg}})$.
 
 A mode whose root cannot be refined, or whose diagonal residue term is
-complex or negative beyond $10^{-8}$, is left out at that frequency; the
-omission is not recorded in the prediction's diagnostics.
+complex or negative beyond $10^{-8}$, is left out at that frequency and
+recorded: the frequency's diagnostic becomes `incomplete` and lists the wave,
+the mode index and the reason. A mode with no seed at a frequency (beyond its
+cut-off) is not a failure and is not recorded.
 
 ![The compliance along k at 1 Hz](img/k_plane.svg#only-light)
 ![The compliance along k at 1 Hz](img/k_plane-dark.svg#only-dark)
@@ -116,41 +126,68 @@ omission is not recorded in the prediction's diagnostics.
 body-wave interval, split at $1/\alpha_N$. The Rayleigh and Love poles (red)
 lie beyond $1/\beta_N$, where $C_{xx}$, $C_{zz}$ and $C_{yy}$ are real to
 $1.5\times10^{-11}$ (checked in the script). The peak inside the interval is
-the near-real pole behind the [unconverged H/V peak](index.md#4-peak-height-open-t21).
+the near-real pole behind the [former H/V peak spikes](index.md#4-peak-height-near-f0-t21-resolved).
 Script: `docs/hvsr/scripts/k_plane.py`.*
 
 ## 4. Body-wave integral
 
-With $u=k\beta_N/\omega\in(0,1)$, the interval is split at
+With $u=k\beta_N/\omega\in(0,1)$, the interval is first split at
 $u=\beta_N/v_j$ for every P and S velocity $v_j$ of the model that falls
 inside it: these are the branch points, where some $\gamma_{v_j}$ changes from
-imaginary to real and the integrand has a square-root kink. Each segment gets
-an $n$-point Gauss–Legendre rule, whose nodes avoid the segment ends, with
-$n=\max(\texttt{body\_quadrature\_order},\ \mathrm{round}(\texttt{body\_wave\_wavenumbers}/2))$
-($\max(48, 50)=50$ by default). The path is $k(1-i\varepsilon)$ with
-$\varepsilon$ = `contour_shift_fraction` = $10^{-5}$, the outgoing side of
-the cuts. Negative energy beyond round-off is an error.
+imaginary to real and the integrand has a square-root kink. On each piece a
+15-point Gauss–Kronrod rule (QUADPACK QK15) gives the integral and, from the
+embedded 7-point Gauss rule, an error estimate $|K_{15}-G_7|$. The piece with
+the largest estimate relative to the target is bisected, the left half
+taking its place in the list and the right half appended, until for each of
+the three terms ($C_{xx}$, $C_{zz}$, $C_{yy}$) the summed estimate is below
+`body_quadrature_rtol` ($10^{-6}$) times $|\operatorname{Im}\int|$ of that
+term. The estimate is pessimistic: on the documented models the actual error
+against scipy's QAGS is about $10^{-8}$.
 
-The rule converges fast when the integrand is smooth inside each segment.
-It fails when a pole sits close to the real axis inside the interval, as at
-0.955 Hz in the H/V example ([§4 there](index.md#4-peak-height-open-t21)):
-then the result depends on where the nodes fall.
+The error is measured on the complex integrand. A pole $k_p$ just off the
+real axis makes $\operatorname{Im}[kC]$ a peak that can be far narrower than
+the nodes (see [T21](index.md#4-peak-height-near-f0-t21-resolved)), but
+$\operatorname{Re}[kC]$ has a $1/(k-k_p)$ tail that the rule sees at any
+distance, at least as large as the peak's contribution; the bisection then
+closes in on the pole. If `body_quadrature_max_intervals` (4000) is reached
+first, the integral is kept and the frequency is `incomplete`.
+
+The path is $k(1-i\varepsilon)$ with $\varepsilon$ =
+`contour_shift_fraction` = $10^{-8}$, the outgoing side of the cuts. The
+result approaches the real-axis limit linearly in $\varepsilon$, with
+$|\delta I/I|$ between 10 and 80 $\varepsilon$ on the documented models; the
+default keeps that bias below the tolerance (it was $10^{-5}$ before 0.2.0,
+a bias up to $8\times10^{-4}$). Negative energy beyond round-off is an error.
+
+Cost: 600–1300 integrand evaluations per frequency for the one-layer model,
+up to 4500 at 10 Hz for the four-layer one (the fixed rule used 100–150).
 
 ## 5. The Fortran kernel
 
 `src/seisforge/hvsr/_fortran_src/hvsr_core.f90` implements §1–4 with the
-same columns, boundary system and quadrature; Python passes it the `disba`
-seeds. Its root refinement differs: 65 samples and bisection, without the
-seed-neighbour search and the minimisation fallback. Body-wave terms agree
-with the Python kernel to $10^{-11}$, surface-wave terms and H/V to
-$2\times10^{-4}$.
+same columns, branch rule, boundary system and adaptive quadrature (same
+rule, same choice of interval, same list order; Python passes it the
+segments and the `disba` seeds). It returns a skip code for every frequency
+and mode and a convergence flag for every frequency, which Python turns into
+the same diagnostics as the native solver. Its root refinement differs: 65
+samples and bisection, without the seed-neighbour search and the
+minimisation fallback, so it finds fewer roots of closely spaced high modes
+(10 of 20 × 20 Rayleigh mode-frequency pairs on the four-layer test model at
+3.6–10 Hz). Before 0.2.0 these were dropped silently, which is the
+$2\times10^{-4}$ H/V difference to the native solver once quoted here; they
+are now `incomplete`. Where both include the same modes, body-wave terms
+agree to $10^{-10}$ and surface-wave terms and H/V to $10^{-9}$ (measured
+$2\times10^{-11}$ and $7\times10^{-11}$).
 
 !!! verified ""
 
-    Verified: the radiation branch, the half-space compliance at $k=0$
+    Verified: the radiation branch, including a decaying wave just off the
+    cut in any units (`tests/test_hvsr_diagnostics.py`); the body-wave
+    integral against scipy's QAGS near the leaky pole and the linear
+    $\varepsilon$ bias; the half-space compliance at $k=0$
     ($1/\rho\beta\omega$, $1/\rho\alpha\omega$), finiteness of the system for a
     thick layer at high frequency, frequency independence of half-space
-    body-wave H/V, and body-wave H/V against HV-DFA 1.0 within 0.3 % at 0.2
+    body-wave H/V, and body-wave H/V against HV-DFA 1.0 within 0.03 % at 0.2
     and 1 Hz (stored values; `tests/test_hvsr_body_waves.py`); the Fortran
     agreement above (`tests/test_hvsr_fortran.py`, only with the extension
     built); eq. $\eqref{eq:normal}$ and the reality of $C$ beyond
@@ -159,9 +196,10 @@ $2\times10^{-4}$.
 !!! unverified ""
 
     Not verified: the residue step against an analytic residue of a layered
-    model; convergence of the body-wave rule in general (§4 shows one
-    failure); the Fortran kernel on this documentation's figures (they use
-    the native solver).
+    model; that the error estimate always sees a near-real pole (argued in
+    §4 from the $1/(k-k_p)$ tail, tested on one model); the Fortran kernel on this
+    documentation's figures (they use the native solver); the missing
+    Fortran fallbacks for high-mode roots (recorded, not fixed).
 
 ## Usage
 
@@ -171,9 +209,13 @@ The functions above are in `seisforge.hvsr.propagator`
 (`surface_wave_green_contributions`) and `seisforge.hvsr.body_waves`
 (`body_wave_green_contributions`, `predict_body_wave_hvsr`). The numerical
 controls of §3–4 are fields of `NativeDiffuseFieldSolver` and
-`FortranDiffuseFieldSolver`: `body_quadrature_order` (48),
-`contour_shift_fraction` ($10^{-5}$), `dispersion_step_km_s` (0.001),
-`residue_step_fraction` ($10^{-5}$).
+`FortranDiffuseFieldSolver`: `body_quadrature_rtol` ($10^{-6}$),
+`body_quadrature_max_intervals` (4000), `contour_shift_fraction`
+($10^{-8}$), `dispersion_step_km_s` (0.001), `residue_step_fraction`
+($10^{-5}$). `BodyWaveSettings` (`relative_tolerance`, `max_intervals`,
+`contour_shift_fraction`) holds the same body-wave controls for
+`body_wave_green_contributions`; `predict_body_wave_hvsr` takes
+`horizontal_definition` as a keyword.
 
 ## Appendix: normal-incidence closed form
 

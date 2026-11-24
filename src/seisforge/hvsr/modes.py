@@ -1,4 +1,11 @@
-"""Surface-wave pole residues contributing to diffuse-field Green functions."""
+"""Surface-wave pole residues contributing to diffuse-field Green functions.
+
+A mode whose seed exists but whose root cannot be refined, or whose residue
+is complex or negative, is left out at that frequency and recorded as a
+`ContributionIssue` (status ``INCOMPLETE``); the reasons are the
+`SKIP_REASONS` shared with the Fortran kernel. A missing seed (the mode does
+not exist at that frequency, beyond its cut-off) is not an issue.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +17,16 @@ from .dispersion import (
     phase_velocity_seeds_km_s,
     refine_surface_wavenumber_per_km,
 )
-from .models import ElasticLayerModel, GreenFunctionContributions
+from .models import ContributionIssue, ElasticLayerModel, GreenFunctionContributions
 from .propagator import psv_surface_compliance, sh_surface_compliance
+
+
+# Why a mode was left out, by the code the Fortran kernel returns.
+SKIP_REASONS = {
+    1: "root refinement found no zero near the disba seed",
+    2: "boundary system singular at the residue points",
+    3: "residue complex or negative beyond 1e-8",
+}
 
 
 @dataclass(frozen=True)
@@ -62,6 +77,10 @@ def surface_wave_green_contributions(
     rayleigh_h = np.zeros(frequencies.size)
     rayleigh_v = np.zeros(frequencies.size)
     love_h = np.zeros(frequencies.size)
+    issues: list[ContributionIssue] = []
+
+    def skip(frequency: float, wave: str, mode: int, code: int) -> None:
+        issues.append(ContributionIssue(float(frequency), wave, mode, SKIP_REASONS[code]))
 
     if not np.all(np.isfinite(frequencies)) or np.any(frequencies <= 0.0):
         raise ValueError("frequencies_hz must contain finite positive values")
@@ -99,15 +118,22 @@ def surface_wave_green_contributions(
                     # Closely spaced high modes can be returned by CPS without
                     # a matching, numerically resolvable impedance zero. Their
                     # residue cannot be evaluated reliably, so omit that mode
-                    # instead of invalidating all frequencies in the request.
+                    # (recorded) instead of invalidating every frequency.
+                    skip(frequency, wave, mode, 1)
                     continue
                 if wave == "rayleigh":
+                    compliance = lambda k: psv_surface_compliance(model, frequency, k)  # noqa: E731
+                else:
+                    compliance = lambda k: sh_surface_compliance(model, frequency, k)  # noqa: E731
+                try:
                     residue = _matrix_residue(
-                        lambda k: psv_surface_compliance(model, frequency, k),
-                        root,
-                        settings.residue_step_fraction,
+                        compliance, root, settings.residue_step_fraction
                     )
-                    try:
+                except np.linalg.LinAlgError:
+                    skip(frequency, wave, mode, 2)
+                    continue
+                try:
+                    if wave == "rayleigh":
                         horizontal = _positive_residue(
                             -np.pi * root * residue[0, 0] / 2.0,
                             label="Rayleigh horizontal",
@@ -116,23 +142,18 @@ def surface_wave_green_contributions(
                             -np.pi * root * residue[1, 1],
                             label="Rayleigh vertical",
                         )
-                    except RuntimeError:
-                        continue
-                    rayleigh_h[index] += horizontal
-                    rayleigh_v[index] += vertical
-                else:
-                    residue = _matrix_residue(
-                        lambda k: sh_surface_compliance(model, frequency, k),
-                        root,
-                        settings.residue_step_fraction,
-                    )
-                    try:
+                    else:
                         horizontal = _positive_residue(
                             -np.pi * root * residue / 2.0,
                             label="Love horizontal",
                         )
-                    except RuntimeError:
-                        continue
+                except RuntimeError:
+                    skip(frequency, wave, mode, 3)
+                    continue
+                if wave == "rayleigh":
+                    rayleigh_h[index] += horizontal
+                    rayleigh_v[index] += vertical
+                else:
                     love_h[index] += horizontal
 
     zeros = np.zeros_like(frequencies)
@@ -143,4 +164,5 @@ def surface_wave_green_contributions(
         psv_horizontal=zeros,
         psv_vertical=zeros,
         sh_horizontal=zeros,
+        issues=tuple(issues),
     )

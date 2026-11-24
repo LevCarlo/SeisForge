@@ -139,7 +139,7 @@ def test_reference_settings_reject_empty_physics() -> None:
         DiffuseFieldSettings(
             max_rayleigh_modes=0,
             max_love_modes=0,
-            body_wave_wavenumbers=0,
+            include_body_waves=False,
         )
 
 

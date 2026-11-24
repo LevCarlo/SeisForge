@@ -10,6 +10,15 @@
         - DiffuseFieldPrediction
         - HorizontalDefinition
         - ForwardStatus
+        - FrequencyDiagnostic
+        - ContributionIssue
+        - GreenFunctionContributions
+
+::: seisforge.hvsr.core
+    options:
+      members:
+        - combine_green_function_contributions
+        - assemble_diffuse_field_prediction
 
 ::: seisforge.hvsr.native
     options:
@@ -21,3 +30,9 @@
       members:
         - FortranDiffuseFieldSolver
         - fortran_extension_available
+
+::: seisforge.hvsr.reference
+    options:
+      members:
+        - HVDFAReferenceSolver
+        - predict_with_hvdfa

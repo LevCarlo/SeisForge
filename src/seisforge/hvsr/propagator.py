@@ -13,6 +13,12 @@ import numpy as np
 from .models import ElasticLayerModel
 
 
+# Rounding allowance of the branch test, in units of eps * (|k|^2 + (omega/v)^2):
+# forming k^2 - (omega/v)^2 and its square root costs a few roundings; 16 leaves
+# a margin. Shared with the Fortran kernel (BRANCH_ROUNDING_ULPS there).
+_BRANCH_ROUNDING_ULPS = 16.0
+
+
 def vertical_decay_wavenumber(
     horizontal_wavenumber_per_km: complex,
     omega_rad_s: float,
@@ -21,16 +27,28 @@ def vertical_decay_wavenumber(
     """Return the radiation-branch vertical decay wavenumber ``gamma``.
 
     The downward wave is proportional to ``exp(-gamma*z)`` for the
-    ``exp(i*k*x-i*omega*t)`` convention.  The sign is selected explicitly so
-    evanescent waves decay and propagating waves carry energy downwards.
+    ``exp(i*k*x-i*omega*t)`` convention. The branch is ``Re gamma >= 0`` (the
+    wave decays with depth); on the cut, ``Re gamma = 0``, it is
+    ``Im gamma < 0`` (the wave carries energy downwards).
+
+    The principal square root already has ``Re >= 0``. It is negated only
+    when ``Re gamma`` is no larger than the round-off of the argument
+    ``a = k^2 - (omega/v)^2`` carries into it, ``|Re gamma| |gamma| <=
+    16 eps (|k|^2 + (omega/v)^2)`` (since ``d gamma = d a / 2 gamma``), and
+    ``Im gamma > 0``. The test is relative, so it does not depend on the
+    units of ``k``; an absolute tolerance would treat a genuinely decaying
+    wave at small ``k`` as lying on the cut.
     """
 
-    value = np.sqrt(
-        complex(horizontal_wavenumber_per_km) ** 2
-        - (omega_rad_s / velocity_km_s) ** 2
-        + 0j
+    k = complex(horizontal_wavenumber_per_km)
+    vertical_squared = (omega_rad_s / velocity_km_s) ** 2
+    value = np.sqrt(k**2 - vertical_squared + 0j)
+    rounding = (
+        _BRANCH_ROUNDING_ULPS
+        * np.finfo(float).eps
+        * (abs(k) ** 2 + vertical_squared)
     )
-    if value.real < 0.0 or (np.isclose(value.real, 0.0) and value.imag > 0.0):
+    if abs(value.real) * abs(value) <= rounding and value.imag > 0.0:
         value = -value
     return value
 

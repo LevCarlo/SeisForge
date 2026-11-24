@@ -30,11 +30,23 @@ class HVDFAExecutionError(RuntimeError):
 
 @dataclass(frozen=True)
 class HVDFAReferenceSolver:
-    """Callable exact-reference backend using a local HV-DFA executable."""
+    """Callable exact-reference backend using a local HV-DFA executable.
+
+    HV-DFA's own numerical controls are fields here, since no other solver
+    uses them: ``body_wave_wavenumbers`` (``-nks``, real-axis samples of the
+    body-wave integral; 0 is sent when ``include_body_waves`` is false),
+    ``precision_percent`` (``-prec``), ``sh_damping`` and ``psv_damping``
+    (``-ash``, ``-apsv``). Defaults are those of the SeisForge adapter since
+    0.1, not taken from HV-DFA documentation.
+    """
 
     executable: str | os.PathLike[str]
     timeout_s: float = 120.0
     omp_threads: int = 1
+    body_wave_wavenumbers: int = 100
+    precision_percent: float = 0.1
+    sh_damping: float = 0.0
+    psv_damping: float = 0.0
 
     def __post_init__(self) -> None:
         executable = Path(self.executable).expanduser().resolve()
@@ -46,6 +58,12 @@ class HVDFAReferenceSolver:
             raise ValueError("timeout_s must be finite and positive")
         if self.omp_threads < 1:
             raise ValueError("omp_threads must be at least one")
+        _validate_hvdfa_controls(
+            self.body_wave_wavenumbers,
+            self.precision_percent,
+            self.sh_damping,
+            self.psv_damping,
+        )
         object.__setattr__(self, "executable", executable)
 
     def __call__(
@@ -61,7 +79,29 @@ class HVDFAReferenceSolver:
             settings=settings,
             timeout_s=self.timeout_s,
             omp_threads=self.omp_threads,
+            body_wave_wavenumbers=self.body_wave_wavenumbers,
+            precision_percent=self.precision_percent,
+            sh_damping=self.sh_damping,
+            psv_damping=self.psv_damping,
         )
+
+
+def _validate_hvdfa_controls(
+    body_wave_wavenumbers: int,
+    precision_percent: float,
+    sh_damping: float,
+    psv_damping: float,
+) -> None:
+    if body_wave_wavenumbers < 1:
+        raise ValueError(
+            "body_wave_wavenumbers must be positive; leave body waves out with "
+            "DiffuseFieldSettings(include_body_waves=False)"
+        )
+    if not np.isfinite(precision_percent) or precision_percent <= 0.0:
+        raise ValueError("precision_percent must be finite and positive")
+    for name, value in (("sh_damping", sh_damping), ("psv_damping", psv_damping)):
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError(f"{name} must be finite and non-negative")
 
 
 def _validated_frequencies(values) -> np.ndarray:
@@ -120,8 +160,16 @@ def predict_with_hvdfa(
     settings: DiffuseFieldSettings | None = None,
     timeout_s: float = 120.0,
     omp_threads: int = 1,
+    body_wave_wavenumbers: int = 100,
+    precision_percent: float = 0.1,
+    sh_damping: float = 0.0,
+    psv_damping: float = 0.0,
 ) -> DiffuseFieldPrediction:
     """Evaluate full DFA H/V using a user-provided HV-DFA binary.
+
+    HV-DFA reports no per-frequency diagnostics, so every frequency is
+    ``OK`` when the program succeeds. The four HV-DFA controls are described
+    in `HVDFAReferenceSolver`.
 
     A private temporary working directory makes concurrent calls safe even
     though the original program uses fixed filenames for some outputs.
@@ -138,8 +186,10 @@ def predict_with_hvdfa(
         raise ValueError("omp_threads must be at least one")
     if not isinstance(model, ElasticLayerModel):
         raise TypeError("model must be an ElasticLayerModel")
+    _validate_hvdfa_controls(body_wave_wavenumbers, precision_percent, sh_damping, psv_damping)
     settings = settings or DiffuseFieldSettings()
     frequencies = _validated_frequencies(frequencies_hz)
+    wavenumbers = body_wave_wavenumbers if settings.include_body_waves else 0
     order = np.argsort(frequencies, kind="stable")
     sorted_frequencies = frequencies[order]
 
@@ -163,13 +213,13 @@ def predict_with_hvdfa(
             "-nml",
             str(settings.max_love_modes),
             "-nks",
-            str(settings.body_wave_wavenumbers),
+            str(wavenumbers),
             "-prec",
-            f"{settings.precision_percent:.17g}",
+            f"{precision_percent:.17g}",
             "-ash",
-            f"{settings.sh_damping:.17g}",
+            f"{sh_damping:.17g}",
             "-apsv",
-            f"{settings.psv_damping:.17g}",
+            f"{psv_damping:.17g}",
             "-hv",
         ]
         environment = os.environ.copy()
@@ -203,9 +253,13 @@ def predict_with_hvdfa(
     diagnostics = tuple(
         FrequencyDiagnostic(float(value), ForwardStatus.OK) for value in frequencies
     )
-    approximation = (
-        "full_dfa" if settings.body_wave_wavenumbers > 0 else "surface_waves_only"
-    )
+    surface = settings.max_rayleigh_modes > 0 or settings.max_love_modes > 0
+    if surface and settings.include_body_waves:
+        approximation = "full_dfa"
+    elif surface:
+        approximation = "surface_waves_only"
+    else:
+        approximation = "body_waves_only"
     return DiffuseFieldPrediction(
         frequency_hz=frequencies,
         hvsr=hvsr,

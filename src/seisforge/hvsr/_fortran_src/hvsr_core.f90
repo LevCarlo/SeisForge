@@ -6,18 +6,39 @@ module hvsr_core
 
   integer, parameter :: dp = real64
   real(dp), parameter :: pi = acos(-1.0_dp)
+  real(dp), parameter :: branch_rounding_ulps = 16.0_dp
+  ! QUADPACK QK15 abscissae (descending, x >= 0) and Kronrod / Gauss weights,
+  ! identical to seisforge.hvsr.body_waves.
+  real(dp), parameter :: xgk(8) = [ &
+      0.991455371120812639206854697526329_dp, 0.949107912342758524526189684047851_dp, &
+      0.864864423359769072789712788640926_dp, 0.741531185599394439863864773280788_dp, &
+      0.586087235467691130294144845693013_dp, 0.405845151377397166906606412076961_dp, &
+      0.207784955007898467600689403773245_dp, 0.0_dp]
+  real(dp), parameter :: wgk(8) = [ &
+      0.022935322010529224963732008058970_dp, 0.063092092629978553290700663189204_dp, &
+      0.104790010322250183839876322541518_dp, 0.140653259715525918745189590510238_dp, &
+      0.169004726639267902826583938629992_dp, 0.190350578064785409913256402421014_dp, &
+      0.204432940075298892414161999234649_dp, 0.209482141084727828012999174891714_dp]
+  real(dp), parameter :: wg(4) = [ &
+      0.129484966168869693270611432679082_dp, 0.279705391489276667901467771423780_dp, &
+      0.381830050505118944950369775488975_dp, 0.417959183673469387755102040816327_dp]
 
   public :: body_wave_contributions, surface_wave_contributions
 
 contains
 
   pure complex(dp) function vertical_decay_wavenumber(k, omega, velocity) result(gamma)
+    ! Re(gamma) >= 0; on the cut (Re(gamma) at the round-off of the argument,
+    ! |Re g| |g| <= BRANCH_ROUNDING_ULPS eps (|k|^2 + (omega/v)^2)) Im(gamma) < 0.
+    ! Same rule as seisforge.hvsr.propagator.vertical_decay_wavenumber.
     complex(dp), intent(in) :: k
     real(dp), intent(in) :: omega, velocity
+    real(dp) :: vertical_squared, rounding
 
-    gamma = sqrt(k * k - cmplx((omega / velocity)**2, 0.0_dp, dp))
-    if (real(gamma, dp) < 0.0_dp .or. &
-        (abs(real(gamma, dp)) <= 32.0_dp * epsilon(1.0_dp) .and. aimag(gamma) > 0.0_dp)) then
+    vertical_squared = (omega / velocity)**2
+    gamma = sqrt(k * k - cmplx(vertical_squared, 0.0_dp, dp))
+    rounding = branch_rounding_ulps * epsilon(1.0_dp) * (abs(k)**2 + vertical_squared)
+    if (abs(real(gamma, dp)) * abs(gamma) <= rounding .and. aimag(gamma) > 0.0_dp) then
       gamma = -gamma
     end if
   end function vertical_decay_wavenumber
@@ -261,144 +282,193 @@ contains
   end subroutine sh_surface_compliance
 
 
-  subroutine gauss_legendre_rule(order, nodes, weights)
-    integer, intent(in) :: order
-    real(dp), intent(out) :: nodes(order), weights(order)
-    real(dp) :: derivative, p0, p1, p2, root, previous
-    integer :: i, j, midpoint
+  subroutine body_integrand(thickness_km, vp_km_s, vs_km_s, density_g_cm3, frequency, &
+                            k_limit, shift, unit_node, values, info)
+    ! k C dk/du for (C_xx, C_zz, C_yy) at one node u.
+    real(dp), intent(in) :: thickness_km(:), vp_km_s(:), vs_km_s(:), density_g_cm3(:)
+    real(dp), intent(in) :: frequency, k_limit, unit_node
+    complex(dp), intent(in) :: shift
+    complex(dp), intent(out) :: values(3)
+    integer, intent(out) :: info
+    complex(dp) :: k, psv(2, 2), sh
 
-    midpoint = (order + 1) / 2
-    do i = 1, midpoint
-      root = cos(pi * (real(i, dp) - 0.25_dp) / (real(order, dp) + 0.5_dp))
-      do
-        p0 = 1.0_dp
-        p1 = root
-        do j = 2, order
-          p2 = ((2.0_dp * j - 1.0_dp) * root * p1 - (j - 1.0_dp) * p0) / real(j, dp)
-          p0 = p1
-          p1 = p2
-        end do
-        derivative = real(order, dp) * (root * p1 - p0) / (root**2 - 1.0_dp)
-        previous = root
-        root = previous - p1 / derivative
-        if (abs(root - previous) <= 8.0_dp * epsilon(1.0_dp)) exit
-      end do
-      nodes(i) = -root
-      nodes(order + 1 - i) = root
-      weights(i) = 2.0_dp / ((1.0_dp - root**2) * derivative**2)
-      weights(order + 1 - i) = weights(i)
-    end do
-  end subroutine gauss_legendre_rule
+    k = k_limit * unit_node * shift
+    call psv_surface_compliance(thickness_km, vp_km_s, vs_km_s, density_g_cm3, &
+                                frequency, k, psv, info)
+    if (info /= 0) then
+      info = 2
+      return
+    end if
+    call sh_surface_compliance(thickness_km, vs_km_s, density_g_cm3, frequency, k, sh, info)
+    if (info /= 0) then
+      info = 3
+      return
+    end if
+    values(1) = psv(1, 1)
+    values(2) = psv(2, 2)
+    values(3) = sh
+    values = values * k * k_limit * shift
+  end subroutine body_integrand
 
 
-  subroutine sort_unique_boundaries(values, count)
-    real(dp), intent(inout) :: values(:)
-    integer, intent(inout) :: count
-    real(dp) :: key
-    integer :: i, j, unique_count
+  subroutine gauss_kronrod_interval(thickness_km, vp_km_s, vs_km_s, density_g_cm3, &
+                                    frequency, k_limit, shift, left, right, kronrod, &
+                                    error, info)
+    real(dp), intent(in) :: thickness_km(:), vp_km_s(:), vs_km_s(:), density_g_cm3(:)
+    real(dp), intent(in) :: frequency, k_limit, left, right
+    complex(dp), intent(in) :: shift
+    complex(dp), intent(out) :: kronrod(3)
+    real(dp), intent(out) :: error(3)
+    integer, intent(out) :: info
+    complex(dp) :: gauss(3), values(3)
+    real(dp) :: half, centre, node, kronrod_weight, gauss_weight
+    integer :: j
 
-    do i = 2, count
-      key = values(i)
-      j = i - 1
-      do while (j >= 1 .and. values(j) > key)
-        values(j + 1) = values(j)
-        j = j - 1
-      end do
-      values(j + 1) = key
-    end do
-    unique_count = 1
-    do i = 2, count
-      if (abs(values(i) - values(unique_count)) > 64.0_dp * epsilon(1.0_dp)) then
-        unique_count = unique_count + 1
-        values(unique_count) = values(i)
+    half = 0.5_dp * (right - left)
+    centre = left + half
+    kronrod = (0.0_dp, 0.0_dp)
+    gauss = (0.0_dp, 0.0_dp)
+    ! Ascending order of the 15 nodes, as in the Python kernel.
+    do j = 1, 15
+      if (j <= 7) then
+        node = -xgk(j)
+        kronrod_weight = wgk(j)
+      else
+        node = xgk(16 - j)
+        kronrod_weight = wgk(16 - j)
       end if
+      gauss_weight = 0.0_dp
+      if (mod(j, 2) == 0) gauss_weight = wg(min(j, 16 - j) / 2)
+      call body_integrand(thickness_km, vp_km_s, vs_km_s, density_g_cm3, frequency, &
+                          k_limit, shift, centre + half * node, values, info)
+      if (info /= 0) return
+      kronrod = kronrod + kronrod_weight * values
+      gauss = gauss + gauss_weight * values
     end do
-    count = unique_count
-  end subroutine sort_unique_boundaries
+    kronrod = half * kronrod
+    gauss = half * gauss
+    error = abs(kronrod - gauss)
+  end subroutine gauss_kronrod_interval
 
 
   subroutine body_wave_contributions(thickness_km, vp_km_s, vs_km_s, density_g_cm3, &
-                                     frequencies_hz, quadrature_order, contour_shift_fraction, &
-                                     psv_horizontal, psv_vertical, sh_horizontal, status)
+                                     frequencies_hz, boundaries, relative_tolerance, &
+                                     max_intervals, contour_shift_fraction, &
+                                     psv_horizontal, psv_vertical, sh_horizontal, &
+                                     relative_error, intervals, converged, status)
+    ! Adaptive QK15 on the segments `boundaries` (u = k Vs_N / omega), as in
+    ! seisforge.hvsr.body_waves: bisect the interval with the largest
+    ! max_c error_c / (rtol |Im I_c|); the left half replaces it, the right
+    ! half is appended; stop when every term meets the tolerance or
+    ! max_intervals is reached (converged = 0).
     !f2py intent(in) thickness_km, vp_km_s, vs_km_s, density_g_cm3, frequencies_hz
-    !f2py intent(in) quadrature_order, contour_shift_fraction
-    !f2py intent(out) psv_horizontal, psv_vertical, sh_horizontal, status
+    !f2py intent(in) boundaries, relative_tolerance, max_intervals, contour_shift_fraction
+    !f2py intent(out) psv_horizontal, psv_vertical, sh_horizontal
+    !f2py intent(out) relative_error, intervals, converged, status
     double precision, intent(in) :: thickness_km(:), vp_km_s(:), vs_km_s(:), density_g_cm3(:)
-    double precision, intent(in) :: frequencies_hz(:), contour_shift_fraction
-    integer, intent(in) :: quadrature_order
+    double precision, intent(in) :: frequencies_hz(:), boundaries(:)
+    double precision, intent(in) :: relative_tolerance, contour_shift_fraction
+    integer, intent(in) :: max_intervals
     double precision, intent(out) :: psv_horizontal(size(frequencies_hz))
     double precision, intent(out) :: psv_vertical(size(frequencies_hz))
     double precision, intent(out) :: sh_horizontal(size(frequencies_hz))
+    double precision, intent(out) :: relative_error(size(frequencies_hz))
+    integer, intent(out) :: intervals(size(frequencies_hz))
+    integer, intent(out) :: converged(size(frequencies_hz))
     integer, intent(out) :: status
-    real(dp), allocatable :: nodes(:), weights(:), boundaries(:)
-    complex(dp) :: k, dk_weight, psv(2, 2), sh, shift
-    real(dp) :: frequency, k_limit, left, right, unit_node, unit_weight, critical
-    integer :: boundary_count, frequency_index, info, layer, node_index, segment
+    real(dp), allocatable :: lefts(:), rights(:), errors(:, :)
+    complex(dp), allocatable :: integrals(:, :)
+    complex(dp) :: shift, total(3), left_value(3), right_value(3)
+    real(dp) :: frequency, k_limit, error(3), target(3), scale(3), middle
+    real(dp) :: worst_ratio, ratio
+    integer :: frequency_index, count, segment, worst, j, info
 
     status = 0
     psv_horizontal = 0.0_dp
     psv_vertical = 0.0_dp
     sh_horizontal = 0.0_dp
+    relative_error = 0.0_dp
+    intervals = 0
+    converged = 0
     if (size(vp_km_s) /= size(vs_km_s) .or. size(vp_km_s) /= size(density_g_cm3) .or. &
-        size(thickness_km) /= size(vp_km_s) - 1 .or. quadrature_order < 8) then
+        size(thickness_km) /= size(vp_km_s) - 1 .or. size(boundaries) < 2 .or. &
+        max_intervals < size(boundaries) - 1) then
       status = 1
       return
     end if
 
-    allocate(nodes(quadrature_order), weights(quadrature_order))
-    allocate(boundaries(2 * size(vp_km_s) + 2))
-    call gauss_legendre_rule(quadrature_order, nodes, weights)
+    allocate(lefts(max_intervals), rights(max_intervals))
+    allocate(integrals(3, max_intervals), errors(3, max_intervals))
     shift = cmplx(1.0_dp, -contour_shift_fraction, dp)
-
-    boundary_count = 1
-    boundaries(1) = 0.0_dp
-    do layer = 1, size(vp_km_s)
-      critical = vs_km_s(size(vs_km_s)) / vp_km_s(layer)
-      if (critical > 0.0_dp .and. critical < 1.0_dp) then
-        boundary_count = boundary_count + 1
-        boundaries(boundary_count) = critical
-      end if
-      critical = vs_km_s(size(vs_km_s)) / vs_km_s(layer)
-      if (critical > 0.0_dp .and. critical < 1.0_dp) then
-        boundary_count = boundary_count + 1
-        boundaries(boundary_count) = critical
-      end if
-    end do
-    boundary_count = boundary_count + 1
-    boundaries(boundary_count) = 1.0_dp
-    call sort_unique_boundaries(boundaries, boundary_count)
 
     do frequency_index = 1, size(frequencies_hz)
       frequency = frequencies_hz(frequency_index)
       k_limit = 2.0_dp * pi * frequency / vs_km_s(size(vs_km_s))
-      do segment = 1, boundary_count - 1
-        left = boundaries(segment)
-        right = boundaries(segment + 1)
-        do node_index = 1, quadrature_order
-          unit_node = 0.5_dp * ((right - left) * nodes(node_index) + right + left)
-          unit_weight = 0.5_dp * (right - left) * weights(node_index)
-          k = k_limit * unit_node * shift
-          dk_weight = k_limit * unit_weight * shift
-          call psv_surface_compliance(thickness_km, vp_km_s, vs_km_s, density_g_cm3, &
-                                      frequency, k, psv, info)
-          if (info /= 0) then
-            status = 2
-            return
-          end if
-          call sh_surface_compliance(thickness_km, vs_km_s, density_g_cm3, &
-                                     frequency, k, sh, info)
-          if (info /= 0) then
-            status = 3
-            return
-          end if
-          psv_horizontal(frequency_index) = psv_horizontal(frequency_index) &
-              - aimag(dk_weight * k * psv(1, 1)) / 2.0_dp
-          psv_vertical(frequency_index) = psv_vertical(frequency_index) &
-              - aimag(dk_weight * k * psv(2, 2))
-          sh_horizontal(frequency_index) = sh_horizontal(frequency_index) &
-              - aimag(dk_weight * k * sh) / 2.0_dp
-        end do
+      count = size(boundaries) - 1
+      do segment = 1, count
+        lefts(segment) = boundaries(segment)
+        rights(segment) = boundaries(segment + 1)
+        call gauss_kronrod_interval(thickness_km, vp_km_s, vs_km_s, density_g_cm3, &
+                                    frequency, k_limit, shift, lefts(segment), &
+                                    rights(segment), integrals(:, segment), &
+                                    errors(:, segment), info)
+        if (info /= 0) then
+          status = info
+          return
+        end if
       end do
+      do
+        total = (0.0_dp, 0.0_dp)
+        error = 0.0_dp
+        do j = 1, count
+          total = total + integrals(:, j)
+          error = error + errors(:, j)
+        end do
+        target = relative_tolerance * abs(aimag(total))
+        if (all(error <= target)) then
+          converged(frequency_index) = 1
+          exit
+        end if
+        if (count >= max_intervals) exit
+        scale = target
+        where (scale <= 0.0_dp) scale = tiny(1.0_dp)
+        worst = 1
+        worst_ratio = -1.0_dp
+        do j = 1, count
+          ratio = maxval(errors(:, j) / scale)
+          if (ratio > worst_ratio) then
+            worst_ratio = ratio
+            worst = j
+          end if
+        end do
+        middle = 0.5_dp * (lefts(worst) + rights(worst))
+        call gauss_kronrod_interval(thickness_km, vp_km_s, vs_km_s, density_g_cm3, &
+                                    frequency, k_limit, shift, lefts(worst), middle, &
+                                    left_value, error, info)
+        if (info /= 0) then
+          status = info
+          return
+        end if
+        count = count + 1
+        call gauss_kronrod_interval(thickness_km, vp_km_s, vs_km_s, density_g_cm3, &
+                                    frequency, k_limit, shift, middle, rights(worst), &
+                                    right_value, errors(:, count), info)
+        if (info /= 0) then
+          status = info
+          return
+        end if
+        lefts(count) = middle
+        rights(count) = rights(worst)
+        integrals(:, count) = right_value
+        rights(worst) = middle
+        integrals(:, worst) = left_value
+        errors(:, worst) = error
+      end do
+      intervals(frequency_index) = count
+      relative_error(frequency_index) = maxval(error / max(abs(aimag(total)), tiny(1.0_dp)))
+      psv_horizontal(frequency_index) = -aimag(total(1)) / 2.0_dp
+      psv_vertical(frequency_index) = -aimag(total(2))
+      sh_horizontal(frequency_index) = -aimag(total(3)) / 2.0_dp
     end do
   end subroutine body_wave_contributions
 
@@ -531,22 +601,25 @@ contains
 
 
   subroutine add_rayleigh_residue(thickness, vp, vs, density, frequency, root, &
-                                  residue_fraction, horizontal, vertical, success)
+                                  residue_fraction, horizontal, vertical, code)
+    ! code: 0 ok, 2 singular boundary system, 3 residue complex or negative
     real(dp), intent(in) :: thickness(:), vp(:), vs(:), density(:)
     real(dp), intent(in) :: frequency, root, residue_fraction
     real(dp), intent(out) :: horizontal, vertical
-    logical, intent(out) :: success
+    integer, intent(out) :: code
     complex(dp) :: plus(2, 2), minus(2, 2), residue(2, 2), h_value, v_value
     real(dp) :: step, tolerance
     integer :: info_plus, info_minus
 
+    vertical = 0.0_dp
     step = max(abs(root) * residue_fraction, 1.0e-10_dp)
     call psv_surface_compliance(thickness, vp, vs, density, frequency, &
                                 cmplx(root + step, 0.0_dp, dp), plus, info_plus)
     call psv_surface_compliance(thickness, vp, vs, density, frequency, &
                                 cmplx(root - step, 0.0_dp, dp), minus, info_minus)
+    horizontal = 0.0_dp
     if (info_plus /= 0 .or. info_minus /= 0) then
-      success = .false.
+      code = 2
       return
     end if
     residue = 0.5_dp * step * (plus - minus)
@@ -555,21 +628,22 @@ contains
     tolerance = 1.0e-8_dp * max(abs(h_value), abs(v_value), 1.0_dp)
     if (abs(aimag(h_value)) > tolerance .or. abs(aimag(v_value)) > tolerance .or. &
         real(h_value, dp) < -tolerance .or. real(v_value, dp) < -tolerance) then
-      success = .false.
+      code = 3
       return
     end if
     horizontal = max(real(h_value, dp), 0.0_dp)
     vertical = max(real(v_value, dp), 0.0_dp)
-    success = .true.
+    code = 0
   end subroutine add_rayleigh_residue
 
 
   subroutine add_love_residue(thickness, vs, density, frequency, root, residue_fraction, &
-                              horizontal, success)
+                              horizontal, code)
+    ! code: 0 ok, 2 singular boundary system, 3 residue complex or negative
     real(dp), intent(in) :: thickness(:), vs(:), density(:)
     real(dp), intent(in) :: frequency, root, residue_fraction
     real(dp), intent(out) :: horizontal
-    logical, intent(out) :: success
+    integer, intent(out) :: code
     complex(dp) :: plus, minus, residue, value
     real(dp) :: step, tolerance
     integer :: info_plus, info_minus
@@ -579,19 +653,20 @@ contains
                                cmplx(root + step, 0.0_dp, dp), plus, info_plus)
     call sh_surface_compliance(thickness, vs, density, frequency, &
                                cmplx(root - step, 0.0_dp, dp), minus, info_minus)
+    horizontal = 0.0_dp
     if (info_plus /= 0 .or. info_minus /= 0) then
-      success = .false.
+      code = 2
       return
     end if
     residue = 0.5_dp * step * (plus - minus)
     value = -pi * root * residue / 2.0_dp
     tolerance = 1.0e-8_dp * max(abs(value), 1.0_dp)
     if (abs(aimag(value)) > tolerance .or. real(value, dp) < -tolerance) then
-      success = .false.
+      code = 3
       return
     end if
     horizontal = max(real(value, dp), 0.0_dp)
-    success = .true.
+    code = 0
   end subroutine add_love_residue
 
 
@@ -599,12 +674,16 @@ contains
                                         frequencies_hz, rayleigh_velocity_km_s, &
                                         love_velocity_km_s, velocity_half_width_km_s, &
                                         residue_step_fraction, rayleigh_horizontal, &
-                                        rayleigh_vertical, love_horizontal, skipped_modes, status)
+                                        rayleigh_vertical, love_horizontal, rayleigh_skip, &
+                                        love_skip, status)
+    ! rayleigh_skip / love_skip (frequency, mode): 0 included or no seed,
+    ! 1 root not refined, 2 singular system at the residue points,
+    ! 3 residue complex or negative (seisforge.hvsr.modes.SKIP_REASONS).
     !f2py intent(in) thickness_km, vp_km_s, vs_km_s, density_g_cm3, frequencies_hz
     !f2py intent(in) rayleigh_velocity_km_s, love_velocity_km_s
     !f2py intent(in) velocity_half_width_km_s, residue_step_fraction
     !f2py intent(out) rayleigh_horizontal, rayleigh_vertical, love_horizontal
-    !f2py intent(out) skipped_modes, status
+    !f2py intent(out) rayleigh_skip, love_skip, status
     double precision, intent(in) :: thickness_km(:), vp_km_s(:), vs_km_s(:), density_g_cm3(:)
     double precision, intent(in) :: frequencies_hz(:)
     double precision, intent(in) :: rayleigh_velocity_km_s(:, :), love_velocity_km_s(:, :)
@@ -612,15 +691,19 @@ contains
     double precision, intent(out) :: rayleigh_horizontal(size(frequencies_hz))
     double precision, intent(out) :: rayleigh_vertical(size(frequencies_hz))
     double precision, intent(out) :: love_horizontal(size(frequencies_hz))
-    integer, intent(out) :: skipped_modes, status
+    integer, intent(out) :: rayleigh_skip(size(rayleigh_velocity_km_s, 1), &
+                                          size(rayleigh_velocity_km_s, 2))
+    integer, intent(out) :: love_skip(size(love_velocity_km_s, 1), size(love_velocity_km_s, 2))
+    integer, intent(out) :: status
     real(dp) :: root, horizontal, vertical, velocity
     logical :: success
-    integer :: frequency_index, mode
+    integer :: frequency_index, mode, code
 
     rayleigh_horizontal = 0.0_dp
     rayleigh_vertical = 0.0_dp
     love_horizontal = 0.0_dp
-    skipped_modes = 0
+    rayleigh_skip = 0
+    love_skip = 0
     status = 0
     if (size(rayleigh_velocity_km_s, 1) /= size(frequencies_hz) .or. &
         size(love_velocity_km_s, 1) /= size(frequencies_hz)) then
@@ -636,14 +719,14 @@ contains
                                  frequencies_hz(frequency_index), velocity, &
                                  velocity_half_width_km_s, .true., root, success)
         if (.not. success) then
-          skipped_modes = skipped_modes + 1
+          rayleigh_skip(frequency_index, mode) = 1
           cycle
         end if
         call add_rayleigh_residue(thickness_km, vp_km_s, vs_km_s, density_g_cm3, &
                                   frequencies_hz(frequency_index), root, residue_step_fraction, &
-                                  horizontal, vertical, success)
-        if (.not. success) then
-          skipped_modes = skipped_modes + 1
+                                  horizontal, vertical, code)
+        if (code /= 0) then
+          rayleigh_skip(frequency_index, mode) = code
           cycle
         end if
         rayleigh_horizontal(frequency_index) = rayleigh_horizontal(frequency_index) + horizontal
@@ -659,14 +742,14 @@ contains
                                  frequencies_hz(frequency_index), velocity, &
                                  velocity_half_width_km_s, .false., root, success)
         if (.not. success) then
-          skipped_modes = skipped_modes + 1
+          love_skip(frequency_index, mode) = 1
           cycle
         end if
         call add_love_residue(thickness_km, vs_km_s, density_g_cm3, &
                               frequencies_hz(frequency_index), root, residue_step_fraction, &
-                              horizontal, success)
-        if (.not. success) then
-          skipped_modes = skipped_modes + 1
+                              horizontal, code)
+        if (code /= 0) then
+          love_skip(frequency_index, mode) = code
           cycle
         end if
         love_horizontal(frequency_index) = love_horizontal(frequency_index) + horizontal

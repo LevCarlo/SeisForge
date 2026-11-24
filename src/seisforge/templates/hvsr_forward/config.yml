@@ -6,6 +6,9 @@ frequency_hz:                       # change this: frequencies to compute (log-s
   max: 10.0
   count: 100
 output_file: output/hvsr.dat
-# Optional numerical settings (seisforge.hvsr.DiffuseFieldSettings), defaults:
-# settings: {max_rayleigh_modes: 20, max_love_modes: 20, body_wave_wavenumbers: 100,
-#            precision_percent: 0.1, horizontal_definition: sum}
+# Optional: which terms to compute (seisforge.hvsr.DiffuseFieldSettings), defaults:
+# settings: {max_rayleigh_modes: 20, max_love_modes: 20, include_body_waves: true,
+#            horizontal_definition: sum}
+# Accuracy controls of the native solver (body-wave quadrature tolerance 1e-6,
+# ...) are fields of NativeDiffuseFieldSolver; the script uses its defaults and
+# records them in the output header.

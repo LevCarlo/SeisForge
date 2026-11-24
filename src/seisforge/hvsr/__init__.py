@@ -5,7 +5,7 @@ from .body_waves import (
     body_wave_green_contributions,
     predict_body_wave_hvsr,
 )
-from .core import combine_green_function_contributions
+from .core import assemble_diffuse_field_prediction, combine_green_function_contributions
 from .forward import DiffuseFieldSolver, predict_diffuse_field_hvsr
 from .fortran import (
     FortranDiffuseFieldSolver,
@@ -15,6 +15,7 @@ from .fortran import (
     fortran_surface_wave_green_contributions,
 )
 from .models import (
+    ContributionIssue,
     DiffuseFieldPrediction,
     DiffuseFieldSettings,
     ElasticLayerModel,
@@ -28,6 +29,7 @@ from .native import NativeDiffuseFieldSolver
 from .reference import HVDFAExecutionError, HVDFAReferenceSolver, predict_with_hvdfa
 
 __all__ = [
+    "ContributionIssue",
     "DiffuseFieldPrediction",
     "DiffuseFieldSettings",
     "DiffuseFieldSolver",
@@ -43,6 +45,7 @@ __all__ = [
     "HVDFAReferenceSolver",
     "HorizontalDefinition",
     "NativeDiffuseFieldSolver",
+    "assemble_diffuse_field_prediction",
     "combine_green_function_contributions",
     "body_wave_green_contributions",
     "fortran_body_wave_green_contributions",
