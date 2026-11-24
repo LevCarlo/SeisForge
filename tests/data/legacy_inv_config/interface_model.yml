@@ -6,7 +6,7 @@
 #   ---------   Moho: sampled depth (H-k style normal prior) and transition width
 #   mantle    | gradient Vs, constant Vp/Vs and density (Brocher is invalid > 4.5 km/s)
 #
-# See docs/model.md sections 3-4. Use with an obs.yaml as for examples/06_inversion.
+# See docs/inv/model.md section 2 and docs/inv/forward.md section 1. Use with an obs.yaml as for examples/06_inversion.
 
 Model:
   zmax_km: 80.0

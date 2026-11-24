@@ -6,8 +6,7 @@ Run from the example folder after `run.sh` (which calls it):
         [--truth data/true_model.dat] [-o result.png]
 
 It also prints the convergence numbers that README.md asks you to check.
-`expected_result.png` and the docs figure `docs/img/sta001_result.png` are
-drawn with this script. Only plotting and printing are done here; the
+`expected_result.png` is drawn with this script. Only plotting and printing are done here; the
 quantiles and diagnostics come from the run outputs.
 """
 
