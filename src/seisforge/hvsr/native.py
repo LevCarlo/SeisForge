@@ -4,39 +4,63 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
-
 from .body_waves import BodyWaveSettings, body_wave_green_contributions
-from .core import combine_green_function_contributions
+from .core import assemble_diffuse_field_prediction
 from .models import (
     DiffuseFieldPrediction,
     DiffuseFieldSettings,
     ElasticLayerModel,
-    GreenFunctionContributions,
 )
 from .modes import SurfaceWaveSettings, surface_wave_green_contributions
 
 
-def _sum_contributions(
-    left: GreenFunctionContributions,
-    right: GreenFunctionContributions,
-) -> GreenFunctionContributions:
-    return GreenFunctionContributions(
-        **{
-            name: getattr(left, name) + getattr(right, name)
-            for name in left.__dataclass_fields__
-        }
-    )
+@dataclass(frozen=True)
+class _KernelControls:
+    """Accuracy controls shared by the native and Fortran solvers.
+
+    See `docs/hvsr/green_function.md`, sections 3-4:
+
+    - ``body_quadrature_rtol``: Gauss--Kronrod error estimate of each
+      body-wave term, relative to the term.
+    - ``body_quadrature_max_intervals``: cap on the adaptive subdivision; a
+      frequency that reaches it is labelled ``INCOMPLETE``.
+    - ``contour_shift_fraction``: ``eps`` of the path ``k (1 - i eps)``; the
+      bias towards the real-axis limit is linear in ``eps``.
+    - ``dispersion_step_km_s``: disba phase-velocity step for mode seeds.
+    - ``residue_step_fraction``: central-difference step of the residues.
+    """
+
+    body_quadrature_rtol: float = 1.0e-6
+    body_quadrature_max_intervals: int = 4000
+    contour_shift_fraction: float = 1.0e-8
+    dispersion_step_km_s: float = 0.001
+    residue_step_fraction: float = 1.0e-5
+
+    def surface_wave_settings(self, settings: DiffuseFieldSettings) -> SurfaceWaveSettings:
+        return SurfaceWaveSettings(
+            max_rayleigh_modes=settings.max_rayleigh_modes,
+            max_love_modes=settings.max_love_modes,
+            dispersion_step_km_s=self.dispersion_step_km_s,
+            residue_step_fraction=self.residue_step_fraction,
+        )
+
+    def body_wave_settings(self) -> BodyWaveSettings:
+        return BodyWaveSettings(
+            relative_tolerance=self.body_quadrature_rtol,
+            max_intervals=self.body_quadrature_max_intervals,
+            contour_shift_fraction=self.contour_shift_fraction,
+        )
 
 
 @dataclass(frozen=True)
-class NativeDiffuseFieldSolver:
-    """Native solver combining pole residues and finite body-wave integrals."""
+class NativeDiffuseFieldSolver(_KernelControls):
+    """Native solver combining pole residues and adaptive body-wave integrals.
 
-    body_quadrature_order: int = 48
-    contour_shift_fraction: float = 1.0e-5
-    dispersion_step_km_s: float = 0.001
-    residue_step_fraction: float = 1.0e-5
+    Fields are the accuracy controls listed in `_KernelControls` (defaults:
+    ``body_quadrature_rtol=1e-6``, ``body_quadrature_max_intervals=4000``,
+    ``contour_shift_fraction=1e-8``, ``dispersion_step_km_s=0.001``,
+    ``residue_step_fraction=1e-5``).
+    """
 
     def __call__(
         self,
@@ -45,61 +69,19 @@ class NativeDiffuseFieldSolver:
         settings: DiffuseFieldSettings | None = None,
     ) -> DiffuseFieldPrediction:
         settings = settings or DiffuseFieldSettings()
+        surface = body = None
         if settings.max_rayleigh_modes > 0 or settings.max_love_modes > 0:
             surface = surface_wave_green_contributions(
-                model,
-                frequencies_hz,
-                settings=SurfaceWaveSettings(
-                    max_rayleigh_modes=settings.max_rayleigh_modes,
-                    max_love_modes=settings.max_love_modes,
-                    dispersion_step_km_s=self.dispersion_step_km_s,
-                    residue_step_fraction=self.residue_step_fraction,
-                ),
+                model, frequencies_hz, settings=self.surface_wave_settings(settings)
             )
-        else:
-            zeros = np.zeros_like(np.asarray(frequencies_hz, dtype=float))
-            surface = GreenFunctionContributions(
-                rayleigh_horizontal=zeros,
-                rayleigh_vertical=zeros,
-                love_horizontal=zeros,
-                psv_horizontal=zeros,
-                psv_vertical=zeros,
-                sh_horizontal=zeros,
-            )
-        if settings.body_wave_wavenumbers > 0:
-            # Retain the old setting as a computational-effort hint while the
-            # native backend uses much faster per-segment Gaussian quadrature.
-            requested_order = max(8, round(settings.body_wave_wavenumbers / 2))
-            order = max(self.body_quadrature_order, requested_order)
+        if settings.include_body_waves:
             body = body_wave_green_contributions(
-                model,
-                frequencies_hz,
-                settings=BodyWaveSettings(
-                    quadrature_order=order,
-                    contour_shift_fraction=self.contour_shift_fraction,
-                    horizontal_definition=settings.horizontal_definition,
-                ),
+                model, frequencies_hz, settings=self.body_wave_settings()
             )
-            contributions = _sum_contributions(surface, body)
-            approximation = "full_dfa"
-        else:
-            contributions = surface
-            approximation = "surface_waves_only"
-
-        result = combine_green_function_contributions(
+        return assemble_diffuse_field_prediction(
             frequencies_hz,
-            contributions,
+            surface=surface,
+            body=body,
             horizontal_definition=settings.horizontal_definition,
             backend="native",
-        )
-        return DiffuseFieldPrediction(
-            frequency_hz=result.frequency_hz,
-            hvsr=result.hvsr,
-            backend=result.backend,
-            approximation=approximation,
-            horizontal_definition=result.horizontal_definition,
-            horizontal_energy=result.horizontal_energy,
-            vertical_energy=result.vertical_energy,
-            contributions=result.contributions,
-            diagnostics=result.diagnostics,
         )

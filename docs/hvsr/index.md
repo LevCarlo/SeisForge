@@ -25,8 +25,9 @@
 
 *One layer (50 m, $\beta_1$ = 0.2 km/s, $\alpha_1$ = 0.6 km/s,
 $\rho_1$ = 1.8 g/cm³) over a half-space ($\beta_N$ = 1.0, $\alpha_N$ = 2.0,
-$\rho_N$ = 2.2), native solver with default settings. (a) H/V; the peak lies
-within 5 % of $f_0=\beta_1/4H$ = 1 Hz, but its height is not converged (§4).
+$\rho_N$ = 2.2), native solver with default settings. (a) H/V; the peak,
+12.0 at 0.96 Hz on this grid, lies within 5 % of $f_0=\beta_1/4H$ = 1 Hz
+(its height converged: §4).
 (b) The six terms of eq. $\eqref{eq:energies}$. The script also checks the
 scaling $H\to2H$, $f\to f/2$ ($4\times10^{-13}$) and the √2 between the two
 horizontal definitions. Script: `docs/hvsr/scripts/hvsr_contributions.py`.*
@@ -127,35 +128,54 @@ around $f_0$, and the vertical Rayleigh term passes through zero at
 0.99 Hz, so there the vertical power, the denominator, is the P-SV
 body-wave term alone.
 
-## 4. Peak height (open, T21)
+## 4. Peak height near f0 (T21, resolved)
 
-![H/V near f0 does not converge](img/peak_convergence.svg#only-light)
-![H/V near f0 does not converge](img/peak_convergence-dark.svg#only-dark)
+![H/V near f0: fixed and adaptive quadrature](img/peak_convergence.svg#only-light)
+![H/V near f0: fixed and adaptive quadrature](img/peak_convergence-dark.svg#only-dark)
 
-*(a) H/V between 0.9 and 1.1 Hz for three body-wave efforts and for a
-1000 times larger contour shift. (b) The P-SV horizontal integrand at
-0.955 Hz with the default Gauss nodes. Script:
+*(a) H/V between 0.9 and 1.1 Hz from the fixed Gauss–Legendre rule used
+before 0.2.0 (50, 100, 200 nodes per segment, rebuilt in the script) and
+from the adaptive quadrature now used. (b) The P-SV horizontal integrand at
+0.955 Hz and the old 50 nodes. Script:
 `docs/hvsr/scripts/peak_convergence.py`.*
 
-Between 0.90 and 1.00 Hz the predicted H/V changes by up to a factor of 3
-when the quadrature order changes; above 1.015 Hz it changes by less than
-$10^{-3}$. Panel (b) shows the cause: the P-SV integrand has a peak of half
-width below $5\times10^{-5}$ of the interval, at apparent velocity
-$\omega/k$ = 1.34 km/s (between $\beta_N$ and $\alpha_N$), where the nodes are
-$1.6\times10^{-2}$ apart. This is a pole just off the real axis (a weakly
-radiating leaky mode). Fixed Gauss rules sample only its flanks, at
-positions that move with the order. A larger contour shift smooths the
-curve but changes the integral by an amount not quantified here. A remedy
-would locate such poles and integrate them separately; none is
-implemented.
+Before 0.2.0 the H/V of this model changed by up to a factor of 3 between
+0.90 and 1.00 Hz when the quadrature order changed (spikes of 9–29). The
+cause is a pole of $C(k)$ just off the real axis inside the body-wave
+interval: Rayleigh mode 1, whose cut-off ($\omega/k=\beta_N$) is near
+1.08 Hz, continues below it as a leaky mode with apparent velocity
+1.2–1.5 km/s, between $\beta_N$ and $\alpha_N$. It radiates S waves into the
+half-space, but its leakage vanishes near $f^*$ = 0.9524 Hz: the half width of
+the integrand's peak goes to zero like $(f-f^*)^2$ (the script fits both
+sides), down to $5\times10^{-5}$ of the interval at 0.955 Hz, against a node
+spacing of $1.6\times10^{-2}$. A fixed rule samples only its flanks, at
+positions that move with the order. The integral itself is finite and
+smooth in $f$: as the peak narrows it grows, and its area tends to
+$\pi$ times the residue, as for a surface-wave pole.
 
-In this band read the peak frequency, not its height.
+The integral is now adaptive ([Green-function page, §4](green_function.md#4-body-wave-integral)):
+Gauss–Kronrod on each segment, bisected until the error estimate of each term is
+below $10^{-6}$ of the term. The error is measured on the complex integrand,
+whose real part has a $1/(k-k_p)$ tail at any distance from a near-real pole,
+so the pole cannot hide between nodes. With it, H/V near $f_0$ changes by
+less than $10^{-8}$ when the tolerance goes from $10^{-6}$ to $10^{-9}$; the
+peak is 12.1 at 0.97 Hz. The fixed rule was also off elsewhere: by 4 % in
+the body-wave terms at 0.9 and 1.0 Hz here, and by 16 % and 7 % at 3 and
+10 Hz on the four-layer test model, where surface waves dominate and H/V
+changed by at most 0.14 %.
+
+!!! verified ""
+
+    Verified: body-wave terms at 0.955 and 0.97 Hz against scipy's QAGS
+    (a different adaptive rule with extrapolation) to $10^{-6}$; convergence
+    of H/V over 0.94–0.97 Hz with the tolerance, and no spikes
+    (`tests/test_hvsr_body_waves.py`; the convergence test is marked slow).
 
 !!! unverified ""
 
-    Not verified: the converged peak height of this model; whether HV-DFA
-    converges in this band; how often such near-real poles occur in other
-    models (only this one was examined).
+    Not verified: how often such near-real poles occur in other models
+    (one model examined); whether HV-DFA, which samples the real axis
+    uniformly (`-nks`), resolves them.
 
 ## 5. Solvers
 
@@ -181,13 +201,27 @@ The settings mean:
 | key | default | native and Fortran | HV-DFA |
 |---|---|---|---|
 | `max_rayleigh_modes`, `max_love_modes` | 20, 20 | modes $0,1,\dots$; stop at the first mode with no root at any frequency | `-nmr`, `-nml` |
-| `body_wave_wavenumbers` | 100 | Gauss order per segment $=\max(48,\ \mathrm{round}(n/2))$, i.e. 50 | `-nks` |
+| `include_body_waves` | true | the body-wave integral of eq. $\eqref{eq:energies}$ | `-nks 0` when false |
 | `horizontal_definition` | `sum` | eq. $\eqref{eq:hv}$ | `mean`: output divided by √2 |
-| `precision_percent`, `sh_damping`, `psv_damping` | 0.1, 0, 0 | ignored: the medium is elastic | `-prec`, `-ash`, `-apsv` |
 
-A setting of 0 for all modes gives body waves only
-(`approximation="body_waves_only"`); 0 for `body_wave_wavenumbers` gives
-surface waves only.
+These choose *what* is computed and are shared by all solvers. How
+accurately is a field of the solver, so a control a solver would ignore
+cannot be set: `NativeDiffuseFieldSolver` and `FortranDiffuseFieldSolver`
+take `body_quadrature_rtol` and the other controls of the
+[Green-function page](green_function.md#usage); `HVDFAReferenceSolver` takes
+`body_wave_wavenumbers` (100, `-nks`), `precision_percent` (0.1, `-prec`),
+`sh_damping` and `psv_damping` (0, `-ash`, `-apsv`).
+
+0 for all modes gives body waves only (`approximation="body_waves_only"`);
+`include_body_waves: false` gives surface waves only.
+
+Every frequency carries a diagnostic: `ok`; `incomplete` when H/V is given
+but a term is missing or not converged, with the term and reason listed in
+`diagnostics[i].issues` (a surface-wave mode whose root or residue failed,
+with its index; a body-wave integral that reached
+`body_quadrature_max_intervals`); or `invalid` (NaN). The same records are in
+`contributions.issues`. HV-DFA returns no diagnostics, so its frequencies
+are `ok` when the program succeeds.
 
 <div class="assumptions" markdown>
 
@@ -204,11 +238,13 @@ surface waves only.
     Verified: eq. $\eqref{eq:hv}$ and the √2 of `"mean"`
     (`tests/test_hvsr_forward.py`); full native H/V within 1 % of HV-DFA 1.0
     at 0.2 and 1 Hz on a four-layer model, and body-wave-only H/V within
-    0.5 %, against values from one HV-DFA run stored in the tests
+    0.03 %, against values from one HV-DFA run stored in the tests
     (`tests/test_hvsr_native.py`, `tests/test_hvsr_body_waves.py`); Fortran
-    against native, body-wave terms to $10^{-11}$, surface-wave terms and H/V
-    to $2\times10^{-4}$
-    (`tests/test_hvsr_fortran.py`, runs only when the extension is built);
+    against native, body-wave terms to $10^{-10}$, surface-wave terms and H/V
+    to $10^{-9}$ where both include the same modes, and the modes each leaves
+    out recorded (`tests/test_hvsr_fortran.py`, runs only when the extension
+    is built); `incomplete` status for a left-out mode or an unconverged
+    integral (`tests/test_hvsr_diagnostics.py`);
     the three limits of §3 (scripts above). All checks use synthetic models.
 
 !!! unverified ""
@@ -225,7 +261,8 @@ seisforge init hvsr-forward my_site && cd my_site && python hvsr_forward.py conf
 ```
 
 `seisforge init` copies `config.yml` and the script `hvsr_forward.py`, which
-calls the native solver. The model file has one row per layer,
+calls the native solver with its default accuracy and writes the solver
+controls and any `incomplete`/`invalid` frequencies into the output header. The model file has one row per layer,
 `thickness_km vp_km_s vs_km_s density_g_cm3`, the last row the half-space
 (thickness ignored). The config:
 
@@ -233,7 +270,7 @@ calls the native solver. The model file has one row per layer,
 model_file: data/model.txt
 frequency_hz: {min: 0.2, max: 10.0, count: 100}   # log-spaced
 output_file: output/hvsr.dat                      # not overwritten if present
-settings: {body_wave_wavenumbers: 100}            # optional, DiffuseFieldSettings
+settings: {include_body_waves: true}              # optional, DiffuseFieldSettings
 ```
 
 Example with a known answer: `examples/05_hvsr_forward` (the model of the

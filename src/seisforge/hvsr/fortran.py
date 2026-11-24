@@ -1,4 +1,14 @@
-"""Python boundary for the optional f2py HVSR numerical kernel."""
+"""Python boundary for the optional f2py HVSR numerical kernel.
+
+The kernel (`_fortran_src/hvsr_core.f90`) runs the same algorithms as the
+native Python code: the same radiation-branch rule, the same adaptive
+Gauss--Kronrod body-wave quadrature on segments passed from
+`body_wave_segments`, and residues at roots refined from the same disba
+seeds (its root refinement differs: 65 samples and bisection). It returns a
+skip code per frequency and mode and a convergence flag per frequency; this
+module turns them into `ContributionIssue` records, so both solvers report
+left-out terms the same way.
+"""
 
 from __future__ import annotations
 
@@ -6,16 +16,23 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .body_waves import BodyWaveSettings
-from .core import combine_green_function_contributions
+from .body_waves import (
+    BodyWaveSettings,
+    _checked_body_contributions,
+    _unconverged_issue,
+    body_wave_segments,
+)
+from .core import assemble_diffuse_field_prediction
 from .dispersion import phase_velocity_seeds_km_s
 from .models import (
+    ContributionIssue,
     DiffuseFieldPrediction,
     DiffuseFieldSettings,
     ElasticLayerModel,
     GreenFunctionContributions,
 )
-from .modes import SurfaceWaveSettings
+from .modes import SKIP_REASONS, SurfaceWaveSettings
+from .native import _KernelControls
 
 
 class FortranExtensionUnavailable(ImportError):
@@ -32,14 +49,7 @@ def fortran_extension_available() -> bool:
     return True
 
 
-def fortran_body_wave_green_contributions(
-    model: ElasticLayerModel,
-    frequencies_hz,
-    *,
-    settings: BodyWaveSettings | None = None,
-) -> GreenFunctionContributions:
-    """Evaluate the DFA body-wave contour integral in the Fortran kernel."""
-
+def _kernel():
     try:
         from . import _hvsr_fortran
     except ImportError as error:
@@ -47,28 +57,56 @@ def fortran_body_wave_green_contributions(
             "the f2py HVSR extension is not built; run "
             "`python tools/build_hvsr_fortran.py` from the project root"
         ) from error
+    return _hvsr_fortran.hvsr_core
 
-    settings = settings or BodyWaveSettings()
+
+def _validated_frequencies(frequencies_hz) -> np.ndarray:
     frequencies = np.ascontiguousarray(frequencies_hz, dtype=np.float64)
     if frequencies.ndim != 1 or frequencies.size == 0:
         raise ValueError("frequencies_hz must be a non-empty one-dimensional array")
     if not np.all(np.isfinite(frequencies)) or np.any(frequencies <= 0.0):
         raise ValueError("frequencies_hz must contain finite positive values")
+    return frequencies
 
-    psv_horizontal, psv_vertical, sh_horizontal, status = (
-        _hvsr_fortran.hvsr_core.body_wave_contributions(
-            model.thickness_km,
-            model.vp_km_s,
-            model.vs_km_s,
-            model.density_g_cm3,
-            frequencies,
-            settings.quadrature_order,
-            settings.contour_shift_fraction,
-        )
+
+def fortran_body_wave_green_contributions(
+    model: ElasticLayerModel,
+    frequencies_hz,
+    *,
+    settings: BodyWaveSettings | None = None,
+) -> GreenFunctionContributions:
+    """Evaluate the DFA body-wave integral in the Fortran kernel.
+
+    Same quadrature and failure policy as `body_wave_green_contributions`.
+    """
+
+    kernel = _kernel()
+    settings = settings or BodyWaveSettings()
+    frequencies = _validated_frequencies(frequencies_hz)
+    boundaries = body_wave_segments(model)
+
+    (
+        psv_horizontal,
+        psv_vertical,
+        sh_horizontal,
+        relative_error,
+        intervals,
+        converged,
+        status,
+    ) = kernel.body_wave_contributions(
+        model.thickness_km,
+        model.vp_km_s,
+        model.vs_km_s,
+        model.density_g_cm3,
+        frequencies,
+        boundaries,
+        settings.relative_tolerance,
+        max(settings.max_intervals, boundaries.size - 1),
+        settings.contour_shift_fraction,
     )
     if status != 0:
         messages = {
-            1: "invalid model dimensions or quadrature order",
+            1: "invalid model dimensions or quadrature controls",
             2: "singular P-SV boundary system",
             3: "singular SH boundary system",
         }
@@ -77,24 +115,17 @@ def fortran_body_wave_green_contributions(
             f"{messages.get(int(status), f'unknown status {status}')}"
         )
 
-    contribution_matrix = np.column_stack(
-        (psv_horizontal, psv_vertical, sh_horizontal)
-    )
-    scale = np.max(np.abs(contribution_matrix), axis=1, keepdims=True)
-    roundoff = 100.0 * np.finfo(float).eps * np.maximum(scale, 1.0)
-    if np.any(contribution_matrix < -roundoff):
-        raise RuntimeError("Fortran body-wave integration produced negative energy")
-    contribution_matrix[contribution_matrix < 0.0] = 0.0
-    psv_horizontal, psv_vertical, sh_horizontal = contribution_matrix.T
-
-    zeros = np.zeros_like(frequencies)
-    return GreenFunctionContributions(
-        rayleigh_horizontal=zeros,
-        rayleigh_vertical=zeros,
-        love_horizontal=zeros,
-        psv_horizontal=psv_horizontal,
-        psv_vertical=psv_vertical,
-        sh_horizontal=sh_horizontal,
+    issues = [
+        _unconverged_issue(
+            float(frequencies[index]),
+            float(relative_error[index]),
+            int(intervals[index]),
+            settings.relative_tolerance,
+        )
+        for index in np.flatnonzero(converged == 0)
+    ]
+    return _checked_body_contributions(
+        np.array(psv_horizontal), np.array(psv_vertical), np.array(sh_horizontal), tuple(issues)
     )
 
 
@@ -106,20 +137,9 @@ def fortran_surface_wave_green_contributions(
 ) -> GreenFunctionContributions:
     """Track modal seeds with disba and evaluate pole residues in Fortran."""
 
-    try:
-        from . import _hvsr_fortran
-    except ImportError as error:
-        raise FortranExtensionUnavailable(
-            "the f2py HVSR extension is not built; run "
-            "`python tools/build_hvsr_fortran.py` from the project root"
-        ) from error
-
+    kernel = _kernel()
     settings = settings or SurfaceWaveSettings()
-    frequencies = np.ascontiguousarray(frequencies_hz, dtype=np.float64)
-    if frequencies.ndim != 1 or frequencies.size == 0:
-        raise ValueError("frequencies_hz must be a non-empty one-dimensional array")
-    if not np.all(np.isfinite(frequencies)) or np.any(frequencies <= 0.0):
-        raise ValueError("frequencies_hz must contain finite positive values")
+    frequencies = _validated_frequencies(frequencies_hz)
 
     def seeds(wave: str, modes: int) -> np.ndarray:
         result = np.empty((frequencies.size, modes), dtype=np.float64, order="F")
@@ -135,22 +155,36 @@ def fortran_surface_wave_green_contributions(
 
     rayleigh_seeds = seeds("rayleigh", settings.max_rayleigh_modes)
     love_seeds = seeds("love", settings.max_love_modes)
-    rayleigh_horizontal, rayleigh_vertical, love_horizontal, _, status = (
-        _hvsr_fortran.hvsr_core.surface_wave_contributions(
-            model.thickness_km,
-            model.vp_km_s,
-            model.vs_km_s,
-            model.density_g_cm3,
-            frequencies,
-            rayleigh_seeds,
-            love_seeds,
-            3.0 * settings.dispersion_step_km_s,
-            settings.residue_step_fraction,
-        )
+    (
+        rayleigh_horizontal,
+        rayleigh_vertical,
+        love_horizontal,
+        rayleigh_skip,
+        love_skip,
+        status,
+    ) = kernel.surface_wave_contributions(
+        model.thickness_km,
+        model.vp_km_s,
+        model.vs_km_s,
+        model.density_g_cm3,
+        frequencies,
+        rayleigh_seeds,
+        love_seeds,
+        3.0 * settings.dispersion_step_km_s,
+        settings.residue_step_fraction,
     )
     if status != 0:
         raise RuntimeError(f"Fortran surface-wave calculation failed with status {status}")
 
+    # Same order as the native loop: Rayleigh modes, then Love, each by mode
+    # and then by frequency.
+    issues = [
+        ContributionIssue(float(frequencies[index]), wave, int(mode), SKIP_REASONS[int(code)])
+        for wave, codes in (("rayleigh", rayleigh_skip), ("love", love_skip))
+        for mode in range(np.shape(codes)[1])
+        for index, code in enumerate(np.asarray(codes)[:, mode])
+        if code != 0
+    ]
     zeros = np.zeros_like(frequencies)
     return GreenFunctionContributions(
         rayleigh_horizontal=rayleigh_horizontal,
@@ -159,29 +193,16 @@ def fortran_surface_wave_green_contributions(
         psv_horizontal=zeros,
         psv_vertical=zeros,
         sh_horizontal=zeros,
-    )
-
-
-def _sum_contributions(
-    left: GreenFunctionContributions,
-    right: GreenFunctionContributions,
-) -> GreenFunctionContributions:
-    return GreenFunctionContributions(
-        **{
-            name: getattr(left, name) + getattr(right, name)
-            for name in left.__dataclass_fields__
-        }
+        issues=tuple(issues),
     )
 
 
 @dataclass(frozen=True)
-class FortranDiffuseFieldSolver:
-    """Fast DFA backend using disba seeds and the optional f2py kernel."""
+class FortranDiffuseFieldSolver(_KernelControls):
+    """Fast DFA backend using disba seeds and the optional f2py kernel.
 
-    body_quadrature_order: int = 48
-    contour_shift_fraction: float = 1.0e-5
-    dispersion_step_km_s: float = 0.001
-    residue_step_fraction: float = 1.0e-5
+    Same accuracy controls and defaults as `NativeDiffuseFieldSolver`.
+    """
 
     def __call__(
         self,
@@ -191,61 +212,19 @@ class FortranDiffuseFieldSolver:
     ) -> DiffuseFieldPrediction:
         settings = settings or DiffuseFieldSettings()
         frequencies = np.asarray(frequencies_hz, dtype=np.float64)
-        zeros = np.zeros_like(frequencies)
-        empty = GreenFunctionContributions(
-            rayleigh_horizontal=zeros,
-            rayleigh_vertical=zeros,
-            love_horizontal=zeros,
-            psv_horizontal=zeros,
-            psv_vertical=zeros,
-            sh_horizontal=zeros,
-        )
-
+        surface = body = None
         if settings.max_rayleigh_modes > 0 or settings.max_love_modes > 0:
             surface = fortran_surface_wave_green_contributions(
-                model,
-                frequencies,
-                settings=SurfaceWaveSettings(
-                    max_rayleigh_modes=settings.max_rayleigh_modes,
-                    max_love_modes=settings.max_love_modes,
-                    dispersion_step_km_s=self.dispersion_step_km_s,
-                    residue_step_fraction=self.residue_step_fraction,
-                ),
+                model, frequencies, settings=self.surface_wave_settings(settings)
             )
-        else:
-            surface = empty
-
-        if settings.body_wave_wavenumbers > 0:
-            requested_order = max(8, round(settings.body_wave_wavenumbers / 2))
+        if settings.include_body_waves:
             body = fortran_body_wave_green_contributions(
-                model,
-                frequencies,
-                settings=BodyWaveSettings(
-                    quadrature_order=max(self.body_quadrature_order, requested_order),
-                    contour_shift_fraction=self.contour_shift_fraction,
-                    horizontal_definition=settings.horizontal_definition,
-                ),
+                model, frequencies, settings=self.body_wave_settings()
             )
-            contributions = _sum_contributions(surface, body)
-            approximation = "full_dfa"
-        else:
-            contributions = surface
-            approximation = "surface_waves_only"
-
-        result = combine_green_function_contributions(
+        return assemble_diffuse_field_prediction(
             frequencies,
-            contributions,
+            surface=surface,
+            body=body,
             horizontal_definition=settings.horizontal_definition,
             backend="fortran",
-        )
-        return DiffuseFieldPrediction(
-            frequency_hz=result.frequency_hz,
-            hvsr=result.hvsr,
-            backend=result.backend,
-            approximation=approximation,
-            horizontal_definition=result.horizontal_definition,
-            horizontal_energy=result.horizontal_energy,
-            vertical_energy=result.vertical_energy,
-            contributions=result.contributions,
-            diagnostics=result.diagnostics,
         )

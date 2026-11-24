@@ -21,7 +21,7 @@ peak_hz = FREQUENCY_HZ[np.nanargmax(result.hvsr)]
 print(f"peak {np.nanmax(result.hvsr):.2f} at {peak_hz:.3f} Hz (f0 = {F0_HZ:g} Hz)")
 assert abs(peak_hz / F0_HZ - 1) < 0.05
 
-check_hz = np.array([0.3, 2.0, 5.0])  # away from the unconverged band just below f0
+check_hz = np.array([0.3, 2.0, 5.0])  # scaling check at three frequencies across the band
 double = ElasticLayerModel(2 * MODEL.thickness_km, MODEL.vp_km_s, MODEL.vs_km_s, MODEL.density_g_cm3)
 scaling = np.max(np.abs(solver(double, check_hz / 2).hvsr / solver(MODEL, check_hz).hvsr - 1))
 print(f"scaling H -> 2H, f -> f/2: max relative difference {scaling:.1e}")

@@ -33,32 +33,38 @@ SeisForge has no command for this yet, so `run.sh` calls the short script
 bash run.sh
 ```
 
-About 3 s.
+About 6 s.
 
 ## Output
 
 | file | what it is |
 |---|---|
-| `output/hvsr.dat` | `frequency_hz hvsr`, header with model file, settings and software versions |
+| `output/hvsr.dat` | `frequency_hz hvsr`, header with model file, settings, solver controls, warnings and software versions |
 | `result.png` | the model and the H/V curve |
 
 ## How to tell the result is right
 
 `result.png` should look like `expected_result.png`. `run.sh` prints the
-peak; on this model it is at 1.011 Hz (acceptable 0.95-1.05 Hz, the
-analytic f0 = 1 Hz), with H/V about 1.5 at 0.2 Hz and below 2 above 3 Hz.
+peak; on this model it is 12.1 at 0.972 Hz (acceptable 0.95-1.05 Hz, the
+analytic f0 = 1 Hz), with H/V about 1.5 at 0.2 Hz and below 2 above 3 Hz,
+and reports `0 frequencies failed, 0 incomplete`.
 
-The **height** of the peak is not reliable: with these settings the values
-within about 5 % of f0 change with `settings.body_wave_wavenumbers`
-(spikes of 9-28 at 0.9-1.0 Hz), so read the peak frequency, not its
-amplitude.
+The peak height is converged: tightening the body-wave quadrature
+tolerance from 1e-6 to 1e-9 changes H/V near f0 by less than 1e-6. Before
+SeisForge 0.2.0 a fixed quadrature rule gave spikes of 9-28 at 0.9-1.0 Hz
+here; the cause (a nearly real leaky pole of Rayleigh mode 1) is explained
+in `docs/hvsr/index.md`, section 4.
 
 Common wrong-looking results:
 
 - **Peak at the wrong frequency**: check the units (km, km/s); a thickness
   in metres gives a peak 1000 times too low.
-- **"warning: ... Hz"** lines: the solver failed at those frequencies; the
-  values there are NaN.
+- **"warning: invalid at ... Hz"** lines: the solver failed at those
+  frequencies; the values there are NaN.
+- **"warning: incomplete at ... Hz"** lines: H/V is given, but a surface-wave
+  mode was left out (its root or residue could not be computed) or the
+  body-wave integral missed its tolerance; the line names the term. The
+  same lines are in the output header.
 - **Very slow**: many layers or high frequencies; lower `count`, or
   `max_rayleigh_modes`/`max_love_modes` in `settings`.
 
@@ -66,4 +72,4 @@ Common wrong-looking results:
 
 1. `data/model.txt`: your layers (`model_file` in `config.yml` if you rename it).
 2. `frequency_hz.min`, `max`, `count`: your frequency band.
-3. `settings` (optional): numerical controls, defaults listed in `config.yml`.
+3. `settings` (optional): which terms to compute (modes, body waves, horizontal definition), defaults listed in `config.yml`.

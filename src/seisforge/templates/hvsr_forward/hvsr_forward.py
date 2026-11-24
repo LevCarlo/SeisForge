@@ -4,8 +4,10 @@
 
 Reads the model file and frequencies named in the config, calls
 `seisforge.hvsr.predict_diffuse_field_hvsr` with the native solver, and
-writes `frequency_hz hvsr` with a header recording the inputs. Refuses to
-overwrite an existing output file. No formulas here: glue only.
+writes `frequency_hz hvsr` with a header recording the inputs, the solver
+controls and every frequency that is not OK (terms left out or not
+converged). Refuses to overwrite an existing output file. No formulas here:
+glue only.
 """
 
 from __future__ import annotations
@@ -47,25 +49,35 @@ def main(argv=None) -> None:
     band = config["frequency_hz"]
     frequency_hz = np.geomspace(float(band["min"]), float(band["max"]), int(band["count"]))
     settings = DiffuseFieldSettings(**(config.get("settings") or {}))
+    solver = NativeDiffuseFieldSolver()
     prediction = predict_diffuse_field_hvsr(
-        model, frequency_hz, solver=NativeDiffuseFieldSolver(), settings=settings
+        model, frequency_hz, solver=solver, settings=settings
     )
-    bad = [d for d in prediction.diagnostics if d.status.value != "ok"]
-    for diagnostic in bad:
-        print(f"warning: {diagnostic.frequency_hz:.4g} Hz: {diagnostic.message}")
+    notes = [
+        f"{d.status.value} at {d.frequency_hz:.6g} Hz: {d.message}"
+        for d in prediction.diagnostics
+        if d.status.value != "ok"
+    ]
+    for note in notes:
+        print(f"warning: {note}")
+    failed = sum(d.status.value == "invalid" for d in prediction.diagnostics)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     header = [
         "Diffuse-field H/V (seisforge.hvsr, native solver), written by hvsr_forward.py",
         f"model_file: {config['model_file']}",
         f"settings: {settings}",
+        f"solver: {solver}",
+        f"approximation: {prediction.approximation}",
+        *(f"warning: {note}" for note in notes),
         *(f"{key}: {value}" for key, value in software_provenance().items()),
         "frequency_hz  hvsr",
     ]
     np.savetxt(output, np.column_stack([prediction.frequency_hz, prediction.hvsr]),
                fmt="%.6g", header="\n".join(header))
     peak = int(np.nanargmax(prediction.hvsr))
-    print(f"wrote {output}; {len(bad)} frequencies failed")
+    print(f"wrote {output}; {failed} frequencies failed, "
+          f"{len(notes) - failed} incomplete")
     print(f"H/V peak: {prediction.hvsr[peak]:.2f} at {prediction.frequency_hz[peak]:.3f} Hz")
 
 

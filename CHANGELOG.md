@@ -112,6 +112,28 @@ switch that restores the old behaviour where one exists.
   are unchanged. Counts are recorded as `n_invalid_Ps`, `n_invalid_PpPs`,
   `n_invalid_PsPs`.
 
+- **HVSR body-wave integral: adaptive quadrature (T21).** The body-wave
+  terms of `NativeDiffuseFieldSolver`, `FortranDiffuseFieldSolver` and
+  `body_wave_green_contributions` are now integrated by adaptive
+  Gauss-Kronrod (QK15) on the branch-point segments, to a relative error
+  estimate of `body_quadrature_rtol = 1e-6` per term, instead of a fixed
+  50-node Gauss-Legendre rule per segment. The fixed rule missed a nearly
+  real leaky pole (Rayleigh mode 1 below its cut-off, whose leakage vanishes
+  at 0.9524 Hz) and was not converged elsewhere either. The contour shift
+  default goes from `1e-5` to `1e-8` (its bias is linear, up to 8e-4 at
+  1e-5). Effect, native and Fortran alike: example 05 (one layer over a
+  half-space, 100 frequencies 0.2-10 Hz) changes by up to 47 % within
+  0.93-0.97 Hz (4 of 100 frequencies by more than 1 %; median 3e-6); the
+  former spikes of 9-29 at 0.90-1.00 Hz are gone, and the peak is 12.13 at
+  0.972 Hz (was 11.54 at 1.011 Hz). On the four-layer test model H/V changes
+  by at most 0.14 % (0.2-10 Hz), though its body-wave terms alone changed by
+  up to 16 % at 3 Hz. Body-wave-only H/V now agrees with the stored HV-DFA
+  values to 2e-4 (was 3e-3). Surface-wave terms are bit for bit the same.
+  Cost: 2-3 times the native run time (example 05: 3 s -> 6 s). No option
+  restores the fixed rule (it was not converged); `contour_shift_fraction=
+  1e-5` restores the old shift. `examples/05_hvsr_forward/expected_result.png`
+  regenerated.
+
 ### Added
 
 - **Diffuse-field Rayleigh CCFs.** `seisforge.ant.synthetic.synthetic_rayleigh_ccf_zne`
@@ -238,6 +260,37 @@ switch that restores the old behaviour where one exists.
 
 ### Changed
 
+- **HVSR settings name only what is computed; left-out terms are
+  reported.** `DiffuseFieldSettings` keeps `max_rayleigh_modes`,
+  `max_love_modes`, `horizontal_definition` and the new
+  `include_body_waves` (default true). `precision_percent`, `sh_damping`,
+  `psv_damping` (silently ignored by the native and Fortran solvers) and
+  `body_wave_wavenumbers` (now without effect there) moved to
+  `HVDFAReferenceSolver` / `predict_with_hvdfa`, the only solver that uses
+  them; passing them to `DiffuseFieldSettings` is a `TypeError`. Configs:
+  replace `body_wave_wavenumbers: 0` by `include_body_waves: false` and drop
+  the others. The native and Fortran solvers take `body_quadrature_rtol` and
+  `body_quadrature_max_intervals` instead of `body_quadrature_order`;
+  `BodyWaveSettings` has `relative_tolerance`, `max_intervals` and
+  `contour_shift_fraction`, and `predict_body_wave_hvsr` takes
+  `horizontal_definition` as a keyword (it was an unused field of
+  `BodyWaveSettings` for `body_wave_green_contributions`). New
+  `ForwardStatus.INCOMPLETE`: a surface-wave mode left out at a frequency
+  (root or residue failed) or a body-wave integral that reached
+  `max_intervals` is recorded as a `ContributionIssue` (frequency, wave,
+  mode, reason) in `FrequencyDiagnostic.issues` and
+  `GreenFunctionContributions.issues`; before, native dropped such modes
+  silently and the Fortran kernel returned only a count that was discarded.
+  The Fortran kernel left out 10 high-mode Rayleigh roots on the four-layer
+  test model at 3.6-10 Hz, the source of the 2e-4 H/V difference to the
+  native solver once documented; these are now `incomplete`. The native
+  solver labels a run without surface waves `body_waves_only` (was
+  `full_dfa`). The radiation-branch test is relative to the round-off of
+  k^2 - (omega/v)^2 in both kernels (was an absolute 1e-8 in Python, 32 eps
+  in Fortran); no result changes. `examples/05_hvsr_forward` and the
+  `hvsr-forward` template write the solver controls and any incomplete
+  frequencies into the output header. Shared assembly of the solvers:
+  `assemble_diffuse_field_prediction`.
 - **Documentation site built with Zensical.** `zensical build --clean
   --strict` replaces `mkdocs build --strict` in CI (the same `mkdocs.yml`
   still builds with MkDocs Material, which is unmaintained after
