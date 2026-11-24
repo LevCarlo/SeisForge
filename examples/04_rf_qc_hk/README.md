@@ -6,7 +6,7 @@ crustal thickness H and Vp/Vs ratio k by H-k stacking. The RFs are synthetic
 (`tools/make_example_04_rf.py`): 30 good RFs from a 35 km thick crust with
 Vp/Vs 1.75, plus 12 deliberately bad ones, each in two frequency bands.
 Reference configs: `examples/reference_configs/rf_qc.yml`, `rf_hkseq.yml`;
-method: `docs/rf_workflow.md`.
+method: `docs/rf/qc.md` and `docs/rf/hk.md`.
 
 ## Input
 
