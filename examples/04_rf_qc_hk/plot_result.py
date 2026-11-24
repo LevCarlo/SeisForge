@@ -4,9 +4,10 @@ Run from the example folder after `seisforge rf qc` and `seisforge rf hkseq --mo
 
     python plot_result.py [--rf-dir output/Gauss_2.5_CLEAN] [--hk output/hkSeq/XX.RF01_LFreq_Hk_QC.dat] [-o result.png]
 
-It prints the number of RFs kept and the median H and k with their median
-absolute deviation over the RFs kept by the H-k QC (the summary hkseq logs
-when 15 or more are kept). Phase times come from
+It prints the number of RFs kept and the median H and k with 1.4826 times
+their median absolute deviation over the RFs kept by the H-k QC, the
+estimate hkseq writes into the header of the `_Hk_QC.dat` file
+(`seisforge.rf.hk_core.median_and_robust_std`). Phase times come from
 `seisforge.rf.hk_core.hk_phase_delays_s`; plotting and printing only.
 """
 
@@ -23,7 +24,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from obspy import read  # noqa: E402
 
-from seisforge.rf.hk_core import hk_phase_delays_s  # noqa: E402
+from seisforge.rf.hk_core import hk_phase_delays_s, median_and_robust_std  # noqa: E402
 
 
 def main(argv=None) -> None:
@@ -39,11 +40,11 @@ def main(argv=None) -> None:
     traces = sorted((read(str(p))[0] for p in args.rf_dir.glob("*.sac")), key=lambda tr: tr.stats.sac.user0)
     n_raw = len(list(args.raw_dir.glob("*.sac")))
     names, h_km, k = np.genfromtxt(args.hk, dtype=None, encoding="utf-8", usecols=(0, 1, 2), unpack=True)
-    h_med, k_med = np.median(h_km), np.median(k)
+    h_med, h_spread = median_and_robust_std(h_km)
+    k_med, k_spread = median_and_robust_std(k)
     print(f"RFs kept by QC: {len(traces)} of {n_raw}")
     print(f"RFs kept by H-k QC: {h_km.size}")
-    print(f"H = {h_med:.2f} +- {np.median(np.abs(h_km - h_med)):.2f} km, "
-          f"k = {k_med:.3f} +- {np.median(np.abs(k - k_med)):.3f}")
+    print(f"H = {h_med:.2f} +- {h_spread:.2f} km, k = {k_med:.3f} +- {k_spread:.3f}")
 
     fig, (ax_rf, ax_hk) = plt.subplots(1, 2, figsize=(10, 5), gridspec_kw={"width_ratios": [1.4, 1]})
     for index, trace in enumerate(traces):

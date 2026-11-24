@@ -7,6 +7,9 @@ IO:
   CLEAN_LowFreq_RF: Gauss_2.5_CLEAN
   FIGURE: figures
   LOG: logs
+  # Existing outputs (CLEAN folders, LOG tables and log, figures) stop the run
+  # unless true (or --overwrite); then the CLEAN folders are emptied first.
+  OVERWRITE: false
 
 META:
   station: STA
@@ -34,6 +37,7 @@ QC:
       THRESHOLD: 2.5
       WINDOW: [-5, 30]
     F_TEST:
+      # p-value threshold; assumes one common waveform (no moveout correction).
       ENABLE: True
       THRESHOLD: 0.05
       WINDOW: [-5, 30]
@@ -61,6 +65,7 @@ QC:
       THRESHOLD: 2.5
       WINDOW: [-5, 30]
     F_TEST:
+      # p-value threshold; assumes one common waveform (no moveout correction).
       ENABLE: True
       THRESHOLD: 0.05
       WINDOW: [-5, 30]

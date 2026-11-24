@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from obspy import Stream, Trace
 
 from seisforge.rf.traces import RFstream
@@ -65,4 +66,14 @@ def test_f_test_select_keeps_single_trace_by_default():
     selected = rf.f_test_select()
 
     assert len(selected) == 1
-    assert selected.qc_metrics == [1.0]
+    assert np.isnan(selected.qc_metrics[0])
+
+
+@pytest.mark.parametrize("change", [{"b": -4.0, "e": 6.0}, {"npts": 12}])
+def test_traces_with_different_time_axes_raise(change):
+    # Before 0.2.0 every trace was read on the first trace's axis.
+    other = _trace(np.ones(change.get("npts", 11)), b=change.get("b", -5.0),
+                   e=change.get("e", 5.0))
+    rf = RFstream(files=["a.sac", "b.sac"], st=Stream([_trace(np.ones(11)), other]))
+    with pytest.raises(ValueError, match="b.sac"):
+        rf.CC_select(window=[-5, 5])

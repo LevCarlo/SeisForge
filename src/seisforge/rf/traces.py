@@ -1,4 +1,10 @@
-"""Receiver-function trace and stream containers."""
+"""Receiver-function trace and stream containers with QC selections.
+
+All traces of a stream share one time axis ``b + delta * n``, ``n < npts``
+(SAC headers ``b``, ``delta``, ``npts``); ``RFstream`` raises if they
+differ. Statistics that are formulas (the F test) live in
+:mod:`seisforge.rf.qc_core`.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +13,14 @@ from dataclasses import dataclass
 
 import numpy as np
 from obspy import Stream, Trace, read
-from scipy.stats import f as f_dist
+
+from seisforge.rf.qc_core import leave_one_out_f_test
+
+logger = logging.getLogger(__name__)
+
+TIME_AXIS_RTOL = 1e-6
+"""Relative tolerance on ``b`` and ``delta`` (assumed: SAC stores float32,
+about 7 significant digits)."""
 
 
 def _default_window(window, default):
@@ -63,6 +76,7 @@ class RFstream:
         self.files = list(files) if files is not None else []
         self.st = st
         self.qc_metrics = list(qc_metrics) if qc_metrics is not None else []
+        self.step_metrics = []
 
     def __len__(self):
         return 0 if self.st is None else len(self.st)
@@ -70,12 +84,15 @@ class RFstream:
     def load_data(self):
         """Load SAC files into an ObsPy stream."""
         st = Stream()
+        loaded = []
         for file in self.files:
             try:
                 st += read(file)
+                loaded.append(file)
             except Exception as exc:
-                logging.warning("Error reading %s: %s", file, exc)
+                logger.warning("Error reading %s: %s", file, exc)
         self.st = st
+        self.files = loaded
         return self
 
     def copy(self):
@@ -92,12 +109,22 @@ class RFstream:
             raise ValueError("Stream is empty.")
 
     def _time_axis(self):
+        """Common time axis ``b + delta * n``; raises if the traces differ."""
         self._require_loaded()
-        tr0 = self.st[0]
-        b = tr0.stats.sac.b
-        e = tr0.stats.sac.e
-        npts = tr0.stats.npts
-        return np.linspace(b, e, npts)
+        axes = [(float(tr.stats.sac.b), float(tr.stats.delta), int(tr.stats.npts))
+                for tr in self.st]
+        b0, delta0, npts0 = axes[0]
+        scale = max(abs(b0), delta0 * npts0)
+        for index, (b, delta, npts) in enumerate(axes):
+            if (npts != npts0 or abs(b - b0) > TIME_AXIS_RTOL * scale
+                    or abs(delta - delta0) > TIME_AXIS_RTOL * delta0):
+                name = self.files[index] if len(self.files) == len(self.st) else f"trace {index}"
+                raise ValueError(
+                    "RF traces must share one time axis (b, delta, npts): "
+                    f"first trace has ({b0}, {delta0}, {npts0}), {name} has "
+                    f"({b}, {delta}, {npts}). Resample or cut the RFs to a common axis."
+                )
+        return b0 + delta0 * np.arange(npts0)
 
     def _window_mask(self, window):
         t = self._time_axis()
@@ -114,6 +141,8 @@ class RFstream:
         else:
             selected.files = []
         selected.qc_metrics = [metrics[i] for i in indices]
+        # Metrics of every trace that entered this selection, in input order.
+        selected.step_metrics = list(metrics)
         return selected
 
     def SNR_select(self, threshold=5, reverse=False, sac_head="user2"):
@@ -199,24 +228,25 @@ class RFstream:
         return self._select(keep, metrics)
 
     def f_test_select(self, threshold=0.05, window=None, reverse=False):
+        """Keep traces whose leave-one-out F-test p-value is ``>= threshold``.
+
+        Null hypothesis, statistic and effective degrees of freedom:
+        :func:`seisforge.rf.qc_core.leave_one_out_f_test`. With fewer than
+        three traces the test cannot be formed; all are kept and the metric
+        is NaN. ``qc_metrics`` holds the p-values.
+        """
         window = _default_window(window, (-5, 30))
         _, t_idx = self._window_mask(window)
 
-        if len(self.st) < 2:
-            metrics = [1.0 for _ in self.st]
+        if len(self.st) < 3:
+            metrics = [np.nan for _ in self.st]
             keep = list(range(len(self.st))) if not reverse else []
             return self._select(keep, metrics)
 
         rf_data = np.array([tr.data[t_idx] for tr in self.st])
-        ref_rf = np.mean(rf_data, axis=0)
-        res_all = (rf_data - ref_rf).reshape(-1)
-
-        metrics = []
-        for i in range(rf_data.shape[0]):
-            reduced_rf = np.delete(rf_data, i, axis=0)
-            ref_reduced = np.mean(reduced_rf, axis=0)
-            res_reduced = (reduced_rf - ref_reduced).reshape(-1)
-            metrics.append(_f_test(res_all, 1, res_reduced, 1))
+        p_value, _, nu_eff = leave_one_out_f_test(rf_data)
+        logger.info("F test: %.1f effective degrees of freedom per trace", nu_eff)
+        metrics = p_value.tolist()
 
         if reverse:
             keep = [i for i, value in enumerate(metrics) if value < threshold]
@@ -256,17 +286,3 @@ class RFstream:
             show=show,
         )
 
-
-def _f_test(res1, pars1, res2, pars2):
-    dof1 = len(res1) - pars1
-    dof2 = len(res2) - pars2
-    if dof1 <= 0 or dof2 <= 0:
-        return 1.0
-
-    ea_1 = np.sum(res1**2)
-    ea_2 = np.sum(res2**2)
-    if ea_2 == 0:
-        return 1.0
-
-    f_obs = (ea_1 / dof1) / (ea_2 / dof2)
-    return 1 - (f_dist.cdf(f_obs, dof1, dof2) - f_dist.cdf(1 / f_obs, dof1, dof2))

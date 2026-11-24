@@ -8,7 +8,7 @@ anywhere.
 | tool | page | input | output |
 |---|---|---|---|
 | RF quality control (`rf qc`) | [Quality control](qc.md) | radial RFs of one station, two frequency bands | copies of the RFs that pass six tests |
-| H-k stacking (`rf hkseq`) | [H-k stacking](hk.md) | radial RFs with ray parameters, assumed $V_P$ (or $V_S$) | thickness $H$ and $\kappa = V_P/V_S$ of one or two layers, with a spread |
+| H-k stacking (`rf hkseq`) | [H-k stacking](hk.md) | radial RFs with ray parameters, assumed $V_P$ (or $V_S$) | thickness $H$ and $\kappa = V_P/V_S$ of one or two layers, with a robust spread |
 | Synthetic P RFs (Python) | [Synthetic P receiver functions](synthetic.md) | layered model ($h$, $V_P$, $V_S$, $\rho$), ray parameter $p$, Gaussian $a$ | radial RF vs time |
 
 QC output is a valid H-k input, but either tool takes RFs from elsewhere.
@@ -28,8 +28,9 @@ RFs for $V_S(z)$.
   two input folders, typically $a = 5$ and $a = 2.5$.
 - **SAC headers read.** `b` (time of the first sample relative to direct P),
   `delta`, `user0` = ray parameter in s/km, `user2` = signal-to-noise ratio
-  (both header names configurable in QC). QC uses the time axis of the first
-  trace for all traces; H-k reads each trace's own.
+  (both header names configurable in QC). QC requires one time axis
+  (`b`, `delta`, `npts`) for all traces of a band and stops otherwise; H-k
+  reads each trace's own.
 - **Ray parameter.** $p$ in s/km; teleseismic P has $p \approx$ 0.04–0.08 s/km.
 
 ## Checks shared by all pages

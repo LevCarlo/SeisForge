@@ -28,6 +28,13 @@ Model:
     Vp: null
     Vs: 2.5
     weight: [0.5, 0.2, 0.3]
+    # Grid points with a shorter Ps delay lie on the direct-P pulse and are not
+    # picked. Assumed: the Gaussian a = 5 pulse exp(-a^2 t^2) falls to 10 % at
+    # sqrt(ln 10) / a = 0.30 s.
+    min_ps_delay_s: 0.3
+    # Assumed: a thinner sediment estimate is ignored and the crust is
+    # stacked as one layer.
+    two_layer_min_thickness_km: 0.4
   Crust:
     H:
       min: 30.0
@@ -40,13 +47,11 @@ Model:
     Vp: 6.3
     Vs: null
     weight: [0.5, 0.2, 0.3]
+    # Assumed: a = 2.5 pulse falls to 10 % at 0.61 s (no effect for H >= 30 km).
+    min_ps_delay_s: 0.6
 
 QC:
   HighFreq:
-    energy_threshold: 0.6
-    ell_mad_sigma: 2.0
     mahalanobis_dist_threshold: 1.0
   LowFreq:
-    energy_threshold: 0.6
-    ell_mad_sigma: 2.0
     mahalanobis_dist_threshold: 1.0

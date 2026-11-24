@@ -33,8 +33,9 @@ b: -10.0  delta: 0.1  npts: 701  user0: 0.0616 (s/km)  user2: 20.9  baz: 115.7  
 bash run.sh
 ```
 
-About 8 s. `run.sh` stops if `output/` exists; delete it to run again (the
-QC step itself would silently replace files there).
+About 10 s. `run.sh` stops if `output/` exists; delete it to run again
+(each step also refuses to replace its own outputs unless given
+`--overwrite`).
 
 ## Output
 
@@ -42,7 +43,8 @@ QC step itself would silently replace files there).
 |---|---|
 | `output/Gauss_2.5_CLEAN/`, `output/Gauss_5.0_CLEAN/` | copies of the RFs that passed QC |
 | `output/logs/XX.RF01_RF_QC.log` | how many RFs each QC test kept |
-| `output/hkSeq/XX.RF01_LFreq_Hk_QC.dat` | H and k of every RF kept by the H-k QC (`filename H_best k_best Hk_energy`) |
+| `output/logs/XX.RF01_RF_QC_LowFreq.dat`, `..._HighFreq.dat` | every input RF with its QC metrics and which test removed it |
+| `output/hkSeq/XX.RF01_LFreq_Hk_QC.dat` | H and k of every RF kept by the H-k QC (`filename H_best k_best Hk_energy`); the header holds the settings and the estimate |
 | `output/logs/XX.RF01_hkSeq.log` | the final `H = ... ± ...` and `k = ... ± ...` |
 | `output/figures/` | QC and H-k figures |
 | `result.png` | kept RFs with the predicted Ps, PpPs, PsPs times, and the H-k estimates |
@@ -56,11 +58,19 @@ ticks. `run.sh` prints:
 | | this example | acceptable |
 |---|---|---|
 | RFs kept by QC (low frequency) | 30 of 42 (every bad one removed) | all 12 `BAD_*` removed |
-| H | 35.20 ± 0.20 km | 34.5-35.5 km (truth 35) |
-| k | 1.744 ± 0.010 | 1.73-1.77 (truth 1.75) |
+| H | 34.80 ± 0.30 km | 34.5-35.5 km (truth 35) |
+| k | 1.760 ± 0.015 | 1.73-1.77 (truth 1.75) |
 
-The H-k grid steps are 0.2 km and 0.01, so the answer cannot be closer than
-that.
+The value is the median of the single-RF picks, ± 1.4826 times their median
+absolute deviation (their scatter, not the error of the median). The H-k
+grid steps are 0.2 km and 0.01, so the answer cannot be closer than that;
+the RFs are sampled at 0.1 s, which moves single picks by a step or two
+along the H-k trade-off.
+
+The F-test is off in `rf_qc.yml`: it assumes that all RFs share one
+waveform, but these span ray parameters 0.045-0.08 s/km, so Ps and the
+multiples move by up to about 1 s and the test rejects 5-7 good RFs per
+band (`docs/rf/qc.md`, section 4).
 
 Common wrong-looking results:
 
@@ -90,3 +100,6 @@ Common wrong-looking results:
 2. `Model.Crust.H`, `Model.Crust.k`: search ranges.
 3. `Model.Crust.Vp`: average crustal Vp for your area (assumed value).
 4. With a sedimentary layer, run `--mode both` and set `Model.Sediment`.
+5. `min_ps_delay_s` of each layer: about where the direct-P pulse has
+   decayed, `1.5 / a` s for Gaussian width `a` (0.3 s for a = 5, 0.6 s for
+   a = 2.5); grid points with a shorter Ps delay are not picked.

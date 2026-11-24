@@ -41,6 +41,11 @@ def _register_qc(
         action="store_true",
         help="Save RF QC figures.",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace existing QC outputs (clean RF copies, tables, figures, log).",
+    )
     parser.set_defaults(func=_run_qc)
 
 
@@ -82,7 +87,7 @@ def _register_hkseq(
 def _run_qc(args: argparse.Namespace) -> int:
     from seisforge.rf.qc import run_rf_qc_config
 
-    run_rf_qc_config(args.config_file, plot=args.plot)
+    run_rf_qc_config(args.config_file, plot=args.plot, overwrite=args.overwrite or None)
     return 0
 
 

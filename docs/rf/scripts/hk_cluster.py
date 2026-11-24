@@ -4,12 +4,11 @@
 Vp/Vs = 1.75): ray parameters uniform in 0.045-0.078 s/km, a = 2.5, white
 Gaussian noise of 15 % of each trace's peak (assumed). Each RF is stacked
 with `seisforge.rf.hk_workflow.HkStack` (Vp = 6.3 km/s, default weights);
-the picks are screened with `HkQController` (energy 0.6, elliptical MAD
-sigma 2, Mahalanobis distance 1, the reference-config values) and reduced
-with the rule of `hk_workflow._estimate_hk_summary`, as `seisforge rf hkseq`
-does.
-(b) Fraction of a bivariate Gaussian kept by the two cluster tests against
-the threshold, Monte Carlo through the package functions (4000 points, equal
+the picks are screened with `HkQController` (Mahalanobis distance 1, the
+reference-config value) and reduced to median +- 1.4826 MAD by
+`hk_workflow._estimate_hk_summary`, as `seisforge rf hkseq` does.
+(b) Fraction of a bivariate Gaussian kept by the Mahalanobis screen against
+the threshold, Monte Carlo through the package function (4000 points, equal
 energies) versus 1 - exp(-r^2/2) (docs/rf/scripts/hk_derivation.py), for
 uncorrelated scatter and for a correlation of 0.8, as along an H-k
 trade-off.
@@ -20,15 +19,9 @@ import xarray as xr
 
 import _rf
 from _rf import _style, plt
-from seisforge.rf.hk_workflow import (
-    HkParam,
-    HkQController,
-    HkStack,
-    _estimate_hk_summary,
-    elliptical_mad_filter,
-)
+from seisforge.rf.hk_workflow import HkParam, HkQController, HkStack, _estimate_hk_summary
 
-QC = {"energy_threshold": 0.6, "ell_mad_sigma": 2.0, "mahalanobis_dist_threshold": 1.0}
+QC = {"mahalanobis_dist_threshold": 1.0}
 H_GRID = HkParam("H", 25.0, 45.0, 0.1)
 K_GRID = HkParam("k", 1.60, 1.90, 0.005)
 N_RF, NOISE_FRACTION, SEED = 60, 0.15, 7
@@ -39,12 +32,11 @@ for i, p in enumerate(rng.uniform(0.045, 0.078, N_RF)):
     time_s, data = _rf.synthetic_rf(p=p, gauss_a=2.5, dt_s=0.1)
     data = data + rng.normal(0.0, NOISE_FRACTION * np.abs(data).max(), data.size)
     trace = _rf.rf_trace(time_s, data, p, name=f"EV{i:03d}")
-    results.append(HkStack(trace, H_GRID, K_GRID, Vp=_rf.VP_CRUST_KM_S).stack())
+    results.append(HkStack(trace, H_GRID, K_GRID, Vp=_rf.VP_CRUST_KM_S,
+                           min_ps_delay_s=0.6).stack())
 
-qc = HkQController(results, QC)
-energy_mask, _ = qc.hk_energy_select()
-ellipse_mask, _ = qc.elliptical_mad_select()
-mahalanobis_mask, _ = qc.mahalanobis_dist_select()
+assert not any(res.attrs["direct_p_dominates"] for res in results)
+mahalanobis_mask, _ = HkQController(results, QC).mahalanobis_dist_select()
 h_picks = np.array([res.attrs["H_best"] for res in results])
 k_picks = np.array([res.attrs["k_best"] for res in results])
 h_est, k_est, h_spread, k_spread = _estimate_hk_summary(results, mahalanobis_mask)
@@ -66,21 +58,16 @@ for rho in (0.0, 0.8):
         HkQController(datasets, {"mahalanobis_dist_threshold": r}).mahalanobis_dist_select()[0].mean()
         for r in thresholds
     ]
-    mc[("ellipse", rho)] = [elliptical_mad_filter(points[:, 0], points[:, 1], sigma=r).mean()
-                            for r in thresholds]
 # Mahalanobis uses the sample covariance, so it follows the closed form for any
 # correlation; 4000 points give a binomial error of about 0.008, so 0.03 is safe.
 for rho in (0.0, 0.8):
     assert np.max(np.abs(np.array(mc[("mahalanobis", rho)]) - (1 - np.exp(-thresholds**2 / 2)))) < 0.03
-assert np.max(np.abs(np.array(mc[("ellipse", 0.0)]) - (1 - np.exp(-thresholds**2 / 2)))) < 0.03
 
 
 def draw():
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.6))
     ax = axes[0]
     ax.plot(h_picks, k_picks, "o", mfc="none", mec=_style.ALTERNATIVE, ms=6, label="all picks")
-    ax.plot(h_picks[ellipse_mask & energy_mask], k_picks[ellipse_mask & energy_mask], "x",
-            color=_style.SECOND, ms=5, label="energy & elliptical MAD")
     ax.plot(h_picks[mahalanobis_mask], k_picks[mahalanobis_mask], "o", color=_style.MEASURED,
             ms=4, label="Mahalanobis < 1 (used)")
     ax.errorbar(h_est, k_est, xerr=h_spread, yerr=k_spread, fmt="s", color=_style.HIGHLIGHT,
@@ -95,15 +82,11 @@ def draw():
     r_fine = np.linspace(0, 3.0, 200)
     ax.plot(r_fine, 1 - np.exp(-r_fine**2 / 2), color=_style.TRUTH, lw=1.2,
             label=r"$1 - e^{-r^2/2}$")
-    styles = {("mahalanobis", 0.0): ("o", _style.MEASURED), ("mahalanobis", 0.8): ("s", _style.MEASURED),
-              ("ellipse", 0.0): ("o", _style.SECOND), ("ellipse", 0.8): ("s", _style.SECOND)}
-    for (test, rho), (marker, color) in styles.items():
-        name = "Mahalanobis" if test == "mahalanobis" else "elliptical MAD"
-        ax.plot(thresholds, mc[(test, rho)], marker, mfc="none" if rho else color, mec=color,
-                ls="none", ms=5, label=rf"{name}, $\rho$ = {rho:g}")
+    for rho, marker in ((0.0, "o"), (0.8, "s")):
+        ax.plot(thresholds, mc[("mahalanobis", rho)], marker, mfc="none" if rho else _style.MEASURED,
+                mec=_style.MEASURED, ls="none", ms=5, label=rf"Mahalanobis, $\rho$ = {rho:g}")
     ax.axvline(1.0, color=_style.MUTED, lw=0.7, ls=":")
-    ax.axvline(2.0, color=_style.MUTED, lw=0.7, ls=":")
-    ax.set_xlabel(r"threshold $r$ (Mahalanobis) or $\sigma$ (elliptical MAD)")
+    ax.set_xlabel(r"threshold $r$")
     ax.set_ylabel("fraction kept")
     ax.set_title("bivariate Gaussian, Monte Carlo")
     ax.legend(loc="lower right", fontsize=7)
@@ -114,10 +97,5 @@ def draw():
 
 
 _rf.save(draw, __file__)
-print(f"kept: energy {energy_mask.sum()}, elliptical MAD {ellipse_mask.sum()}, "
-      f"both {(energy_mask & ellipse_mask).sum()}, Mahalanobis {mahalanobis_mask.sum()} of {N_RF}")
+print(f"kept: Mahalanobis {mahalanobis_mask.sum()} of {N_RF}")
 print(f"estimate H = {h_est:.2f} ± {h_spread:.2f} km, k = {k_est:.3f} ± {k_spread:.3f}")
-for rho in (0.0, 0.8):
-    i = int(np.argmin(np.abs(thresholds - 2.0)))
-    print(f"rho {rho}: at threshold {thresholds[i]:.2f}, ellipse keeps {mc[('ellipse', rho)][i]:.3f}, "
-          f"Mahalanobis {mc[('mahalanobis', rho)][i]:.3f}")

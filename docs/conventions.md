@@ -81,8 +81,8 @@ input and grid conventions must match
   `*_mcmc.nc`, `*_vs.nc`, `*_predictive.nc`; AFTAN `*.basic_ftan.nc`,
   `*.vph.nc` and their PMF variants; Eikonal event fields and `stack.nc`; the
   per-RF H-k datasets in `*_Hk_results*.joblib`), in the `Run` section of the
-  inversion's `resolved_*.yaml`, as `# key: value` lines in AFTAN `.dat` and
-  H-k `*_Hk_QC.dat` headers, and in the logs (`aftan.log`, `eikonal.log`,
+  inversion's `resolved_*.yaml`, as `# key: value` lines in AFTAN `.dat`,
+  H-k `*_Hk_QC.dat` and RF QC `*_RF_QC_<band>.dat` headers, and in the logs (`aftan.log`, `eikonal.log`,
   `rotate_ccf.log`, `*_hkSeq.log`, `*_RF_QC.log`). Rotated CCF SAC files carry
   no provenance; their log does. `seisforge.__version__` is read from the
   installed package metadata, so `pyproject.toml` holds the only copy of the
