@@ -44,6 +44,11 @@ config and station table declare them explicitly:
   `[taper_min_hz, taper_max_hz]` must stay inside it.
 - Optional `gap_guard_s`: dilates the invalid mask around every SDS trace gap
   to absorb resampling/deconvolution edge transients.
+- Optional `processing.target_sampling_rate_hz`: anti-alias polyphase
+  downsampling (`scipy.signal.resample_poly`, Kaiser $\beta = 8$) applied per
+  contiguous valid segment on the exact $k / f_{\text{target}}$ grid after
+  reading SDS. Useful when one higher-rate SDS archive (e.g., 50 Hz for HVSR)
+  feeds lower-band ANT correlation (e.g., 10 Hz for 0.05–4 Hz).
 
 ## 2. Preprocessing and correlation
 

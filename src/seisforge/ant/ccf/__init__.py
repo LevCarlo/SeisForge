@@ -42,6 +42,7 @@ from .driver import (
 from .export import export_ccf_to_sac
 from .io import (
     SDSDayData,
+    decimate_day_data,
     load_station_table,
     read_netcdf,
     read_sds_day_zz,
@@ -112,6 +113,7 @@ __all__ = [
     "daily_ccf_to_dataset",
     "dataset_to_daily_ccf",
     "dataset_to_stacked_ccf",
+    "decimate_day_data",
     "expand_mask_for_ram",
     "export_ccf_to_sac",
     "inverse_stockwell_transform",

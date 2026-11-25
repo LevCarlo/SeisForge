@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 import difflib
+from fractions import Fraction
 import hashlib
 import json
 from pathlib import Path
@@ -170,6 +171,7 @@ class CCFProcessingConfig:
     """Validated scientific parameters for ZZ cross-correlation."""
 
     cc_type: str = "cc"
+    target_sampling_rate_hz: float | None = None
     window_length_s: float = 500.0
     step_s: float | None = None
     max_lag_s: float = 60.0
@@ -190,6 +192,10 @@ class CCFProcessingConfig:
     def __post_init__(self) -> None:
         if self.cc_type not in CC_TYPES:
             raise ValueError(f"cc_type must be one of {CC_TYPES}, got {self.cc_type!r}.")
+        if self.target_sampling_rate_hz is not None and (
+            self.target_sampling_rate_hz <= 0 or not np.isfinite(self.target_sampling_rate_hz)
+        ):
+            raise ValueError("target_sampling_rate_hz must be finite and positive when set.")
         if self.window_length_s <= 0 or not np.isfinite(self.window_length_s):
             raise ValueError("window_length_s must be finite and positive.")
         if self.step_s is not None and (self.step_s <= 0 or not np.isfinite(self.step_s)):
@@ -236,6 +242,12 @@ class CCFRunConfig:
     max_workers: int = 1
     backend: str = "numpy"
 
+    def effective_sampling_rate_hz(self) -> float:
+        """Return the working sampling rate used for correlation and output."""
+        if self.processing.target_sampling_rate_hz is not None:
+            return float(self.processing.target_sampling_rate_hz)
+        return float(self.input.sampling_rate_hz)
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "output_dir", Path(self.output_dir))
         if not self.dates:
@@ -247,9 +259,24 @@ class CCFRunConfig:
         if self.backend not in BACKENDS:
             raise ValueError(f"backend must be one of {BACKENDS}, got {self.backend!r}.")
 
-        fs = self.input.sampling_rate_hz
-        nyquist_hz = 0.5 * fs
+        input_fs = float(self.input.sampling_rate_hz)
         proc = self.processing
+        if proc.target_sampling_rate_hz is not None:
+            target_fs = float(proc.target_sampling_rate_hz)
+            if target_fs > input_fs + 1e-12:
+                raise ValueError(
+                    f"processing.target_sampling_rate_hz ({target_fs} Hz) cannot exceed "
+                    f"input.sampling_rate_hz ({input_fs} Hz); upsampling is not supported."
+                )
+            ratio = Fraction(target_fs / input_fs).limit_denominator(1000)
+            if not np.isclose(input_fs * ratio.numerator / ratio.denominator, target_fs, rtol=1e-9, atol=0.0):
+                raise ValueError(
+                    f"processing.target_sampling_rate_hz ({target_fs} Hz) is not a clean "
+                    f"rational factor of input.sampling_rate_hz ({input_fs} Hz)."
+                )
+
+        fs = self.effective_sampling_rate_hz()
+        nyquist_hz = 0.5 * fs
         win_samples = int(round(proc.window_length_s * fs))
         max_lag_samples = int(round(proc.max_lag_s * fs))
         guard_samples = int(round(proc.lag_guard_s * fs))
@@ -447,6 +474,7 @@ def load_ccf_config(config_path: str | Path) -> CCFRunConfig:
         proc,
         {
             "cc_type",
+            "target_sampling_rate_hz",
             "window_length_s",
             "step_s",
             "max_lag_s",
@@ -488,6 +516,11 @@ def load_ccf_config(config_path: str | Path) -> CCFRunConfig:
 
     proc_cfg = CCFProcessingConfig(
         cc_type=str(proc.get("cc_type", "cc")),
+        target_sampling_rate_hz=(
+            None
+            if proc.get("target_sampling_rate_hz") is None
+            else float(proc["target_sampling_rate_hz"])
+        ),
         window_length_s=float(proc.get("window_length_s", 500.0)),
         step_s=None if proc.get("step_s") is None else float(proc["step_s"]),
         max_lag_s=float(proc.get("max_lag_s", 60.0)),

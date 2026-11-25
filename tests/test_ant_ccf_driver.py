@@ -255,3 +255,141 @@ def test_run_stack_config_tf_pws_chunked_matches_unchunked(tmp_path):
     np.testing.assert_allclose(ds_chunked["ccf"].values, ds_full["ccf"].values, rtol=1e-13, atol=1e-13)
     np.testing.assert_array_equal(ds_chunked["n_windows"].values, ds_full["n_windows"].values)
     np.testing.assert_array_equal(ds_chunked["n_days"].values, ds_full["n_days"].values)
+
+
+def test_decimate_day_data_preserves_phase_and_gap_mask():
+    """Anti-alias downsampling preserves phase/grid alignment and keeps gaps masked."""
+    from seisforge.ant.ccf import SDSDayData, decimate_day_data
+
+    fs_in = 50.0
+    fs_out = 10.0
+    duration_s = 120.0
+    n_in = int(round(duration_s * fs_in))
+    t_in = np.arange(n_in, dtype=np.float64) / fs_in
+    sig = np.sin(2.0 * np.pi * 0.5 * t_in) + 0.4 * np.cos(2.0 * np.pi * 1.2 * t_in)
+
+    wave = np.vstack([sig, sig.copy()])
+    mask = np.ones_like(wave, dtype=bool)
+    # Insert a 10 s gap in station 1 at [40 s, 50 s)
+    gap_start = int(40.0 * fs_in)
+    gap_end = int(50.0 * fs_in)
+    wave[1, gap_start:gap_end] = np.nan
+    mask[1, gap_start:gap_end] = False
+
+    wave_orig = wave.copy()
+    mask_orig = mask.copy()
+    day = SDSDayData(
+        utc_date="2026-01-01",
+        waveforms=wave,
+        valid_mask=mask,
+        sampling_rate_hz=fs_in,
+        input_fingerprint="deadbeef",
+        missing_stations=(),
+        next_day_missing_stations=(),
+    )
+
+    dec = decimate_day_data(day, fs_out)
+    # Input arrays must not be mutated
+    np.testing.assert_array_equal(wave[mask_orig], wave_orig[mask_orig])
+    np.testing.assert_array_equal(mask, mask_orig)
+
+    n_out = int(round(duration_s * fs_out))
+    assert dec.sampling_rate_hz == fs_out
+    assert dec.waveforms.shape == (2, n_out)
+    assert np.all(dec.valid_mask[0])
+
+    t_out = np.arange(n_out, dtype=np.float64) / fs_out
+    expected = np.sin(2.0 * np.pi * 0.5 * t_out) + 0.4 * np.cos(2.0 * np.pi * 1.2 * t_out)
+    # Interior of continuous trace matches exact analytic signal to <1e-3
+    np.testing.assert_allclose(dec.waveforms[0, 50:-50], expected[50:-50], atol=1e-3)
+
+    # Gap remains masked in station 1 and valid segments are finite
+    gap_out_s = int(40.0 * fs_out)
+    gap_out_e = int(50.0 * fs_out)
+    assert not np.any(dec.valid_mask[1, gap_out_s:gap_out_e])
+    assert np.all(np.isnan(dec.waveforms[1, gap_out_s:gap_out_e]))
+    assert np.all(np.isfinite(dec.waveforms[1, dec.valid_mask[1]]))
+
+    with pytest.raises(ValueError, match="cannot exceed"):
+        decimate_day_data(day, 100.0)
+
+
+def test_run_ccf_config_with_target_sampling_rate_hz(tmp_path):
+    """End-to-end daily CCF downsampling (4 Hz SDS -> 1 Hz CCF) recovers lag peak."""
+    from seisforge.ant.ccf import load_ccf_config
+
+    sds_root = tmp_path / "SDS"
+    fs_in = 4.0
+    fs_out = 1.0
+    n_day = int(86400 * fs_in)
+    rng = np.random.default_rng(7)
+    base = rng.standard_normal(n_day)
+    shift_s = 12.0
+    shift_samples = int(round(shift_s * fs_in))
+    shifted = np.roll(base, shift_samples)
+
+    stations = [
+        StationRecord("XX", "STA1", "00", "BHZ", 35.0, 100.0, response_state="velocity"),
+        StationRecord("XX", "STA2", "00", "BHZ", 35.0, 100.2, response_state="velocity"),
+    ]
+    _write_sds_day(sds_root, stations[0], "2026-01-01", base, fs_in)
+    _write_sds_day(sds_root, stations[1], "2026-01-01", shifted, fs_in)
+
+    sta_csv = tmp_path / "stations.csv"
+    _write_station_csv(sta_csv, stations)
+
+    out_dir = tmp_path / "out_ccf"
+    cfg_dict = {
+        "input": {
+            "sds_root": str(sds_root),
+            "station_table": str(sta_csv),
+            "sampling_rate_hz": fs_in,
+            "response_state": "velocity",
+            "valid_passband_hz": [0.02, 1.8],
+        },
+        "processing": {
+            "cc_type": "cc",
+            "target_sampling_rate_hz": fs_out,
+            "window_length_s": 500.0,
+            "max_lag_s": 30.0,
+            "lag_guard_s": 10.0,
+            "ram_half_width_s": 10.0,
+            "whiten": {
+                "taper_min_hz": 0.03,
+                "freq_min_hz": 0.05,
+                "freq_max_hz": 0.35,
+                "taper_max_hz": 0.42,
+                "smooth_half_width_hz": 0.01,
+            },
+            "include_autocorr": False,
+        },
+        "output": {"dir": str(out_dir)},
+        "run": {"dates": ["2026-01-01"]},
+    }
+    cfg_path = tmp_path / "ccf.yml"
+    cfg_path.write_text(yaml.safe_dump(cfg_dict), encoding="utf-8")
+
+    summary = run_ccf_config(cfg_path)
+    assert len(summary.outcomes) == 1
+    assert summary.outcomes[0].status == "computed"
+
+    ds = read_netcdf(summary.outcomes[0].output_file)
+    assert float(ds.attrs["sampling_rate_hz"]) == pytest.approx(fs_out)
+    assert float(ds.attrs["input_sampling_rate_hz"]) == pytest.approx(fs_in)
+    lags = ds["lag_s"].values
+    ccf = ds["ccf_sum"].values[0] / ds["n_windows"].values[0]
+    peak_lag = float(lags[int(np.argmax(ccf))])
+    assert peak_lag == pytest.approx(shift_s, abs=1.0 / fs_out)
+
+    # Whitening corner exceeding target Nyquist (0.5 Hz) must be rejected
+    bad_dict = {**cfg_dict, "processing": {**cfg_dict["processing"], "whiten": {
+        "taper_min_hz": 0.03,
+        "freq_min_hz": 0.05,
+        "freq_max_hz": 0.6,
+        "taper_max_hz": 0.8,
+        "smooth_half_width_hz": 0.01,
+    }}}
+    bad_path = tmp_path / "ccf_bad.yml"
+    bad_path.write_text(yaml.safe_dump(bad_dict), encoding="utf-8")
+    with pytest.raises(ValueError, match="exceeds Nyquist"):
+        load_ccf_config(bad_path)

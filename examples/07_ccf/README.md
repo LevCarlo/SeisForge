@@ -64,7 +64,11 @@ in `ccf.yml`:
 1. Point `input.sds_root` to your pre-prepared SDS directory and replace
    `stations.csv` with your stations.
 2. Set `input.sampling_rate_hz`, `input.response_state`, and
-   `input.valid_passband_hz` to match your prepared SDS data (e.g. `20.0` Hz
-   for nodal arrays, `max_lag_s: 60.0`, `lag_guard_s: 20.0`).
+   `input.valid_passband_hz` to match your prepared SDS data (e.g. `50.0` Hz
+   shared SDS archive with `processing.target_sampling_rate_hz: 10.0` for
+   `0.05–2.0 Hz` ANT, `processing.max_distance_km: 150.0`, `max_lag_s: 100.0`,
+   `lag_guard_s: 20.0`).
 3. Update `run.start_date` / `run.end_date` (or submit one day per task on an
    HPC cluster with `seisforge ant ccf -c ccf.yml --date YYYY-MM-DD`).
+4. In `ccf_stack.yml`, switch `stack.method` between `linear`, `pws` (1D), and
+   `tf_pws` (2D Stockwell time-frequency PWS) as needed.

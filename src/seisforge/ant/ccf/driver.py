@@ -24,6 +24,7 @@ from .config import (
 )
 from .core import correlate_zz_day, upper_triangle_pairs
 from .io import (
+    decimate_day_data,
     load_station_table,
     read_netcdf,
     read_sds_day_zz,
@@ -36,7 +37,12 @@ from .products import (
     dataset_to_daily_ccf,
     stacked_ccf_to_dataset,
 )
-from .stacking import LinearStackAccumulator, PWSStackAccumulator, TFPWSStackAccumulator
+from .stacking import (
+    LinearStackAccumulator,
+    PWSStackAccumulator,
+    TFPWSStackAccumulator,
+    _resolve_stockwell_grid,
+)
 
 __all__ = [
     "CCFDayOutcome",
@@ -212,11 +218,14 @@ def run_ccf_day(
         # stale hash triggers recomputation cleanly via overwrite=True on replace.
         pass
 
+    if proc.target_sampling_rate_hz is not None:
+        day_data = decimate_day_data(day_data, proc.target_sampling_rate_hz)
+
     spec_dtype = np.complex64 if proc.spectrum_dtype == "complex64" else np.complex128
     daily_res = correlate_zz_day(
         day_data.waveforms,
         day_data.valid_mask,
-        sampling_rate_hz=config.input.sampling_rate_hz,
+        sampling_rate_hz=day_data.sampling_rate_hz,
         window_length_s=proc.window_length_s,
         max_lag_s=proc.max_lag_s,
         lag_guard_s=proc.lag_guard_s,
@@ -246,6 +255,7 @@ def run_ccf_day(
         input_fingerprint=day_data.input_fingerprint,
         extra_attrs={
             "response_state": config.input.response_state,
+            "input_sampling_rate_hz": float(config.input.sampling_rate_hz),
             "whiten_mode": proc.whiten_mode,
             "window_length_s": float(proc.window_length_s),
             "step_s": float(step_s),
@@ -432,7 +442,20 @@ def _run_stack_tf_pws_chunked(
     first_daily = dataset_to_daily_ccf(first_ds)
     n_pairs = int(first_daily.n_windows.size)
 
-    if n_pairs <= cfg.tf_pws_pair_chunk_size:
+    # Cap pair chunk size by a 1 GiB working-set budget so high-fs / long-lag
+    # Stockwell stacks never thrash host RAM even if tf_pws_pair_chunk_size is large.
+    resolved_nfft, lo, hi, _ = _resolve_stockwell_grid(
+        int(first_daily.lag_s.size),
+        float(first_daily.sampling_rate_hz),
+        freq_min_hz=cfg.tf_pws_freq_min_hz,
+        freq_max_hz=cfg.tf_pws_freq_max_hz,
+    )
+    n_freq = max(1, hi - lo + 1)
+    bytes_per_pair = max(1, 4 * n_freq * resolved_nfft * 16)
+    auto_chunk = max(1, (1024 * 1024 * 1024) // bytes_per_pair)
+    chunk_size = min(cfg.tf_pws_pair_chunk_size, auto_chunk)
+
+    if n_pairs <= chunk_size:
         acc = _make_tf_pws_accumulator(cfg)
         dates_used: list[str] = [str(first_ds.attrs.get("utc_date", daily_files[0].stem))]
         acc.add_day(first_daily)
@@ -448,8 +471,8 @@ def _run_stack_tf_pws_chunked(
 
     chunk_results: list[StackedCCFResult] = []
     dates_used = []
-    for start in range(0, n_pairs, cfg.tf_pws_pair_chunk_size):
-        end = min(start + cfg.tf_pws_pair_chunk_size, n_pairs)
+    for start in range(0, n_pairs, chunk_size):
+        end = min(start + chunk_size, n_pairs)
         acc = _make_tf_pws_accumulator(cfg)
         for idx, path in enumerate(daily_files):
             ds = first_ds if idx == 0 else read_netcdf(path)

@@ -11,10 +11,16 @@ input:
   # end_date: "2026-01-02"
 
 stack:
-  method: linear                            # linear (production) | pws (experimental, Schimmel & Paulssen 1997)
+  method: linear                            # linear (production) | pws (1D) | tf_pws (Stockwell 2D, ANCC-aligned)
   day_weighting: windows                    # windows (sum / sum n_windows) | equal (equal weight per valid day)
-  pws_power: 2.0                            # phase coherence exponent nu (used when method: pws)
-  trim_guard: true                          # true: trim lag_guard_s to +-max_lag_s (PWS always trims)
+  pws_power: 2.0                            # phase coherence exponent nu (used when method: pws or tf_pws)
+  trim_guard: true                          # true: trim lag_guard_s to +-max_lag_s (pws/tf_pws always trim)
+  # Optional tf_pws parameters (used when method: tf_pws):
+  # tf_pws_freq_min_hz: 0.05
+  # tf_pws_freq_max_hz: 0.42
+  # tf_pws_sigma: 1.0
+  # tf_pws_smooth_samples: 0
+  # tf_pws_normalize_weights: false
 
 output:
   file: ./output/stacked_ZZ.nc              # writes stacked NetCDF4/HDF5 and stack_ccf.log

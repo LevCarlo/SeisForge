@@ -6,6 +6,7 @@ from collections.abc import Sequence
 import csv
 from dataclasses import dataclass
 from datetime import date, timedelta
+from fractions import Fraction
 import hashlib
 import json
 import os
@@ -15,6 +16,7 @@ from typing import Any
 import warnings
 
 import numpy as np
+from scipy import signal as sp_signal
 import xarray as xr
 
 from .config import StationRecord
@@ -22,6 +24,7 @@ from .core import expand_mask_for_ram
 
 __all__ = [
     "SDSDayData",
+    "decimate_day_data",
     "load_station_table",
     "read_netcdf",
     "read_sds_day_zz",
@@ -332,6 +335,83 @@ def read_sds_day_zz(
         input_fingerprint=fingerprint,
         missing_stations=tuple(missing_stations),
         next_day_missing_stations=tuple(next_day_missing),
+    )
+
+
+def decimate_day_data(
+    day_data: SDSDayData,
+    target_sampling_rate_hz: float,
+) -> SDSDayData:
+    """Anti-alias downsample an ``SDSDayData`` onto the exact ``k / fs_target`` grid.
+
+    Each contiguous valid segment is resampled independently with
+    ``scipy.signal.resample_poly`` (Kaiser ``beta=8.0``, linear edge padding)
+    after trimming leading samples to align on a multiple of the downsampling
+    denominator. Gaps remain masked and inputs are never mutated.
+    """
+    fs_in = float(day_data.sampling_rate_hz)
+    fs_out = float(target_sampling_rate_hz)
+    if fs_out <= 0.0 or not np.isfinite(fs_out):
+        raise ValueError("target_sampling_rate_hz must be finite and positive.")
+    if np.isclose(fs_out, fs_in, rtol=1e-9, atol=0.0):
+        return day_data
+    if fs_out > fs_in + 1e-12:
+        raise ValueError(
+            f"target_sampling_rate_hz ({fs_out} Hz) cannot exceed "
+            f"input sampling_rate_hz ({fs_in} Hz)."
+        )
+
+    ratio = Fraction(fs_out / fs_in).limit_denominator(1000)
+    up, down = ratio.numerator, ratio.denominator
+    if not np.isclose(fs_in * up / down, fs_out, rtol=1e-9, atol=0.0):
+        raise ValueError(
+            f"target_sampling_rate_hz ({fs_out} Hz) is not a clean rational "
+            f"factor of input sampling_rate_hz ({fs_in} Hz)."
+        )
+
+    n_stations, n_samples_in = day_data.waveforms.shape
+    n_samples_out = int(round(n_samples_in * fs_out / fs_in))
+    out_wave = np.full((n_stations, n_samples_out), np.nan, dtype=np.float64)
+    out_valid = np.zeros((n_stations, n_samples_out), dtype=bool)
+
+    for idx in range(n_stations):
+        mask = day_data.valid_mask[idx]
+        if not np.any(mask):
+            continue
+        padded = np.concatenate(([False], mask, [False]))
+        diff = np.diff(padded.astype(np.int8))
+        starts = np.flatnonzero(diff == 1)
+        ends = np.flatnonzero(diff == -1)
+
+        for s_idx, e_idx in zip(starts, ends):
+            s = int(s_idx)
+            e = int(e_idx)
+            # Align segment start upward to a multiple of `down` so
+            # (s_aligned / fs_in) == ((s_aligned // down) * up) / fs_out.
+            lead = (-s) % down
+            s_aligned = s + lead
+            if s_aligned >= e:
+                continue
+            seg = np.asarray(day_data.waveforms[idx, s_aligned:e], dtype=np.float64)
+            y = sp_signal.resample_poly(seg, up, down, window=("kaiser", 8.0), padtype="line")
+
+            out_start = (s_aligned // down) * up
+            max_valid_end = ((e - 1) // down) * up + 1
+            out_end = min(n_samples_out, out_start + int(y.size), max_valid_end)
+            copy_len = out_end - out_start
+            if copy_len <= 0:
+                continue
+            out_wave[idx, out_start:out_end] = y[:copy_len]
+            out_valid[idx, out_start:out_end] = True
+
+    return SDSDayData(
+        utc_date=day_data.utc_date,
+        waveforms=out_wave,
+        valid_mask=out_valid,
+        sampling_rate_hz=fs_out,
+        input_fingerprint=day_data.input_fingerprint,
+        missing_stations=day_data.missing_stations,
+        next_day_missing_stations=day_data.next_day_missing_stations,
     )
 
 

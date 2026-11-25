@@ -23,6 +23,7 @@ input:
 
 processing:
   cc_type: cc                               # cc (classical) | pcc2 (phase cross-correlation, nu=2)
+  target_sampling_rate_hz: null             # null -> keep input sampling_rate_hz; e.g. 10.0 to downsample 50 Hz SDS
   window_length_s: 500.0                    # L (s); 172 or 173 windows per UTC day at step_s=500
   step_s: null                              # null -> non-overlapping (equals window_length_s)
   max_lag_s: 30.0                           # published lag half-width (s)
