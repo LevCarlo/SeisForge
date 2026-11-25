@@ -2,7 +2,8 @@
 
 A Python toolkit for seismic processing and analysis, including:
 
-- Ambient noise: ZNE→ZRT CCF rotation, AFTAN group/phase dispersion
+- Ambient noise: ZZ cross-correlation (`cc` / `pcc2`) and linear / PWS / 2-D
+  `tf_pws` stacking, ZNE→ZRT CCF rotation, AFTAN group/phase dispersion
   measurement, and Eikonal/Helmholtz surface-wave tomography.
 - Receiver functions: QC, sequential H-k stacking, and synthetic P receiver
   functions for layered models.
@@ -51,6 +52,9 @@ seisforge --help
 seisforge rf --help
 seisforge rf qc -c examples/reference_configs/rf_qc.yml --plot
 seisforge rf hkseq -c examples/reference_configs/rf_hkseq.yml --mode both --plot
+seisforge ant ccf -c examples/07_ccf/ccf.yml
+seisforge ant stack-ccf -c examples/07_ccf/ccf_stack.yml
+seisforge ant export-sac -i stacked_ZZ.nc -o sac_ZZ --min-distance-km 5
 seisforge ant rotate-ccf -c examples/reference_configs/ccf_rotate.yml
 seisforge ant aftan -c examples/reference_configs/aftan.yml
 seisforge ant eikonal -c examples/reference_configs/eikonal.yml
@@ -79,6 +83,7 @@ result should be and which config lines to change for your own data.
 | `04_rf_qc_hk` | receiver-function QC and H-k stacking |
 | `05_hvsr_forward` | diffuse-field H/V of a layered model |
 | `06_inversion` | Bayesian Vs(z) from phase velocity and H/V |
+| `07_ccf` | ZZ cross-correlation, linear/PWS/tf-PWS stacking, and SAC export |
 | `full_chain` | CCFs to Vs(z) along one possible route (Eikonal maps, station inversion) |
 
 `seisforge init <workflow> [directory]` copies an example's config to start

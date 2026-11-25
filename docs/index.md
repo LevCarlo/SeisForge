@@ -4,7 +4,8 @@ SeisForge is a Python toolkit for seismic processing and analysis:
 
 <div class="grid cards" markdown>
 
-- **Ambient noise**: ZNE→ZRT CCF rotation, AFTAN group/phase dispersion
+- **Ambient noise**: ZZ cross-correlation (`cc` / `pcc2`) and linear / PWS /
+  2-D `tf_pws` stacking, ZNE→ZRT CCF rotation, AFTAN group/phase dispersion
   measurement with PMF, and Eikonal/Helmholtz surface-wave tomography.
 - **Receiver functions**: RF quality control, sequential (sediment, then
   crust) H-k stacking, and synthetic P receiver functions for layered models.
@@ -33,6 +34,9 @@ Commands are grouped by workflow; most take a YAML config:
 
 | Command | Purpose | Guide |
 |---|---|---|
+| `seisforge ant ccf -c ccf.yml` | daily ZZ cross-correlation (`cc` / `pcc2`) | [ZZ CCF](ant/ccf.md#6-usage) |
+| `seisforge ant stack-ccf -c ccf_stack.yml` | multi-day linear / PWS / `tf_pws` stack | [ZZ CCF](ant/ccf.md#6-usage) |
+| `seisforge ant export-sac -i stacked_ZZ.nc -o sac_ZZ` | selective NetCDF → SAC export | [ZZ CCF](ant/ccf.md#6-usage) |
 | `seisforge ant rotate-ccf -c ccf_rotate.yml` | rotate ZNE CCFs to ZRT | [CCF rotation](ant/rotation.md#3-usage) |
 | `seisforge ant aftan -c aftan_station.yml` | AFTAN dispersion picks | [AFTAN](ant/dispersion.md#7-usage) |
 | `seisforge ant eikonal -c eikonal.yml` | Eikonal/Helmholtz phase-velocity maps | [Eikonal](ant/tomography.md#7-usage) |
