@@ -17,7 +17,13 @@ import xarray as xr
 
 from .io import read_netcdf
 
-__all__ = ["export_ccf_to_sac"]
+__all__ = ["EXPORT_LAYOUTS", "export_ccf_to_sac"]
+
+EXPORT_LAYOUTS: tuple[str, ...] = ("by-source", "flat")
+_LAYOUT_TEMPLATES: dict[str, str] = {
+    "by-source": "{source}/{source}_{receiver}_{component}.sac",
+    "flat": "{source}_{receiver}_{component}.sac",
+}
 
 
 def export_ccf_to_sac(
@@ -29,7 +35,8 @@ def export_ccf_to_sac(
     max_distance_km: float | None = None,
     min_n_windows: int = 1,
     include_autocorr: bool = False,
-    filename_template: str = "{source}_{receiver}_{component}.sac",
+    layout: str = "by-source",
+    filename_template: str | None = None,
     overwrite: bool = False,
 ) -> list[Path]:
     """Selectively export station pairs from a CCF NetCDF4/HDF5 dataset to SAC.
@@ -50,8 +57,14 @@ def export_ccf_to_sac(
         Minimum valid window count required to export a pair (default: 1).
     include_autocorr : bool, optional
         Whether to include same-station autocorrelations (default: False).
+    layout : {"by-source", "flat"}, optional
+        Directory organization when ``filename_template`` is None.
+        ``"by-source"`` (default) writes ``{source}/{source}_{receiver}_{component}.sac``
+        to avoid huge flat directories on large arrays; ``"flat"`` writes directly
+        under ``output_dir``.
     filename_template : str, optional
-        Output file name format with ``{source}``, ``{receiver}``, ``{component}``.
+        Explicit relative output path template with ``{source}``, ``{receiver}``,
+        ``{component}``. Overrides ``layout`` when provided.
     overwrite : bool, optional
         If False (default), raise ``FileExistsError`` if any target SAC exists.
 
@@ -61,6 +74,15 @@ def export_ccf_to_sac(
         Paths of all SAC files written.
     """
     from obspy import Trace, UTCDateTime
+
+    if filename_template is None:
+        if layout not in _LAYOUT_TEMPLATES:
+            raise ValueError(
+                f"layout must be one of {EXPORT_LAYOUTS}, got {layout!r}."
+            )
+        resolved_template = _LAYOUT_TEMPLATES[layout]
+    else:
+        resolved_template = filename_template
 
     ds = source if isinstance(source, xr.Dataset) else read_netcdf(source)
     stage = ds.attrs.get("stage")
@@ -114,7 +136,7 @@ def export_ccf_to_sac(
         if not np.all(np.isfinite(ccf_all[idx])):
             continue
 
-        out_path = out_root / filename_template.format(
+        out_path = out_root / resolved_template.format(
             source=s_name,
             receiver=r_name,
             component=component,
@@ -128,6 +150,12 @@ def export_ccf_to_sac(
     written: list[Path] = []
     for idx, out_path in selected:
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        rcv_str = str(rcv_sta[idx])
+        if "." in rcv_str:
+            rcv_net, rcv_station = rcv_str.split(".", 1)
+        else:
+            rcv_net, rcv_station = "", rcv_str
+
         sac_header: dict[str, object] = {
             "b": float(lag_s[0]),
             "e": float(lag_s[-1]),
@@ -138,10 +166,12 @@ def export_ccf_to_sac(
             "stla": float(stla[idx]),
             "stlo": float(stlo[idx]),
             "kevnm": str(src_sta[idx])[:16],
-            "kstnm": str(rcv_sta[idx])[:8],
+            "kstnm": rcv_station[:8],
             "kcmpnm": component[:8],
             "lcalda": True,
         }
+        if rcv_net:
+            sac_header["knetwk"] = rcv_net[:8]
         if np.isfinite(az_deg[idx]):
             sac_header["az"] = float(az_deg[idx])
         if np.isfinite(baz_deg[idx]):
@@ -150,8 +180,8 @@ def export_ccf_to_sac(
         tr = Trace(
             data=np.asarray(ccf_all[idx], dtype=np.float32),
             header={
-                "network": str(rcv_sta[idx]).split(".")[0] if "." in str(rcv_sta[idx]) else "",
-                "station": str(rcv_sta[idx]).split(".")[-1],
+                "network": rcv_net,
+                "station": rcv_station,
                 "channel": component,
                 "sampling_rate": fs,
                 "starttime": UTCDateTime(0) + float(lag_s[0]),

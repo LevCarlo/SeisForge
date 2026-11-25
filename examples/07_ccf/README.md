@@ -38,7 +38,7 @@ to run from scratch.
 | `output/daily_ccf/ccf.log` | per-day status, active pairs, elapsed time, provenance |
 | `output/stacked_ZZ.nc` | multi-day linear stack (`ccf`, `n_windows`, `n_days`, geometry) |
 | `output/stack_ccf.log` | stacking summary and provenance |
-| `output/sac_ZZ/XX.STA*_XX.STA*_ZZ.sac` | selectively exported SAC files with WGS84 geometry headers |
+| `output/sac_ZZ/XX.STA*/XX.STA*_XX.STA*_ZZ.sac` | selectively exported SAC files grouped by source station (`--layout by-source` default) |
 
 ## How to tell the result is right
 

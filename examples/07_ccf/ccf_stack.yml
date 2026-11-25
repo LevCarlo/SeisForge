@@ -16,6 +16,7 @@ stack:
   pws_power: 2.0                            # phase coherence exponent nu (used when method: pws or tf_pws)
   trim_guard: true                          # true: trim lag_guard_s to +-max_lag_s (pws/tf_pws always trim)
   # Optional tf_pws parameters (used when method: tf_pws):
+  # max_workers: 4                          # parallel pair-chunk workers (or pass --max-workers)
   # tf_pws_freq_min_hz: 0.05
   # tf_pws_freq_max_hz: 0.42
   # tf_pws_sigma: 1.0

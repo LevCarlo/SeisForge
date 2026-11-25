@@ -358,6 +358,7 @@ class StackRunConfig:
     tf_pws_normalize_weights: bool = False
     tf_pws_pair_chunk_size: int = 64  # assumed default
     trim_guard: bool = False
+    max_workers: int = 1
     overwrite: bool = False
     compression_level: int = 4  # assumed default
 
@@ -393,6 +394,8 @@ class StackRunConfig:
             raise ValueError("tf_pws_smooth_samples must be non-negative.")
         if self.tf_pws_pair_chunk_size < 1:
             raise ValueError("tf_pws_pair_chunk_size must be at least 1.")
+        if self.max_workers < 1:
+            raise ValueError("max_workers must be at least 1.")
         if not (0 <= self.compression_level <= 9):
             raise ValueError("compression_level must lie in [0, 9].")
 
@@ -586,6 +589,7 @@ def load_stack_config(config_path: str | Path) -> StackRunConfig:
             "tf_pws_smooth_samples",
             "tf_pws_normalize_weights",
             "tf_pws_pair_chunk_size",
+            "max_workers",
             "trim_guard",
         },
         "stack",
@@ -618,6 +622,7 @@ def load_stack_config(config_path: str | Path) -> StackRunConfig:
         tf_pws_smooth_samples=int(stk.get("tf_pws_smooth_samples", 0)),
         tf_pws_normalize_weights=bool(stk.get("tf_pws_normalize_weights", False)),
         tf_pws_pair_chunk_size=int(stk.get("tf_pws_pair_chunk_size", 64)),
+        max_workers=int(stk.get("max_workers", 1)),
         trim_guard=bool(stk.get("trim_guard", False)),
         overwrite=bool(out.get("overwrite", False)),
         compression_level=int(out.get("compression_level", 4)),

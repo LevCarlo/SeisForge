@@ -458,6 +458,72 @@ def _resolve_stockwell_grid(
     return resolved_nfft, lo, hi, freqs_hz
 
 
+def _build_stockwell_gauss_table(
+    resolved_nfft: int,
+    lo: int,
+    hi: int,
+    sigma: float,
+) -> np.ndarray:
+    """Precompute Stockwell Gaussian frequency windows for bins ``[lo, hi]``."""
+    m_bins = fftfreq(resolved_nfft) * float(resolved_nfft)
+    m_sq = m_bins * m_bins
+    gauss_scale = 2.0 * (np.pi * float(sigma)) ** 2
+    n_bins = np.arange(lo, hi + 1, dtype=np.float64)
+    safe_n = np.where(n_bins > 0.0, n_bins, 1.0)
+    table = np.exp(-gauss_scale * m_sq[None, :] / (safe_n[:, None] ** 2))
+    if lo == 0:
+        table[0, :] = 0.0
+    return table
+
+
+def _stockwell_transform_core(
+    traces: np.ndarray,
+    resolved_nfft: int,
+    lo: int,
+    hi: int,
+    gauss_table: np.ndarray,
+    *,
+    freq_block: int = 32,
+) -> np.ndarray:
+    """Batched forward Stockwell transform using contiguous spectrum slicing."""
+    n_traces, n_samples = traces.shape
+    padded = np.zeros((n_traces, resolved_nfft), dtype=np.float64)
+    padded[:, :n_samples] = traces
+
+    # Analytic signal spectrum: double strictly positive frequencies, zero negative.
+    spectrum = fft(padded, axis=-1)
+    analytic_spec = np.zeros_like(spectrum)
+    analytic_spec[:, 0] = spectrum[:, 0]
+    half_pos = (resolved_nfft + 1) // 2
+    analytic_spec[:, 1:half_pos] = 2.0 * spectrum[:, 1:half_pos]
+    if resolved_nfft % 2 == 0:
+        analytic_spec[:, resolved_nfft // 2] = spectrum[:, resolved_nfft // 2]
+
+    # Doubling along the frequency axis turns circular shifts into contiguous slices.
+    analytic_doubled = np.concatenate([analytic_spec, analytic_spec], axis=-1)
+    n_freq = hi - lo + 1
+    st = np.empty((n_traces, n_freq, resolved_nfft), dtype=np.complex128)
+
+    row_start = 0
+    if lo == 0:
+        mean_val = np.mean(padded, axis=-1, keepdims=True)
+        st[:, 0, :] = mean_val.astype(np.complex128)
+        row_start = 1
+
+    # Batch IFFTs across frequency blocks to minimize Python/FFT dispatch overhead.
+    for b_start in range(row_start, n_freq, freq_block):
+        b_end = min(b_start + freq_block, n_freq)
+        b_len = b_end - b_start
+        shifted = np.empty((n_traces, b_len, resolved_nfft), dtype=np.complex128)
+        for j, row in enumerate(range(b_start, b_end)):
+            n_bin = lo + row
+            shifted[:, j, :] = analytic_doubled[:, n_bin : n_bin + resolved_nfft]
+        shifted *= gauss_table[None, b_start:b_end, :]
+        st[:, b_start:b_end, :] = ifft(shifted, axis=-1)
+
+    return st
+
+
 def stockwell_transform(
     data: np.ndarray,
     sampling_rate_hz: float,
@@ -502,7 +568,7 @@ def stockwell_transform(
 
     was_1d = arr.ndim == 1
     traces = arr[None, :] if was_1d else arr
-    n_traces, n_samples = traces.shape
+    _, n_samples = traces.shape
 
     resolved_nfft, lo, hi, freqs_hz = _resolve_stockwell_grid(
         n_samples,
@@ -511,34 +577,8 @@ def stockwell_transform(
         freq_max_hz=freq_max_hz,
         nfft=nfft,
     )
-
-    padded = np.zeros((n_traces, resolved_nfft), dtype=np.float64)
-    padded[:, :n_samples] = traces
-
-    # Analytic signal spectrum: double strictly positive frequencies, zero negative.
-    spectrum = fft(padded, axis=-1)
-    analytic_spec = np.zeros_like(spectrum)
-    analytic_spec[:, 0] = spectrum[:, 0]
-    half_pos = (resolved_nfft + 1) // 2
-    analytic_spec[:, 1:half_pos] = 2.0 * spectrum[:, 1:half_pos]
-    if resolved_nfft % 2 == 0:
-        analytic_spec[:, resolved_nfft // 2] = spectrum[:, resolved_nfft // 2]
-
-    n_freq = hi - lo + 1
-    st = np.empty((n_traces, n_freq, resolved_nfft), dtype=np.complex128)
-    m_bins = fftfreq(resolved_nfft) * float(resolved_nfft)
-    m_sq = m_bins * m_bins
-    gauss_scale = 2.0 * (np.pi * float(sigma)) ** 2
-    base_idx = np.arange(resolved_nfft, dtype=np.int64)
-
-    for row, n_bin in enumerate(range(lo, hi + 1)):
-        if n_bin == 0:
-            mean_val = np.mean(padded, axis=-1, keepdims=True)
-            st[:, row, :] = mean_val.astype(np.complex128)
-        else:
-            gauss = np.exp(-gauss_scale * m_sq / float(n_bin * n_bin))
-            shifted = analytic_spec[:, (n_bin + base_idx) % resolved_nfft] * gauss[None, :]
-            st[:, row, :] = ifft(shifted, axis=-1)
+    gauss_table = _build_stockwell_gauss_table(resolved_nfft, lo, hi, sigma)
+    st = _stockwell_transform_core(traces, resolved_nfft, lo, hi, gauss_table)
 
     if was_1d:
         return freqs_hz, st[0]
@@ -675,6 +715,9 @@ class TFPWSStackAccumulator:
         self._template: DailyCCFResult | None = None
         self._freqs_hz: np.ndarray | None = None
         self._nfft: int | None = None
+        self._lo: int = 0
+        self._hi: int = 0
+        self._gauss_table: np.ndarray | None = None
         self._tf_phase_sum: np.ndarray | None = None
         self._n_days_phase: np.ndarray | None = None
 
@@ -689,7 +732,7 @@ class TFPWSStackAccumulator:
         if weight < 0 or not np.isfinite(weight):
             raise ValueError("weight must be finite and non-negative.")
         if self._template is None:
-            nfft, _, _, freqs_hz = _resolve_stockwell_grid(
+            nfft, lo, hi, freqs_hz = _resolve_stockwell_grid(
                 day.lag_s.size,
                 day.sampling_rate_hz,
                 freq_min_hz=self._freq_min_hz,
@@ -697,7 +740,10 @@ class TFPWSStackAccumulator:
             )
             self._template = day
             self._nfft = nfft
+            self._lo = lo
+            self._hi = hi
             self._freqs_hz = freqs_hz
+            self._gauss_table = _build_stockwell_gauss_table(nfft, lo, hi, self._sigma)
             self._tf_phase_sum = np.zeros(
                 (day.n_windows.size, freqs_hz.size, nfft),
                 dtype=np.complex128,
@@ -717,15 +763,15 @@ class TFPWSStackAccumulator:
         assert self._tf_phase_sum is not None
         assert self._n_days_phase is not None
         assert self._nfft is not None
+        assert self._gauss_table is not None
 
         daily_mean = day.ccf_sum[keep] / day.n_windows[keep, None]
-        _, st = stockwell_transform(
+        st = _stockwell_transform_core(
             daily_mean,
-            day.sampling_rate_hz,
-            freq_min_hz=self._freq_min_hz,
-            freq_max_hz=self._freq_max_hz,
-            sigma=self._sigma,
-            nfft=self._nfft,
+            self._nfft,
+            self._lo,
+            self._hi,
+            self._gauss_table,
         )
         amp = np.abs(st)
         max_amp = np.max(amp, axis=(-2, -1), keepdims=True)
@@ -767,13 +813,13 @@ class TFPWSStackAccumulator:
                     mode="nearest",
                 )
 
-            _, st_lin = stockwell_transform(
+            assert self._gauss_table is not None
+            st_lin = _stockwell_transform_core(
                 linear_res.ccf[valid],
-                linear_res.sampling_rate_hz,
-                freq_min_hz=self._freq_min_hz,
-                freq_max_hz=self._freq_max_hz,
-                sigma=self._sigma,
-                nfft=self._nfft,
+                self._nfft,
+                self._lo,
+                self._hi,
+                self._gauss_table,
             )
             ccf_tf_pws[valid] = inverse_stockwell_transform(
                 st_lin * tf_weight,

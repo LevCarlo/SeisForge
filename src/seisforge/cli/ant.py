@@ -63,6 +63,12 @@ def _register_stack_ccf(
     parser.add_argument(
         "--overwrite", action="store_true", default=None, help="Replace existing stack output."
     )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Override parallel worker count for tf_pws pair-chunk stacking.",
+    )
     parser.set_defaults(func=_run_stack_ccf)
 
 
@@ -81,6 +87,17 @@ def _register_export_sac(
     parser.add_argument("--min-n-windows", type=int, default=1, help="Min valid windows.")
     parser.add_argument(
         "--include-autocorr", action="store_true", help="Include same-station pairs."
+    )
+    parser.add_argument(
+        "--layout",
+        choices=("by-source", "flat"),
+        default="by-source",
+        help="Output directory layout: 'by-source' (default, {source}/{source}_{receiver}_{component}.sac) or 'flat'.",
+    )
+    parser.add_argument(
+        "--filename-template",
+        default=None,
+        help="Optional custom relative path template using {source}, {receiver}, {component} (overrides --layout).",
     )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing SAC files.")
     parser.set_defaults(func=_run_export_sac)
@@ -198,7 +215,11 @@ def _run_ccf(args: argparse.Namespace) -> int:
 def _run_stack_ccf(args: argparse.Namespace) -> int:
     from seisforge.ant.ccf import run_stack_config
 
-    summary = run_stack_config(args.config_file, overwrite=args.overwrite)
+    summary = run_stack_config(
+        args.config_file,
+        overwrite=args.overwrite,
+        max_workers=args.max_workers,
+    )
     print(
         f"stacked {len(summary.dates_used)} day(s) into {summary.output_file}; "
         f"log: {summary.log_file}"
@@ -216,6 +237,8 @@ def _run_export_sac(args: argparse.Namespace) -> int:
         max_distance_km=args.max_distance_km,
         min_n_windows=args.min_n_windows,
         include_autocorr=args.include_autocorr,
+        layout=args.layout,
+        filename_template=args.filename_template,
         overwrite=args.overwrite,
     )
     print(f"exported {len(written)} SAC file(s) to {args.output_dir}")

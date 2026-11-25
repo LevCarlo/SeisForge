@@ -27,11 +27,12 @@ from .io import (
     decimate_day_data,
     load_station_table,
     read_netcdf,
+    read_netcdf_pair_slice,
     read_sds_day_zz,
     station_table_hash,
     write_netcdf,
 )
-from .models import DailyCCFResult, StackedCCFResult
+from .models import StackedCCFResult
 from .products import (
     daily_ccf_to_dataset,
     dataset_to_daily_ccf,
@@ -404,20 +405,6 @@ def _stations_from_daily_dataset(ds) -> tuple[StationRecord, ...]:
     return tuple(by_idx[i] for i in range(n_stations))
 
 
-def _slice_daily_ccf(day: DailyCCFResult, start: int, end: int) -> DailyCCFResult:
-    """Return a sub-slice of ``day`` covering pairs ``[start:end]``."""
-    return DailyCCFResult(
-        lag_s=day.lag_s,
-        pair_indices=day.pair_indices[start:end],
-        ccf_sum=day.ccf_sum[start:end],
-        n_windows=day.n_windows[start:end],
-        cc_type=day.cc_type,
-        sampling_rate_hz=day.sampling_rate_hz,
-        max_lag_s=day.max_lag_s,
-        lag_guard_s=day.lag_guard_s,
-    )
-
-
 def _make_tf_pws_accumulator(cfg: StackRunConfig) -> TFPWSStackAccumulator:
     return TFPWSStackAccumulator(
         power=cfg.pws_power,
@@ -430,11 +417,23 @@ def _make_tf_pws_accumulator(cfg: StackRunConfig) -> TFPWSStackAccumulator:
     )
 
 
+def _run_tf_pws_chunk_worker(
+    args: tuple[StackRunConfig, tuple[Path, ...], int, int],
+) -> StackedCCFResult:
+    """Worker computing one ``[start:end]`` pair chunk of a tf-PWS stack."""
+    cfg, daily_files, start, end = args
+    acc = _make_tf_pws_accumulator(cfg)
+    for path in daily_files:
+        ds = read_netcdf_pair_slice(path, start, end)
+        acc.add_day(dataset_to_daily_ccf(ds))
+    return acc.finalize()
+
+
 def _run_stack_tf_pws_chunked(
     cfg: StackRunConfig,
     daily_files: Sequence[Path],
 ) -> tuple[StackedCCFResult, tuple[StationRecord, ...], list[str], str, str]:
-    """Stream daily CCFs into a tf-PWS stack with bounded pair-chunk memory."""
+    """Stream daily CCFs into a tf-PWS stack with bounded memory and optional multiprocessing."""
     first_ds = read_netcdf(daily_files[0])
     stations = _stations_from_daily_dataset(first_ds)
     param_hash = str(first_ds.attrs.get("param_hash", ""))
@@ -442,8 +441,8 @@ def _run_stack_tf_pws_chunked(
     first_daily = dataset_to_daily_ccf(first_ds)
     n_pairs = int(first_daily.n_windows.size)
 
-    # Cap pair chunk size by a 1 GiB working-set budget so high-fs / long-lag
-    # Stockwell stacks never thrash host RAM even if tf_pws_pair_chunk_size is large.
+    # Cap pair chunk size by a 1 GiB working-set budget per worker so high-fs /
+    # long-lag Stockwell stacks never thrash host RAM.
     resolved_nfft, lo, hi, _ = _resolve_stockwell_grid(
         int(first_daily.lag_s.size),
         float(first_daily.sampling_rate_hz),
@@ -454,37 +453,40 @@ def _run_stack_tf_pws_chunked(
     bytes_per_pair = max(1, 4 * n_freq * resolved_nfft * 16)
     auto_chunk = max(1, (1024 * 1024 * 1024) // bytes_per_pair)
     chunk_size = min(cfg.tf_pws_pair_chunk_size, auto_chunk)
+    if cfg.max_workers > 1 and n_pairs > 1:
+        balanced_chunk = max(1, (n_pairs + cfg.max_workers - 1) // cfg.max_workers)
+        chunk_size = min(chunk_size, balanced_chunk)
 
-    if n_pairs <= chunk_size:
+    # Fast metadata validation pass across all daily files (reads only 1 pair header).
+    dates_used: list[str] = [str(first_ds.attrs.get("utc_date", daily_files[0].stem))]
+    for path in daily_files[1:]:
+        hdr = read_netcdf_pair_slice(path, 0, min(1, n_pairs))
+        if str(hdr.attrs.get("station_list_hash", "")) != station_hash:
+            raise ValueError(
+                f"station_list_hash mismatch in {path}; cannot stack incompatible station tables."
+            )
+        dates_used.append(str(hdr.attrs.get("utc_date", path.stem)))
+
+    chunk_ranges = [(s, min(s + chunk_size, n_pairs)) for s in range(0, n_pairs, chunk_size)]
+
+    if len(chunk_ranges) == 1:
         acc = _make_tf_pws_accumulator(cfg)
-        dates_used: list[str] = [str(first_ds.attrs.get("utc_date", daily_files[0].stem))]
         acc.add_day(first_daily)
         for path in daily_files[1:]:
-            ds = read_netcdf(path)
-            if str(ds.attrs.get("station_list_hash", "")) != station_hash:
-                raise ValueError(
-                    f"station_list_hash mismatch in {path}; cannot stack incompatible station tables."
-                )
-            acc.add_day(dataset_to_daily_ccf(ds))
-            dates_used.append(str(ds.attrs.get("utc_date", path.stem)))
+            acc.add_day(dataset_to_daily_ccf(read_netcdf(path)))
         return acc.finalize(), stations, dates_used, param_hash, station_hash
 
-    chunk_results: list[StackedCCFResult] = []
-    dates_used = []
-    for start in range(0, n_pairs, chunk_size):
-        end = min(start + chunk_size, n_pairs)
-        acc = _make_tf_pws_accumulator(cfg)
-        for idx, path in enumerate(daily_files):
-            ds = first_ds if idx == 0 else read_netcdf(path)
-            if start == 0:
-                if idx > 0 and str(ds.attrs.get("station_list_hash", "")) != station_hash:
-                    raise ValueError(
-                        f"station_list_hash mismatch in {path}; cannot stack incompatible station tables."
-                    )
-                dates_used.append(str(ds.attrs.get("utc_date", path.stem)))
-            day = first_daily if idx == 0 else dataset_to_daily_ccf(ds)
-            acc.add_day(_slice_daily_ccf(day, start, end))
-        chunk_results.append(acc.finalize())
+    daily_tuple = tuple(daily_files)
+    worker_args = [(cfg, daily_tuple, start, end) for start, end in chunk_ranges]
+    if cfg.max_workers > 1:
+        effective_workers = min(cfg.max_workers, len(chunk_ranges))
+        with ProcessPoolExecutor(
+            max_workers=effective_workers,
+            initializer=_init_single_thread_blas,
+        ) as pool:
+            chunk_results = list(pool.map(_run_tf_pws_chunk_worker, worker_args))
+    else:
+        chunk_results = [_run_tf_pws_chunk_worker(arg) for arg in worker_args]
 
     template = chunk_results[0]
     stacked = StackedCCFResult(
@@ -507,6 +509,7 @@ def run_stack_config(
     config_or_path: StackRunConfig | str | Path,
     *,
     overwrite: bool | None = None,
+    max_workers: int | None = None,
 ) -> StackRunSummary:
     """Stream daily ZZ NetCDF files into a multi-day linear, PWS, or tf-PWS stack."""
     cfg = (
@@ -516,6 +519,8 @@ def run_stack_config(
     )
     if overwrite is not None:
         cfg = replace(cfg, overwrite=bool(overwrite))
+    if max_workers is not None:
+        cfg = replace(cfg, max_workers=int(max_workers))
 
     if cfg.output_file.exists() and not cfg.overwrite:
         raise FileExistsError(

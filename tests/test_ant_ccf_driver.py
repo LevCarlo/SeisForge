@@ -156,8 +156,9 @@ def test_end_to_end_sds_resume_stack_and_cli_export(tmp_path: Path):
         )
         == 0
     )
-    sac_files = list(sac_dir.glob("*.sac"))
+    sac_files = list(sac_dir.glob("*/*.sac"))
     assert len(sac_files) == 1
+    assert sac_files[0].parent.name == "XX.S01"
     tr = obspy_read(str(sac_files[0]))[0]
     assert tr.stats.sac.b == pytest.approx(-25.0, abs=1e-6)
     assert tr.stats.sac.kcmpnm.strip() == "ZZ"
@@ -230,8 +231,13 @@ def test_run_stack_config_tf_pws_chunked_matches_unchunked(tmp_path):
 
     out_full = tmp_path / "full.nc"
     out_chunked = tmp_path / "chunked.nc"
-    for out_file, chunk_size in ((out_full, 64), (out_chunked, 2)):
-        cfg_path = tmp_path / f"cfg_{chunk_size}.yml"
+    out_parallel = tmp_path / "parallel.nc"
+    for out_file, chunk_size, workers in (
+        (out_full, 64, 1),
+        (out_chunked, 2, 1),
+        (out_parallel, 2, 2),
+    ):
+        cfg_path = tmp_path / f"cfg_{chunk_size}_{workers}.yml"
         cfg_path.write_text(
             yaml.safe_dump(
                 {
@@ -242,6 +248,7 @@ def test_run_stack_config_tf_pws_chunked_matches_unchunked(tmp_path):
                         "tf_pws_freq_min_hz": 0.2,
                         "tf_pws_freq_max_hz": 3.0,
                         "tf_pws_pair_chunk_size": chunk_size,
+                        "max_workers": workers,
                     },
                     "output": {"file": str(out_file)},
                 }
@@ -252,9 +259,13 @@ def test_run_stack_config_tf_pws_chunked_matches_unchunked(tmp_path):
 
     ds_full = read_netcdf(out_full)
     ds_chunked = read_netcdf(out_chunked)
+    ds_parallel = read_netcdf(out_parallel)
     np.testing.assert_allclose(ds_chunked["ccf"].values, ds_full["ccf"].values, rtol=1e-13, atol=1e-13)
     np.testing.assert_array_equal(ds_chunked["n_windows"].values, ds_full["n_windows"].values)
     np.testing.assert_array_equal(ds_chunked["n_days"].values, ds_full["n_days"].values)
+    np.testing.assert_allclose(ds_parallel["ccf"].values, ds_full["ccf"].values, rtol=1e-13, atol=1e-13)
+    np.testing.assert_array_equal(ds_parallel["n_windows"].values, ds_full["n_windows"].values)
+    np.testing.assert_array_equal(ds_parallel["n_days"].values, ds_full["n_days"].values)
 
 
 def test_decimate_day_data_preserves_phase_and_gap_mask():

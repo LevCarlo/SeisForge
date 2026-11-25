@@ -337,7 +337,7 @@ def test_netcdf_roundtrip_and_selective_sac_export(tmp_path: Path):
     recovered_stack = dataset_to_stacked_ccf(read_netcdf(stack_nc))
     np.testing.assert_allclose(recovered_stack.ccf, stacked.ccf)
 
-    # Independent NetCDF -> SAC export
+    # Independent NetCDF -> SAC export (default layout: by-source)
     sac_dir = tmp_path / "sac_out"
     written = export_ccf_to_sac(
         stack_nc,
@@ -346,7 +346,7 @@ def test_netcdf_roundtrip_and_selective_sac_export(tmp_path: Path):
         include_autocorr=False,
     )
     assert len(written) == 1
-    assert written[0].name == "XX.S01_XX.S02_ZZ.sac"
+    assert written[0] == sac_dir / "XX.S01" / "XX.S01_XX.S02_ZZ.sac"
 
     tr = obspy_read(str(written[0]))[0]
     assert tr.stats.sac.b == pytest.approx(-2.0, abs=1e-6)
@@ -355,8 +355,21 @@ def test_netcdf_roundtrip_and_selective_sac_export(tmp_path: Path):
     assert 90.5 < tr.stats.sac.dist < 92.0
     assert 89.0 < tr.stats.sac.az < 91.0
     assert tr.stats.sac.kcmpnm.strip() == "ZZ"
+    assert tr.stats.sac.knetwk.strip() == "XX"
+    assert tr.stats.sac.kstnm.strip() == "S02"
+    assert tr.stats.sac.kevnm.strip() == "XX.S01"
     # Pair (0, 1) is index 1 in [(0,0), (0,1), (0,2), (1,1), (1,2), (2,2)].
     np.testing.assert_allclose(tr.data, stacked.ccf[1].astype(np.float32), rtol=1e-6, atol=1e-6)
 
     with pytest.raises(FileExistsError):
         export_ccf_to_sac(stack_nc, sac_dir, pairs=[("XX.S01", "XX.S02")], overwrite=False)
+
+    # Flat layout option
+    sac_flat = tmp_path / "sac_flat"
+    written_flat = export_ccf_to_sac(
+        stack_nc,
+        sac_flat,
+        pairs=[("XX.S01", "XX.S02")],
+        layout="flat",
+    )
+    assert written_flat == [sac_flat / "XX.S01_XX.S02_ZZ.sac"]

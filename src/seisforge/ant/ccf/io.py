@@ -27,6 +27,7 @@ __all__ = [
     "decimate_day_data",
     "load_station_table",
     "read_netcdf",
+    "read_netcdf_pair_slice",
     "read_sds_day_zz",
     "sds_file_path",
     "station_table_hash",
@@ -457,3 +458,9 @@ def read_netcdf(path: str | Path) -> xr.Dataset:
     """Load a CCF NetCDF4/HDF5 dataset into memory."""
     with xr.open_dataset(path, engine="h5netcdf") as opened:
         return opened.load()
+
+
+def read_netcdf_pair_slice(path: str | Path, start: int, end: int) -> xr.Dataset:
+    """Lazily read only the ``[start:end]`` pair slice of a CCF NetCDF4/HDF5 file."""
+    with xr.open_dataset(path, engine="h5netcdf") as opened:
+        return opened.isel(pair=slice(start, end)).load()
