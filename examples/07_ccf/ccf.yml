@@ -1,0 +1,66 @@
+# ZZ daily cross-correlation configuration for `seisforge ant ccf`.
+#
+# Usage:
+#   seisforge ant ccf -c ccf.yml
+#   seisforge ant ccf -c ccf.yml --date 2026-01-01       # single day (HPC job array)
+#   seisforge ant ccf -c ccf.yml --max-workers 4         # multi-day CPU pool
+#   seisforge ant ccf -c ccf.yml --backend cupy          # optional NVIDIA GPU backend
+#
+# Relative paths are resolved against this file's directory.
+# This example uses 1 Hz synthetic SDS data so it runs in ~1 s; for real nodal
+# arrays, typical values are sampling_rate_hz: 20.0, max_lag_s: 60.0,
+# lag_guard_s: 20.0, whiten: [0.1, 0.2, 5.0, 6.0] Hz.
+
+input:
+  sds_root: ./data/SDS                      # change this: root of your standard SDS archive
+  station_table: ./stations.csv             # change this: station metadata CSV
+  sampling_rate_hz: 1.0                     # change this: Hz (every SDS trace must match)
+  response_state: velocity                  # change this: gain_only | velocity | displacement | acceleration
+  valid_passband_hz: [0.02, 0.45]           # optional declared passband; whitening must stay inside
+  grid_tolerance_samples: 1.0e-3            # assumed default: max starttime offset from k/fs (samples)
+  gap_guard_s: 2.0                          # extra mask margin dilated around each SDS gap (s)
+  allow_missing_next_day: true              # true: skip cross-midnight windows if D+1 file is absent
+
+processing:
+  cc_type: cc                               # cc (classical) | pcc2 (phase cross-correlation, nu=2)
+  window_length_s: 500.0                    # L (s); 172 or 173 windows per UTC day at step_s=500
+  step_s: null                              # null -> non-overlapping (equals window_length_s)
+  max_lag_s: 30.0                           # published lag half-width (s)
+  lag_guard_s: 10.0                         # extra lag margin (s) for Hilbert/PWS edge absorption
+
+  # Temporal normalization (used for cc_type: cc; skipped automatically for pcc2).
+  ram_half_width_s: 10.0                    # null disables RAM; half-width of running mean (s)
+  ram_bandpass:                             # optional bandpass applied only to weight estimation
+    freq_min_hz: 0.05
+    freq_max_hz: 0.40
+    order: 4                                # assumed default
+    zerophase: true
+
+  # Spectral whitening on L-sample windows (applied before zero-padding when circular: false).
+  whiten:
+    taper_min_hz: 0.03
+    freq_min_hz: 0.05
+    freq_max_hz: 0.38
+    taper_max_hz: 0.42
+    smooth_half_width_hz: 0.01              # 0 disables smoothing (bin-by-bin)
+    water_level: 1.0e-6                     # assumed default, relative to max smoothed denominator
+  whiten_mode: vector_norm                  # vector_norm (sqrt(smooth(|S|^2))) | classic (smooth(|S|))
+
+  taper_fraction: 0.05                      # assumed default: Tukey cosine taper at each window end
+  circular: false                           # false: linear correlation (whiten -> pad -> rfft)
+  nfft: null                                # null -> next_fast_len(L + max_lag + lag_guard)
+  include_autocorr: true                    # include (i, i) pairs
+  max_distance_km: null                     # optional upper distance cutoff (km) before irfft
+  block_size: 64                            # assumed default: source stations per GEMM block
+  spectrum_dtype: complex64                 # complex64 (production) | complex128 (reference)
+
+output:
+  dir: ./output/daily_ccf                   # writes ccf_ZZ_YYYY-MM-DD.nc and ccf.log
+  overwrite: false                          # false: resume matching days via triple-hash check
+  compression_level: 4                      # assumed default: gzip level 0..9
+
+run:
+  start_date: "2026-01-01"                  # change this
+  end_date: "2026-01-02"                    # change this (inclusive)
+  max_workers: 1                            # >1 uses ProcessPoolExecutor (BLAS locked to 1 thread)
+  backend: numpy                            # numpy | cupy

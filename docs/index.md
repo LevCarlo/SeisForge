@@ -54,4 +54,11 @@ config, `run.sh` and README: see the [examples overview](examples.md).
 - Changes that alter results of existing configurations:
   [changelog](changelog.md).
 
+!!! note "Disclaimer"
+
+    Much of this documentation and parts of the codebase were generated with
+    AI assistance and are provided for reference only. Please verify equations,
+    conventions, and numerical results against your own data and published
+    references before relying on them in production or research publications.
+
 

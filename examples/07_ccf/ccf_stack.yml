@@ -1,0 +1,22 @@
+# Multi-day ZZ stacking configuration for `seisforge ant stack-ccf`.
+#
+# Usage:
+#   seisforge ant stack-ccf -c ccf_stack.yml
+#   seisforge ant stack-ccf -c ccf_stack.yml --overwrite
+
+input:
+  daily_dir: ./output/daily_ccf             # directory containing ccf_ZZ_YYYY-MM-DD.nc files
+  # Optional date subset; omit to stack all ccf_ZZ_*.nc files in daily_dir.
+  # start_date: "2026-01-01"
+  # end_date: "2026-01-02"
+
+stack:
+  method: linear                            # linear (production) | pws (experimental, Schimmel & Paulssen 1997)
+  day_weighting: windows                    # windows (sum / sum n_windows) | equal (equal weight per valid day)
+  pws_power: 2.0                            # phase coherence exponent nu (used when method: pws)
+  trim_guard: true                          # true: trim lag_guard_s to +-max_lag_s (PWS always trims)
+
+output:
+  file: ./output/stacked_ZZ.nc              # writes stacked NetCDF4/HDF5 and stack_ccf.log
+  overwrite: false                          # refuse to overwrite unless true or --overwrite
+  compression_level: 4                      # assumed default: gzip level 0..9

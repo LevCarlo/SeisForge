@@ -1,13 +1,14 @@
 # Ambient-Noise Tools: Overview
 
-`seisforge.ant` is a small set of tools for ambient-noise tomography (ANT),
-not a complete pipeline. It has three independent tools. Each can be used on
-its own: its input may come from other software, and its output can go to
-other software. SeisForge does not compute cross-correlations and does not do
-path (ray) tomography.
+`seisforge.ant` is a small set of independent tools for ambient-noise
+tomography (ANT), not a single rigid pipeline. Each tool can be used on its
+own: its input may come from other software, and its output can go to other
+software. SeisForge does not handle raw waveform preparation (resampling or
+instrument-response removal) and does not do path (ray) tomography.
 
 | tool | page | input | output |
 |---|---|---|---|
+| ZZ CCF & stacking (`ccf`, `stack-ccf`, `export-sac`) | [ZZ cross-correlation and stacking](ccf.md) | pre-prepared daily SDS MiniSEED + station table | daily and stacked ZZ NetCDF4/HDF5 (optional SAC export) |
 | CCF rotation (`rotate-ccf`) | [Multi-component CCFs: ZNE → ZRT](rotation.md) | nine ZNE CCFs of a pair, azimuth $\theta$, back azimuth $\psi$ | nine ZRT CCFs |
 | FTAN/PMF dispersion (`aftan`) | [AFTAN](dispersion.md) | one CCF (any component), distance $r$ | group and phase velocity vs period, per lag branch |
 | Eikonal/Helmholtz imaging (`eikonal`) | [Eikonal and Helmholtz tomography](tomography.md) | path-average phase velocities of many station pairs | local phase-velocity maps $c(x, T)$ with a spread |

@@ -1,0 +1,4 @@
+network,station,location,channel,latitude_deg,longitude_deg,elevation_m,response_state,instrument_model
+XX,STA01,00,LHZ,35.0000,100.0000,1200.0,velocity,Synthetic-1Hz
+XX,STA02,00,LHZ,35.0000,100.2500,1180.0,velocity,Synthetic-1Hz
+XX,STA03,00,LHZ,35.2000,100.1200,1250.0,velocity,Synthetic-1Hz

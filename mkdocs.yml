@@ -64,6 +64,7 @@ nav:
       - Development: development.md
   - Ambient noise:
       - Overview: ant/index.md
+      - ZZ cross-correlation and stacking: ant/ccf.md
       - "Multi-component CCFs: ZNE → ZRT": ant/rotation.md
       - "AFTAN: FTAN and PMF": ant/dispersion.md
       - Eikonal and Helmholtz tomography: ant/tomography.md

@@ -16,10 +16,74 @@ def register(
     parser.set_defaults(func=_print_help, parser=parser)
 
     ant_subparsers = parser.add_subparsers(dest="ant_command", metavar="<command>")
+    _register_ccf(ant_subparsers)
+    _register_stack_ccf(ant_subparsers)
+    _register_export_sac(ant_subparsers)
     _register_rotate_ccf(ant_subparsers)
     _register_aftan(ant_subparsers)
     _register_eikonal(ant_subparsers)
     return parser
+
+
+def _register_ccf(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "ccf",
+        help="Compute daily ZZ ambient-noise CCFs from SDS MiniSEED data.",
+        description="Compute daily ZZ cross-correlation sums into NetCDF4/HDF5 files.",
+    )
+    parser.add_argument("-c", "--config-file", required=True, help="CCF YAML config.")
+    parser.add_argument(
+        "--date",
+        action="append",
+        dest="dates",
+        default=None,
+        help="Specific UTC date (YYYY-MM-DD); repeatable for HPC job arrays.",
+    )
+    parser.add_argument("--max-workers", type=int, default=None, help="Process pool size.")
+    parser.add_argument(
+        "--backend", choices=("numpy", "cupy"), default=None, help="GEMM/IFFT backend."
+    )
+    parser.add_argument(
+        "--overwrite", action="store_true", default=None, help="Force recompute existing days."
+    )
+    parser.set_defaults(func=_run_ccf)
+
+
+def _register_stack_ccf(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "stack-ccf",
+        help="Stack daily ZZ CCF NetCDF4/HDF5 files across days.",
+        description="Stream daily ZZ CCF files into a multi-day linear or PWS stack.",
+    )
+    parser.add_argument("-c", "--config-file", required=True, help="Stack YAML config.")
+    parser.add_argument(
+        "--overwrite", action="store_true", default=None, help="Replace existing stack output."
+    )
+    parser.set_defaults(func=_run_stack_ccf)
+
+
+def _register_export_sac(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    parser = subparsers.add_parser(
+        "export-sac",
+        help="Selectively export CCF NetCDF4/HDF5 pairs to SAC files.",
+        description="Independent post-processing converter: CCF NetCDF4/HDF5 -> SAC.",
+    )
+    parser.add_argument("-i", "--input-file", required=True, help="Daily or stacked CCF NetCDF file.")
+    parser.add_argument("-o", "--output-dir", required=True, help="Directory for SAC files.")
+    parser.add_argument("--min-distance-km", type=float, default=None, help="Min distance in km.")
+    parser.add_argument("--max-distance-km", type=float, default=None, help="Max distance in km.")
+    parser.add_argument("--min-n-windows", type=int, default=1, help="Min valid windows.")
+    parser.add_argument(
+        "--include-autocorr", action="store_true", help="Include same-station pairs."
+    )
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing SAC files.")
+    parser.set_defaults(func=_run_export_sac)
 
 
 def _register_rotate_ccf(
@@ -110,6 +174,52 @@ def _register_eikonal(
         help="Run the full workflow, event fields only, or stacking only.",
     )
     parser.set_defaults(func=_run_eikonal)
+
+
+def _run_ccf(args: argparse.Namespace) -> int:
+    from seisforge.ant.ccf import run_ccf_config
+
+    summary = run_ccf_config(
+        args.config_file,
+        dates=args.dates,
+        overwrite=args.overwrite,
+        max_workers=args.max_workers,
+        backend=args.backend,
+    )
+    computed = sum(1 for o in summary.outcomes if o.status == "computed")
+    resumed = sum(1 for o in summary.outcomes if o.status == "resumed")
+    print(
+        f"ccf finished: {len(summary.outcomes)} day(s) "
+        f"({computed} computed, {resumed} resumed); log: {summary.log_file}"
+    )
+    return 0
+
+
+def _run_stack_ccf(args: argparse.Namespace) -> int:
+    from seisforge.ant.ccf import run_stack_config
+
+    summary = run_stack_config(args.config_file, overwrite=args.overwrite)
+    print(
+        f"stacked {len(summary.dates_used)} day(s) into {summary.output_file}; "
+        f"log: {summary.log_file}"
+    )
+    return 0
+
+
+def _run_export_sac(args: argparse.Namespace) -> int:
+    from seisforge.ant.ccf import export_ccf_to_sac
+
+    written = export_ccf_to_sac(
+        args.input_file,
+        args.output_dir,
+        min_distance_km=args.min_distance_km,
+        max_distance_km=args.max_distance_km,
+        min_n_windows=args.min_n_windows,
+        include_autocorr=args.include_autocorr,
+        overwrite=args.overwrite,
+    )
+    print(f"exported {len(written)} SAC file(s) to {args.output_dir}")
+    return 0
 
 
 def _run_rotate_ccf(args: argparse.Namespace) -> int:
