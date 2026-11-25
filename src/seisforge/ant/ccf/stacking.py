@@ -56,6 +56,7 @@ References
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from typing import Any
 
 import numpy as np
 from scipy import ndimage, signal
@@ -458,12 +459,45 @@ def _resolve_stockwell_grid(
     return resolved_nfft, lo, hi, freqs_hz
 
 
+def _resolve_tf_pws_backend(
+    backend: str,
+) -> tuple[Any, Any, Any, Any, Any]:
+    """Return ``(xp, fft_fn, ifft_fn, uniform_filter1d_fn, to_numpy_fn)``."""
+    if backend == "numpy":
+        return np, fft, ifft, ndimage.uniform_filter1d, np.asarray
+    if backend == "cupy":
+        try:
+            import cupy as cp  # type: ignore[import-not-found]
+            from cupyx.scipy import fft as cp_fft  # type: ignore[import-not-found]
+            from cupyx.scipy import ndimage as cp_ndimage  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise ImportError(
+                "backend='cupy' requires CuPy; install a CUDA-matching cupy package."
+            ) from exc
+        return cp, cp_fft.fft, cp_fft.ifft, cp_ndimage.uniform_filter1d, cp.asnumpy
+    raise ValueError(f"backend must be 'numpy' or 'cupy', got {backend!r}.")
+
+
+def _resolve_spectrum_dtypes(spectrum_dtype: str) -> tuple[type, type]:
+    """Return ``(real_dtype, complex_dtype)`` for Stockwell calculations."""
+    if spectrum_dtype == "complex128":
+        return np.float64, np.complex128
+    if spectrum_dtype == "complex64":
+        return np.float32, np.complex64
+    raise ValueError(
+        f"spectrum_dtype must be 'complex64' or 'complex128', got {spectrum_dtype!r}."
+    )
+
+
 def _build_stockwell_gauss_table(
     resolved_nfft: int,
     lo: int,
     hi: int,
     sigma: float,
-) -> np.ndarray:
+    *,
+    real_dtype: type = np.float64,
+    xp: Any = np,
+) -> Any:
     """Precompute Stockwell Gaussian frequency windows for bins ``[lo, hi]``."""
     m_bins = fftfreq(resolved_nfft) * float(resolved_nfft)
     m_sq = m_bins * m_bins
@@ -473,7 +507,8 @@ def _build_stockwell_gauss_table(
     table = np.exp(-gauss_scale * m_sq[None, :] / (safe_n[:, None] ** 2))
     if lo == 0:
         table[0, :] = 0.0
-    return table
+    table_typed = table.astype(real_dtype, copy=False)
+    return table_typed if xp is np else xp.asarray(table_typed)
 
 
 def _stockwell_transform_core(
@@ -481,18 +516,23 @@ def _stockwell_transform_core(
     resolved_nfft: int,
     lo: int,
     hi: int,
-    gauss_table: np.ndarray,
+    gauss_table: Any,
     *,
     freq_block: int = 32,
-) -> np.ndarray:
+    xp: Any = np,
+    fft_fn: Any = fft,
+    ifft_fn: Any = ifft,
+    real_dtype: type = np.float64,
+    complex_dtype: type = np.complex128,
+) -> Any:
     """Batched forward Stockwell transform using contiguous spectrum slicing."""
     n_traces, n_samples = traces.shape
-    padded = np.zeros((n_traces, resolved_nfft), dtype=np.float64)
-    padded[:, :n_samples] = traces
+    padded = xp.zeros((n_traces, resolved_nfft), dtype=real_dtype)
+    padded[:, :n_samples] = xp.asarray(traces, dtype=real_dtype)
 
     # Analytic signal spectrum: double strictly positive frequencies, zero negative.
-    spectrum = fft(padded, axis=-1)
-    analytic_spec = np.zeros_like(spectrum)
+    spectrum = fft_fn(padded, axis=-1)
+    analytic_spec = xp.zeros((n_traces, resolved_nfft), dtype=complex_dtype)
     analytic_spec[:, 0] = spectrum[:, 0]
     half_pos = (resolved_nfft + 1) // 2
     analytic_spec[:, 1:half_pos] = 2.0 * spectrum[:, 1:half_pos]
@@ -500,28 +540,48 @@ def _stockwell_transform_core(
         analytic_spec[:, resolved_nfft // 2] = spectrum[:, resolved_nfft // 2]
 
     # Doubling along the frequency axis turns circular shifts into contiguous slices.
-    analytic_doubled = np.concatenate([analytic_spec, analytic_spec], axis=-1)
+    analytic_doubled = xp.concatenate([analytic_spec, analytic_spec], axis=-1)
     n_freq = hi - lo + 1
-    st = np.empty((n_traces, n_freq, resolved_nfft), dtype=np.complex128)
+    st = xp.empty((n_traces, n_freq, resolved_nfft), dtype=complex_dtype)
 
     row_start = 0
     if lo == 0:
-        mean_val = np.mean(padded, axis=-1, keepdims=True)
-        st[:, 0, :] = mean_val.astype(np.complex128)
+        mean_val = xp.mean(padded, axis=-1, keepdims=True)
+        st[:, 0, :] = mean_val.astype(complex_dtype)
         row_start = 1
 
     # Batch IFFTs across frequency blocks to minimize Python/FFT dispatch overhead.
     for b_start in range(row_start, n_freq, freq_block):
         b_end = min(b_start + freq_block, n_freq)
         b_len = b_end - b_start
-        shifted = np.empty((n_traces, b_len, resolved_nfft), dtype=np.complex128)
+        shifted = xp.empty((n_traces, b_len, resolved_nfft), dtype=complex_dtype)
         for j, row in enumerate(range(b_start, b_end)):
             n_bin = lo + row
             shifted[:, j, :] = analytic_doubled[:, n_bin : n_bin + resolved_nfft]
         shifted *= gauss_table[None, b_start:b_end, :]
-        st[:, b_start:b_end, :] = ifft(shifted, axis=-1)
+        st[:, b_start:b_end, :] = ifft_fn(shifted, axis=-1)
 
     return st
+
+
+def _inverse_stockwell_core(
+    st_3d: Any,
+    bins: np.ndarray,
+    nfft: int,
+    n_samples: int,
+    *,
+    xp: Any = np,
+    ifft_fn: Any = ifft,
+    complex_dtype: type = np.complex128,
+    to_numpy_fn: Any = np.asarray,
+) -> np.ndarray:
+    """Backend-agnostic exact Stockwell (1996) inverse S-transform."""
+    n_traces = st_3d.shape[0]
+    analytic_spec = xp.zeros((n_traces, nfft), dtype=complex_dtype)
+    bins_dev = bins if xp is np else xp.asarray(bins)
+    analytic_spec[:, bins_dev] = xp.sum(st_3d, axis=-1)
+    reconstructed = xp.real(ifft_fn(analytic_spec, axis=-1))[:, :n_samples]
+    return np.ascontiguousarray(to_numpy_fn(reconstructed), dtype=np.float64)
 
 
 def stockwell_transform(
@@ -693,6 +753,8 @@ class TFPWSStackAccumulator:
         amplitude_water_level: float = 1e-12,
         smooth_samples: int = 0,
         normalize_weights: bool = False,
+        spectrum_dtype: str = "complex128",
+        backend: str = "numpy",
     ) -> None:
         if power <= 0 or not np.isfinite(power):
             raise ValueError("power must be finite and positive.")
@@ -702,6 +764,17 @@ class TFPWSStackAccumulator:
             raise ValueError("amplitude_water_level must be finite and non-negative.")
         if smooth_samples < 0:
             raise ValueError("smooth_samples must be non-negative.")
+
+        self._real_dtype, self._complex_dtype = _resolve_spectrum_dtypes(spectrum_dtype)
+        (
+            self._xp,
+            self._fft_fn,
+            self._ifft_fn,
+            self._uniform_filter1d_fn,
+            self._to_numpy_fn,
+        ) = _resolve_tf_pws_backend(backend)
+        self._backend = backend
+        self._spectrum_dtype = spectrum_dtype
 
         self._power = float(power)
         self._freq_min_hz = freq_min_hz
@@ -717,8 +790,8 @@ class TFPWSStackAccumulator:
         self._nfft: int | None = None
         self._lo: int = 0
         self._hi: int = 0
-        self._gauss_table: np.ndarray | None = None
-        self._tf_phase_sum: np.ndarray | None = None
+        self._gauss_table: Any = None
+        self._tf_phase_sum: Any = None
         self._n_days_phase: np.ndarray | None = None
 
     def add_day(
@@ -743,10 +816,17 @@ class TFPWSStackAccumulator:
             self._lo = lo
             self._hi = hi
             self._freqs_hz = freqs_hz
-            self._gauss_table = _build_stockwell_gauss_table(nfft, lo, hi, self._sigma)
-            self._tf_phase_sum = np.zeros(
+            self._gauss_table = _build_stockwell_gauss_table(
+                nfft,
+                lo,
+                hi,
+                self._sigma,
+                real_dtype=self._real_dtype,
+                xp=self._xp,
+            )
+            self._tf_phase_sum = self._xp.zeros(
                 (day.n_windows.size, freqs_hz.size, nfft),
-                dtype=np.complex128,
+                dtype=self._complex_dtype,
             )
             self._n_days_phase = np.zeros(day.n_windows.shape, dtype=np.int64)
         else:
@@ -765,6 +845,7 @@ class TFPWSStackAccumulator:
         assert self._nfft is not None
         assert self._gauss_table is not None
 
+        xp = self._xp
         daily_mean = day.ccf_sum[keep] / day.n_windows[keep, None]
         st = _stockwell_transform_core(
             daily_mean,
@@ -772,15 +853,21 @@ class TFPWSStackAccumulator:
             self._lo,
             self._hi,
             self._gauss_table,
+            xp=xp,
+            fft_fn=self._fft_fn,
+            ifft_fn=self._ifft_fn,
+            real_dtype=self._real_dtype,
+            complex_dtype=self._complex_dtype,
         )
-        amp = np.abs(st)
-        max_amp = np.max(amp, axis=(-2, -1), keepdims=True)
-        floor = self._amplitude_water_level * max_amp
+        amp = xp.abs(st)
+        max_amp = xp.max(amp, axis=(-2, -1), keepdims=True)
+        floor = self._real_dtype(self._amplitude_water_level) * max_amp
         good = (max_amp > 0.0) & (amp > floor)
-        safe_amp = np.where(good, amp, 1.0)
-        unit_phase = np.where(good, st / safe_amp, 0.0 + 0.0j)
+        safe_amp = xp.where(good, amp, self._real_dtype(1.0))
+        unit_phase = xp.where(good, st / safe_amp, self._complex_dtype(0.0 + 0.0j))
 
-        self._tf_phase_sum[keep] += unit_phase
+        keep_dev = keep if xp is np else xp.asarray(keep)
+        self._tf_phase_sum[keep_dev] += unit_phase
         self._n_days_phase[keep] += 1
 
     def finalize(self) -> StackedCCFResult:
@@ -792,21 +879,26 @@ class TFPWSStackAccumulator:
         assert self._freqs_hz is not None
         assert self._nfft is not None
 
+        xp = self._xp
         linear_res = self._linear.finalize(trim_guard=False)
         ccf_tf_pws = np.full(linear_res.ccf.shape, np.nan, dtype=np.float64)
         valid = self._n_days_phase > 0
         if np.any(valid):
-            coherence = np.abs(
-                self._tf_phase_sum[valid] / self._n_days_phase[valid, None, None]
+            valid_dev = valid if xp is np else xp.asarray(valid)
+            n_days_dev = xp.asarray(
+                self._n_days_phase[valid, None, None],
+                dtype=self._real_dtype,
             )
-            tf_weight = coherence**self._power
+            coherence = xp.abs(self._tf_phase_sum[valid_dev] / n_days_dev)
+            tf_weight = coherence ** self._real_dtype(self._power)
 
             if self._normalize_weights:
-                row_max = np.max(tf_weight, axis=-1, keepdims=True)
-                tf_weight = np.where(row_max > 0.0, tf_weight / np.where(row_max > 0.0, row_max, 1.0), 0.0)
+                row_max = xp.max(tf_weight, axis=-1, keepdims=True)
+                safe_max = xp.where(row_max > 0.0, row_max, self._real_dtype(1.0))
+                tf_weight = xp.where(row_max > 0.0, tf_weight / safe_max, self._real_dtype(0.0))
 
             if self._smooth_samples > 0:
-                tf_weight = ndimage.uniform_filter1d(
+                tf_weight = self._uniform_filter1d_fn(
                     tf_weight,
                     size=2 * self._smooth_samples + 1,
                     axis=-1,
@@ -820,12 +912,22 @@ class TFPWSStackAccumulator:
                 self._lo,
                 self._hi,
                 self._gauss_table,
+                xp=xp,
+                fft_fn=self._fft_fn,
+                ifft_fn=self._ifft_fn,
+                real_dtype=self._real_dtype,
+                complex_dtype=self._complex_dtype,
             )
-            ccf_tf_pws[valid] = inverse_stockwell_transform(
+            bins = np.arange(self._lo, self._hi + 1, dtype=np.int64)
+            ccf_tf_pws[valid] = _inverse_stockwell_core(
                 st_lin * tf_weight,
-                self._freqs_hz,
-                linear_res.sampling_rate_hz,
-                n_samples=linear_res.lag_s.size,
+                bins,
+                self._nfft,
+                linear_res.lag_s.size,
+                xp=xp,
+                ifft_fn=self._ifft_fn,
+                complex_dtype=self._complex_dtype,
+                to_numpy_fn=self._to_numpy_fn,
             )
 
         lag_s, ccf_trimmed = trim_lag_guard(
@@ -862,6 +964,8 @@ def tf_pws_stack_daily(
     amplitude_water_level: float = 1e-12,
     smooth_samples: int = 0,
     normalize_weights: bool = False,
+    spectrum_dtype: str = "complex128",
+    backend: str = "numpy",
 ) -> StackedCCFResult:
     """Compute a Time-Frequency Phase-Weighted Stack (Schimmel & Gallart 2007)."""
     days = list(daily_results)
@@ -881,6 +985,8 @@ def tf_pws_stack_daily(
         amplitude_water_level=amplitude_water_level,
         smooth_samples=smooth_samples,
         normalize_weights=normalize_weights,
+        spectrum_dtype=spectrum_dtype,
+        backend=backend,
     )
     for idx, day in enumerate(days):
         pmask = None if pair_masks is None else pair_masks[idx]

@@ -404,3 +404,91 @@ def test_run_ccf_config_with_target_sampling_rate_hz(tmp_path):
     bad_path.write_text(yaml.safe_dump(bad_dict), encoding="utf-8")
     with pytest.raises(ValueError, match="exceeds Nyquist"):
         load_ccf_config(bad_path)
+
+
+def test_tf_pws_complex64_and_cupy_backend_dispatch(tmp_path, monkeypatch):
+    """tf_pws complex64 matches complex128 closely, and --backend cupy dispatches cleanly."""
+    import sys
+    import types
+
+    from scipy import fft as sp_fft
+    from scipy import ndimage as sp_ndimage
+
+    from seisforge.ant.ccf import DailyCCFResult, daily_ccf_to_dataset, lag_axis_s, write_netcdf
+
+    fs = 10.0
+    lags = lag_axis_s(fs, max_lag_s=2.0, lag_guard_s=1.0)
+    stations = [
+        StationRecord("XX", f"S0{i}", "00", "LHZ", 35.0, 100.0 + 0.1 * i, response_state="velocity")
+        for i in range(1, 4)
+    ]
+    pairs = np.array([[0, 1], [0, 2], [1, 2]], dtype=np.int64)
+    rng = np.random.default_rng(99)
+    daily_dir = tmp_path / "daily"
+    daily_dir.mkdir()
+    for date_str in ("2026-01-01", "2026-01-02", "2026-01-03"):
+        ccf_sum = (rng.standard_normal((pairs.shape[0], lags.size)) * 10.0).astype(np.float64)
+        n_win = np.full(pairs.shape[0], 10, dtype=np.int64)
+        res = DailyCCFResult(lags, pairs, ccf_sum, n_win, "cc", fs, 2.0, 1.0)
+        ds = daily_ccf_to_dataset(
+            res, stations, utc_date=date_str, param_hash="aa", station_list_hash="bb"
+        )
+        write_netcdf(ds, daily_dir / f"ccf_ZZ_{date_str}.nc")
+
+    out_128 = tmp_path / "tf128.nc"
+    out_64 = tmp_path / "tf64.nc"
+    out_cupy = tmp_path / "tf_cupy.nc"
+
+    def _write_cfg(out_file: Path, *, dtype: str = "complex128", backend: str = "numpy") -> Path:
+        p = tmp_path / f"cfg_{out_file.stem}.yml"
+        p.write_text(
+            yaml.safe_dump(
+                {
+                    "input": {"daily_dir": str(daily_dir)},
+                    "stack": {
+                        "method": "tf_pws",
+                        "pws_power": 2.0,
+                        "tf_pws_freq_min_hz": 0.2,
+                        "tf_pws_freq_max_hz": 3.0,
+                        "tf_pws_smooth_samples": 1,
+                        "tf_pws_pair_chunk_size": 2,
+                        "tf_pws_dtype": dtype,
+                        "backend": backend,
+                    },
+                    "output": {"file": str(out_file)},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return p
+
+    run_stack_config(_write_cfg(out_128, dtype="complex128"))
+    run_stack_config(_write_cfg(out_64, dtype="complex64"))
+
+    ds128 = read_netcdf(out_128)
+    ds64 = read_netcdf(out_64)
+    np.testing.assert_allclose(ds64["ccf"].values, ds128["ccf"].values, rtol=1e-4, atol=1e-5)
+
+    # Without cupy installed, backend='cupy' must raise a clear ImportError.
+    monkeypatch.setitem(sys.modules, "cupy", None)
+    with pytest.raises(ImportError, match="backend='cupy' requires CuPy"):
+        run_stack_config(_write_cfg(out_cupy, dtype="complex64", backend="cupy"))
+
+    # Inject a lightweight NumPy-backed fake cupy/cupyx module to test the full GPU dispatch path.
+    fake_cp = types.ModuleType("cupy")
+    for name in ("zeros", "empty", "asarray", "concatenate", "mean", "abs", "max", "where", "sum", "real"):
+        setattr(fake_cp, name, getattr(np, name))
+    fake_cp.asnumpy = np.asarray  # type: ignore[attr-defined]
+    fake_cupyx = types.ModuleType("cupyx")
+    fake_cupyx_scipy = types.ModuleType("cupyx.scipy")
+    fake_cupyx_scipy.fft = sp_fft  # type: ignore[attr-defined]
+    fake_cupyx_scipy.ndimage = sp_ndimage  # type: ignore[attr-defined]
+    fake_cupyx.scipy = fake_cupyx_scipy  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "cupy", fake_cp)
+    monkeypatch.setitem(sys.modules, "cupyx", fake_cupyx)
+    monkeypatch.setitem(sys.modules, "cupyx.scipy", fake_cupyx_scipy)
+
+    cfg_cupy = _write_cfg(out_cupy, dtype="complex64", backend="numpy")
+    assert cli_main(["ant", "stack-ccf", "-c", str(cfg_cupy), "--backend", "cupy"]) == 0
+    ds_cupy = read_netcdf(out_cupy)
+    np.testing.assert_allclose(ds_cupy["ccf"].values, ds64["ccf"].values, rtol=1e-13, atol=1e-13)

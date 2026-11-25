@@ -69,6 +69,12 @@ def _register_stack_ccf(
         default=None,
         help="Override parallel worker count for tf_pws pair-chunk stacking.",
     )
+    parser.add_argument(
+        "--backend",
+        choices=("numpy", "cupy"),
+        default=None,
+        help="Override array backend for tf_pws stacking (numpy | cupy).",
+    )
     parser.set_defaults(func=_run_stack_ccf)
 
 
@@ -219,6 +225,7 @@ def _run_stack_ccf(args: argparse.Namespace) -> int:
         args.config_file,
         overwrite=args.overwrite,
         max_workers=args.max_workers,
+        backend=args.backend,
     )
     print(
         f"stacked {len(summary.dates_used)} day(s) into {summary.output_file}; "

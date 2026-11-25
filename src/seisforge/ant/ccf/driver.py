@@ -414,6 +414,8 @@ def _make_tf_pws_accumulator(cfg: StackRunConfig) -> TFPWSStackAccumulator:
         sigma=cfg.tf_pws_sigma,
         smooth_samples=cfg.tf_pws_smooth_samples,
         normalize_weights=cfg.tf_pws_normalize_weights,
+        spectrum_dtype=cfg.tf_pws_dtype,
+        backend=cfg.backend,
     )
 
 
@@ -450,10 +452,12 @@ def _run_stack_tf_pws_chunked(
         freq_max_hz=cfg.tf_pws_freq_max_hz,
     )
     n_freq = max(1, hi - lo + 1)
-    bytes_per_pair = max(1, 4 * n_freq * resolved_nfft * 16)
+    bytes_per_elem = 8 if cfg.tf_pws_dtype == "complex64" else 16
+    bytes_per_pair = max(1, 4 * n_freq * resolved_nfft * bytes_per_elem)
     auto_chunk = max(1, (1024 * 1024 * 1024) // bytes_per_pair)
     chunk_size = min(cfg.tf_pws_pair_chunk_size, auto_chunk)
-    if cfg.max_workers > 1 and n_pairs > 1:
+    use_multiprocess = cfg.backend == "numpy" and cfg.max_workers > 1 and n_pairs > 1
+    if use_multiprocess:
         balanced_chunk = max(1, (n_pairs + cfg.max_workers - 1) // cfg.max_workers)
         chunk_size = min(chunk_size, balanced_chunk)
 
@@ -478,7 +482,7 @@ def _run_stack_tf_pws_chunked(
 
     daily_tuple = tuple(daily_files)
     worker_args = [(cfg, daily_tuple, start, end) for start, end in chunk_ranges]
-    if cfg.max_workers > 1:
+    if use_multiprocess:
         effective_workers = min(cfg.max_workers, len(chunk_ranges))
         with ProcessPoolExecutor(
             max_workers=effective_workers,
@@ -510,6 +514,7 @@ def run_stack_config(
     *,
     overwrite: bool | None = None,
     max_workers: int | None = None,
+    backend: str | None = None,
 ) -> StackRunSummary:
     """Stream daily ZZ NetCDF files into a multi-day linear, PWS, or tf-PWS stack."""
     cfg = (
@@ -521,6 +526,8 @@ def run_stack_config(
         cfg = replace(cfg, overwrite=bool(overwrite))
     if max_workers is not None:
         cfg = replace(cfg, max_workers=int(max_workers))
+    if backend is not None:
+        cfg = replace(cfg, backend=str(backend))
 
     if cfg.output_file.exists() and not cfg.overwrite:
         raise FileExistsError(

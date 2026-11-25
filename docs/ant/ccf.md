@@ -143,9 +143,11 @@ Optional frequency bounds (`tf_pws_freq_min_hz`, `tf_pws_freq_max_hz`) restrict
 the S-transform to the band of interest; in `run_stack_config`, pairs are
 processed in memory-bounded chunks (`tf_pws_pair_chunk_size`, assumed default:
 `64`, automatically capped to a 1 GiB working-set budget per worker) and can
-run across multiple processes (`stack.max_workers` / `--max-workers`) using
-lazy HDF5 pair-slice reads. To match ANCC's `TF_PWS` defaults, set
-`pws_power: 1.0` and `day_weighting: equal`.
+run across multiple CPU processes (`stack.max_workers` / `--max-workers`) using
+lazy HDF5 pair-slice reads, or on an NVIDIA GPU (`stack.backend: cupy` /
+`--backend cupy`, optionally with `tf_pws_dtype: complex64` for 2× smaller
+memory footprint and peak FP32 GPU throughput). To match ANCC's `TF_PWS`
+defaults, set `pws_power: 1.0` and `day_weighting: equal`.
 
 **Selective SAC export.** `seisforge ant export-sac` is a standalone
 NetCDF4/HDF5 → SAC post-processing converter that filters pairs by station
