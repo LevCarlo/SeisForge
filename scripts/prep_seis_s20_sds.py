@@ -14,13 +14,13 @@ parallel using GNU ``parallel`` or a cluster job array:
 
 .. code-block:: bash
 
-    find /path/to/RawData/广西第1次收台数据 -mindepth 1 -maxdepth 1 -type d \\
+    find /path/to/RawData/batch1 -mindepth 1 -maxdepth 1 -type d \\
         | parallel -j 8 \\
-            /Users/mengjie/Software/miniforge3/envs/seis/bin/python \\
-            scripts/prep_seis_s20_sds.py {} \\
-            --out-sds /path/to/sds_20hz \\
-            --pz /Users/mengjie/IGGCAS/Project/Guangxi.Proj/response/SEIS-S20.PZ \\
-            --channels BHZ
+            python scripts/prep_seis_s20_sds.py {} \\
+            --out-sds /path/to/sds_50hz \\
+            --pz /path/to/SEIS-S20.PZ \\
+            --fs-out 50.0 \\
+            --channels BHE BHN BHZ
 
 Physical Conventions & Assumed Defaults
 ---------------------------------------
@@ -72,7 +72,7 @@ from obspy import Stream, Trace, UTCDateTime, read
 from scipy import fft as sp_fft
 from scipy import signal as sp_signal
 
-DEFAULT_PZ_PATH = Path("/Users/mengjie/IGGCAS/Project/Guangxi.Proj/response/SEIS-S20.PZ")
+DEFAULT_PZ_PATH: Path | None = None
 DEFAULT_FS_IN = 200.0
 DEFAULT_FS_OUT = 20.0
 DEFAULT_PAD_S = 600.0
@@ -1463,6 +1463,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     pz: PoleZeroResponse | None = None
     pre_filt: tuple[float, float, float, float] | None = None
     if not args.no_remove_response:
+        if args.pz is None:
+            logger.error("Provide --pz <SAC_PZ_FILE> or pass --no-remove-response.")
+            return 1
         try:
             pz = parse_sac_pz(args.pz)
         except Exception as exc:

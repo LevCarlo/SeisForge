@@ -141,14 +141,21 @@ the exact Stockwell (1996) inverse transform (time summation per frequency bin
 followed by $\operatorname{Re}[\text{IFFT}]$) and trimmed to $\pm\text{max\_lag\_s}$.
 Optional frequency bounds (`tf_pws_freq_min_hz`, `tf_pws_freq_max_hz`) restrict
 the S-transform to the band of interest; in `run_stack_config`, pairs are
-processed in chunks (`tf_pws_pair_chunk_size`, assumed default: `64`) to bound
-memory on large-N arrays. To match ANCC's `TF_PWS` defaults, set
+processed in memory-bounded chunks (`tf_pws_pair_chunk_size`, assumed default:
+`64`, automatically capped to a 1 GiB working-set budget per worker) and can
+run across multiple processes (`stack.max_workers` / `--max-workers`) using
+lazy HDF5 pair-slice reads. To match ANCC's `TF_PWS` defaults, set
 `pws_power: 1.0` and `day_weighting: equal`.
 
 **Selective SAC export.** `seisforge ant export-sac` is a standalone
 NetCDF4/HDF5 → SAC post-processing converter that filters pairs by station
-list, distance range, and minimum window count, writing standard SAC headers
-(`b`, `delta`, `dist`, `az`, `baz`, `evla`, `evlo`, `stla`, `stlo`, `kcmpnm`).
+list, distance range, and minimum window count. Output defaults to
+`--layout by-source` (`{source}/{source}_{receiver}_{component}.sac`) to avoid
+huge flat directories on large arrays, with `--layout flat` and
+`--filename-template` overrides. Standard SAC headers are written:
+`b`, `e`, `delta`, `dist`, `az`, `baz`, `evla`, `evlo`, `stla`, `stlo`,
+`knetwk` (receiver network), `kstnm` (receiver station), `kevnm`
+(`NET.STA` virtual source), and `kcmpnm`.
 
 ## 4. Assumed defaults
 
@@ -181,24 +188,34 @@ list, distance range, and minimum window count, writing standard SAC headers
       equivalence.
     - `tests/test_ant_ccf_io.py` and `tests/test_ant_ccf_driver.py`: check
       YAML unknown-key and passband validation, mixed `response_state`
-      rejection, synthetic cross-midnight SDS reading and grid checks, atomic
-      NetCDF4 round-trips, triple-hash resume, CLI `stack-ccf`, and SAC export
-      headers.
+      rejection, synthetic cross-midnight SDS reading and grid checks,
+      anti-alias `target_sampling_rate_hz` downsampling, atomic NetCDF4
+      round-trips, triple-hash resume, CLI `stack-ccf` (including parallel
+      `tf_pws`), and SAC export headers (`knetwk`, `kstnm`, `kevnm`) and
+      layouts (`by-source`, `flat`).
+    - Real-data end-to-end validation on a 6-station SEIS-S20 nodal subset
+      (15 pairs, 9.8–130.3 km, 15 UTC days): `50 Hz -> 10 Hz` downsampling
+      matched 50 Hz CCFs to `r = 1.0000` (0.1–0.5 Hz); `cc` vs `pcc2`
+      matched to `r = 0.998–0.999`; linear and 2-D `tf_pws` stacks matched
+      full-deployment ANCC v6.8 references with zero lag shift
+      (`median |dt| = 0.00 s`, `median r = 0.92–0.93`, up to `r = 0.98` at
+      130 km).
 
 !!! unverified "Not yet verified"
 
     - Multi-process `max_workers > 1` and optional `backend: cupy` GPU
-      execution have not yet been benchmarked on real large-N deployments.
-    - `pcc2` vs `cc` convergence, `pws` behaviour, and amplitude/L2 comparison
-      against ANCC and NoisePy on real nodal datasets remain pending.
+      execution have not yet been benchmarked on real large-N (300–500
+      station) deployments.
+    - Formal amplitude / relative-L2 benchmark against ANCC and NoisePy on
+      identical day windows remains pending.
 
 ## 6. Usage
 
 ```bash
 seisforge ant ccf -c ccf.yml                          # all configured dates
 seisforge ant ccf -c ccf.yml --date 2026-01-01        # single UTC day (HPC job array)
-seisforge ant stack-ccf -c ccf_stack.yml              # multi-day stack
-seisforge ant export-sac -i stacked_ZZ.nc -o sac_ZZ --min-distance-km 5
+seisforge ant stack-ccf -c ccf_stack.yml --max-workers 4
+seisforge ant export-sac -i stacked_ZZ.nc -o sac_ZZ --min-distance-km 5 --layout by-source
 ```
 
 Minimal `ccf.yml`:
