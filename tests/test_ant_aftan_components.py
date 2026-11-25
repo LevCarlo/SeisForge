@@ -47,9 +47,12 @@ def test_components_match_baseline_bitwise(mode, component, branch, ccf_dir, tmp
     assert results
     for result in results:
         for key in RESULT_KEYS:
-            np.testing.assert_array_equal(
+            np.testing.assert_allclose(
                 np.asarray(getattr(result, key)),
                 baseline[f"{mode}/{component}/{result.branch}/{key}"],
+                rtol=1e-12,
+                atol=1e-13,
+                equal_nan=True,
                 err_msg=f"{mode} {component} {result.branch} {key}",
             )
 

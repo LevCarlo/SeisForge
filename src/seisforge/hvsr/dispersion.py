@@ -120,14 +120,22 @@ def _frequency_function(
     wave: str,
 ) -> float:
     if wave == "love":
-        compliance = sh_surface_compliance(
-            model, frequency_hz, horizontal_wavenumber_per_km
-        )
-        return float(np.real(1.0 / compliance))
+        try:
+            compliance = sh_surface_compliance(
+                model, frequency_hz, horizontal_wavenumber_per_km
+            )
+        except np.linalg.LinAlgError:
+            # Exact eigenmode: compliance diverges so impedance 1 / C(k) == 0.
+            return 0.0
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            return float(np.real(1.0 / compliance))
     if wave == "rayleigh":
-        compliance = psv_surface_compliance(
-            model, frequency_hz, horizontal_wavenumber_per_km
-        )
+        try:
+            compliance = psv_surface_compliance(
+                model, frequency_hz, horizontal_wavenumber_per_km
+            )
+        except np.linalg.LinAlgError:
+            return 0.0
         # det(inv(C)) == 1/det(C), but the latter avoids forming an inverse of
         # the pole-valued compliance near a surface-wave root.
         with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
