@@ -34,9 +34,9 @@ Commands are grouped by workflow; most take a YAML config:
 
 | Command | Purpose | Guide |
 |---|---|---|
-| `seisforge ant ccf -c ccf.yml` | daily ZZ cross-correlation (`cc` / `pcc2`) | [ZZ CCF](ant/ccf.md#6-usage) |
-| `seisforge ant stack-ccf -c ccf_stack.yml` | multi-day linear / PWS / `tf_pws` stack | [ZZ CCF](ant/ccf.md#6-usage) |
-| `seisforge ant export-sac -i stacked_ZZ.nc -o sac_ZZ` | selective NetCDF → SAC export | [ZZ CCF](ant/ccf.md#6-usage) |
+| `seisforge ant ccf -c ccf.yml` | daily ZZ cross-correlation (`cc` / `pcc2`) | [ZZ CCF](ant/ccf.md#1-quick-start-and-usage) |
+| `seisforge ant stack-ccf -c ccf_stack.yml` | multi-day linear / PWS / `tf_pws` stack | [ZZ CCF](ant/ccf.md#1-quick-start-and-usage) |
+| `seisforge ant export-sac -i stacked_ZZ.nc -o sac_ZZ` | selective NetCDF → SAC export | [ZZ CCF](ant/ccf.md#1-quick-start-and-usage) |
 | `seisforge ant rotate-ccf -c ccf_rotate.yml` | rotate ZNE CCFs to ZRT | [CCF rotation](ant/rotation.md#3-usage) |
 | `seisforge ant aftan -c aftan_station.yml` | AFTAN dispersion picks | [AFTAN](ant/dispersion.md#7-usage) |
 | `seisforge ant eikonal -c eikonal.yml` | Eikonal/Helmholtz phase-velocity maps | [Eikonal](ant/tomography.md#7-usage) |

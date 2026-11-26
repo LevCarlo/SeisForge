@@ -594,3 +594,61 @@ def test_anomaly_detection_gap_overlap_clip_jump_fs_and_no_remove_response(
     assert rc2 == 0
     assert qc_csv_path.read_text(encoding="utf-8") == before_csv
     assert qc_jsonl.read_text(encoding="utf-8") == before_jsonl
+
+
+def test_min_segment_s_drops_heavily_fragmented_bad_channel(tmp_path: Path) -> None:
+    """Heavily fragmented channels (e.g. 60 x 15 s traces) are skipped cleanly without writing junk SDS."""
+    sta_dir = tmp_path / "2343-0779"
+    mseed_dir = sta_dir / "Mseed0779"
+    mseed_dir.mkdir(parents=True)
+
+    fs_in = 50.0
+    t0 = UTCDateTime("2026-04-04T00:00:00")
+    traces = []
+    for i in range(60):
+        seg_start = t0 + i * 25.0  # 15 s data + 10 s gap repeated 60 times
+        traces.append(
+            Trace(
+                data=np.ones(int(15.0 * fs_in), dtype=np.int32) * 1000,
+                header={
+                    "network": "WT",
+                    "station": "00779",
+                    "location": "00",
+                    "channel": "BHZ",
+                    "sampling_rate": fs_in,
+                    "starttime": seg_start,
+                },
+            )
+        )
+    Stream(traces).write(str(mseed_dir / "MD26040400.0779"), format="MSEED", encoding="STEIM2")
+
+    out_sds = tmp_path / "sds_out"
+    qc_jsonl = tmp_path / "qc_frag.jsonl"
+    rc = prep.main(
+        [
+            str(sta_dir),
+            "--out-sds",
+            str(out_sds),
+            "--no-remove-response",
+            "--date",
+            "2026-04-04",
+            "--fs-out",
+            "50.0",
+            "--expected-fs-in",
+            "50.0",
+            "--min-segment-s",
+            "60.0",
+            "--qc-jsonl",
+            str(qc_jsonl),
+        ]
+    )
+    assert rc == 0
+    rows = [json.loads(line) for line in qc_jsonl.read_text(encoding="utf-8").splitlines() if line]
+    assert len(rows) == 1
+    rec = rows[0]
+    assert rec["status"] == "no_data"
+    assert rec["dropped_short_segments"] == 60
+    assert rec["out_n_traces"] == 0
+    flags = set(rec["anomalies"].split(";"))
+    assert {"SHORT_SEGMENTS_ONLY", "EXCESSIVE_FRAGMENTATION"} <= flags
+    assert not Path(rec["output_path"]).exists()

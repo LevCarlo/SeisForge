@@ -72,9 +72,17 @@
   background: transparent;
   font-weight: 600;
   border-bottom: 1.5px solid var(--sf-heading);
+  white-space: nowrap;
 }
 .md-typeset table:not([class]) td {
   border-top: 1px solid var(--sf-rule);
+  vertical-align: top;
+}
+.md-typeset table:not([class]) td:first-child {
+  white-space: nowrap;
+}
+.md-typeset table:not([class]) td:nth-child(2) {
+  min-width: 7.5rem;
 }
 .md-typeset table:not([class]) tbody tr:hover {
   background: var(--sf-tint);

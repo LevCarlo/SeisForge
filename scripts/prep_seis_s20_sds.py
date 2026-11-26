@@ -77,6 +77,8 @@ DEFAULT_FS_IN = 200.0
 DEFAULT_FS_OUT = 20.0
 DEFAULT_PAD_S = 600.0
 DEFAULT_EDGE_TAPER_S = 60.0
+DEFAULT_MIN_SEGMENT_S = 60.0
+EXCESSIVE_FRAGMENTATION_THRESHOLD = 50
 DEFAULT_WATER_LEVEL_DB = 60.0
 DEFAULT_CLIP_THRESHOLD = 8388000.0  # 24-bit signed ADC saturation margin (2^23 - 1 = 8388607)
 DEFAULT_INSTRUMENT_MODEL = "SEIS-S20"
@@ -174,6 +176,8 @@ class DayChannelQC:
     fs_out_hz: float = float("nan")
     fs_anomaly: bool = False
     raw_n_segments: int = 0
+    dropped_short_segments: int = 0
+    out_n_traces: int = 0
     day_coverage_pct: float = 0.0
     gap_count: int = 0
     gap_total_s: float = 0.0
@@ -850,6 +854,7 @@ def process_day_channel(
     water_level_db: float | None,
     pad_s: float,
     edge_taper_s: float,
+    min_segment_s: float = DEFAULT_MIN_SEGMENT_S,
     clip_threshold: float | None,
     overwrite: bool,
     log_summary: StationLogSummary,
@@ -975,14 +980,20 @@ def process_day_channel(
         k_day_end = k_day_start + day_samples
 
         out_traces: list[Trace] = []
+        dropped_short = 0
         valid_samples_out = 0
         max_grid_residual = 0.0
         proc_sum_sq = 0.0
         proc_min = np.inf
         proc_max = -np.inf
 
+        min_seg_samples = int(round(min_segment_s * fs_in)) if min_segment_s > 0.0 else 0
+
         for seg in contiguous_traces:
             for finite_seg in split_finite_segments(seg):
+                if min_seg_samples > 0 and finite_seg.stats.npts < min_seg_samples:
+                    dropped_short += 1
+                    continue
                 y, k_out_start = process_contiguous_segment(
                     finite_seg.data,
                     UTCDateTime(finite_seg.stats.starttime),
@@ -1038,9 +1049,30 @@ def process_day_channel(
                 proc_min = min(proc_min, float(np.min(seg_f64)))
                 proc_max = max(proc_max, float(np.max(seg_f64)))
 
+        qc.dropped_short_segments = dropped_short
+        qc.out_n_traces = len(out_traces)
+
         if not out_traces:
             qc.status = "no_data"
-            qc.anomalies = "NO_DATA"
+            skip_anoms: list[str] = []
+            if dropped_short > 0:
+                skip_anoms.append("SHORT_SEGMENTS_ONLY")
+                if qc.raw_n_segments > EXCESSIVE_FRAGMENTATION_THRESHOLD:
+                    skip_anoms.append("EXCESSIVE_FRAGMENTATION")
+                logger.warning(
+                    "SKIP_SHORT %s %s.%s.%s.%s | dropped=%d segment(s) shorter than %.1fs (raw_segs=%d)",
+                    utc_date.isoformat(),
+                    net,
+                    station_out,
+                    loc,
+                    channel,
+                    dropped_short,
+                    min_segment_s,
+                    qc.raw_n_segments,
+                )
+            else:
+                skip_anoms.append("NO_DATA")
+            qc.anomalies = ";".join(skip_anoms)
             return qc
 
         out_stream = Stream(traces=out_traces)
@@ -1072,6 +1104,8 @@ def process_day_channel(
             anomalies.append("LOW_COVERAGE")
         if qc.gps_lock == "F":
             anomalies.append("GPS_UNLOCK")
+        if qc.raw_n_segments > EXCESSIVE_FRAGMENTATION_THRESHOLD:
+            anomalies.append("EXCESSIVE_FRAGMENTATION")
         qc.anomalies = ";".join(anomalies)
 
         log_msg = (
@@ -1381,6 +1415,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Outer cosine taper duration in seconds (capped at 5%% of segment length).",
     )
     parser.add_argument(
+        "--min-segment-s",
+        type=float,
+        default=DEFAULT_MIN_SEGMENT_S,
+        help=(
+            "Drop contiguous raw segments shorter than this duration in seconds before "
+            "FFT/resampling to avoid wasting time on heavily fragmented bad channels "
+            "(default: 60.0; <=0 disables)."
+        ),
+    )
+    parser.add_argument(
         "--clip-threshold",
         type=float,
         default=DEFAULT_CLIP_THRESHOLD,
@@ -1612,6 +1656,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 water_level_db=water_level_db,
                 pad_s=args.pad_s,
                 edge_taper_s=args.edge_taper_s,
+                min_segment_s=args.min_segment_s,
                 clip_threshold=clip_threshold,
                 overwrite=args.overwrite,
                 log_summary=log_summary,
